@@ -2,10 +2,6 @@
 
 This repository contains a (work-in-progress) implementation of Zcash's "Sapling" cryptography.
 
-## Security Warnings
-
-This library is currently under development and has not been reviewed.
-
 ## License
 
 Licensed under either of
