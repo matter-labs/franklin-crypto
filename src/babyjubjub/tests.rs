@@ -1,7 +1,7 @@
 use super::{
-    JubjubEngine,
-    JubjubParams,
-    PrimeOrder,
+    JubjubEngine, 
+    JubjubParams, 
+    PrimeOrder, 
     montgomery,
     edwards
 };
@@ -64,9 +64,11 @@ fn is_on_twisted_edwards_curve<E: JubjubEngine, P: JubjubParams<E>>(
     let mut y2 = y;
     y2.square();
 
-    // -x^2 + y^2
+    // a*x^2 + y^2
     let mut lhs = y2;
-    lhs.sub_assign(&x2);
+    let mut a_x2 = x2;
+    a_x2.mul_assign(params.edwards_a());
+    lhs.add_assign(&a_x2);
 
     // 1 + d x^2 y^2
     let mut rhs = y2;
@@ -303,10 +305,9 @@ fn test_back_and_forth<E: JubjubEngine>(params: &E::Params) {
     }
 }
 
-fn test_jubjub_params<E: JubjubEngine>(params: &E::Params) {
-    // a = -1
-    let mut a = E::Fr::one();
-    a.negate();
+pub fn test_jubjub_params<E: JubjubEngine>(params: &E::Params) {
+    // a
+    let a = *params.edwards_a();
 
     {
         // Check that 2A is consistent with A
@@ -360,12 +361,23 @@ fn test_jubjub_params<E: JubjubEngine>(params: &E::Params) {
 
     {
         // Check the validity of the scaling factor
-        let mut tmp = a;
+        let mut tmp = *params.edwards_a();
         tmp.sub_assign(&params.edwards_d());
         tmp = tmp.inverse().unwrap();
         tmp.mul_assign(&E::Fr::from_str("4").unwrap());
         tmp = tmp.sqrt().unwrap();
         assert_eq!(&tmp, params.scale());
+    }
+
+    {
+        // Check that the number of windows for fixed-base
+        // scalar multiplication is sufficient for all scalars.
+
+        assert!(params.fixed_base_chunks_per_generator() * 3 >= E::Fs::NUM_BITS as usize);
+
+        // ... and that it's *just* efficient enough.
+
+        assert!((params.fixed_base_chunks_per_generator() - 1) * 3 < E::Fs::NUM_BITS as usize);
     }
 
     {
@@ -401,16 +413,5 @@ fn test_jubjub_params<E: JubjubEngine>(params: &E::Params) {
                 cur.mul2();
             }
         }
-    }
-
-    {
-        // Check that the number of windows for fixed-base
-        // scalar multiplication is sufficient for all scalars.
-
-        assert!(params.fixed_base_chunks_per_generator() * 3 >= E::Fs::NUM_BITS as usize);
-
-        // ... and that it's *just* efficient enough.
-
-        assert!((params.fixed_base_chunks_per_generator() - 1) * 3 < E::Fs::NUM_BITS as usize);
     }
 }

@@ -1,4 +1,5 @@
-use pairing::{Engine, Field};
+use pairing::{Engine,};
+use ff::{Field};
 use super::*;
 use super::num::{
     AllocatedNum,

@@ -1,7 +1,7 @@
 use pairing::{
     Engine,
 };
-
+// TODO fix CS for baby jubjub for a != -1
 use ff::{Field};
 
 use bellman::{
@@ -18,7 +18,7 @@ use super::num::{
     Num
 };
 
-use ::jubjub::{
+use ::babyjubjub::{
     edwards,
     JubjubEngine,
     JubjubParams,
@@ -310,7 +310,7 @@ impl<E: JubjubEngine> EdwardsPoint<E> {
     ) -> Result<Self, SynthesisError>
         where CS: ConstraintSystem<E>
     {
-        // -x^2 + y^2 = 1 + dx^2y^2
+        // a*x^2 + y^2 = 1 + dx^2y^2
 
         let x2 = x.square(cs.namespace(|| "x^2"))?;
         let y2 = y.square(cs.namespace(|| "y^2"))?;
@@ -319,7 +319,7 @@ impl<E: JubjubEngine> EdwardsPoint<E> {
         let one = CS::one();
         cs.enforce(
             || "on curve check",
-            |lc| lc - x2.get_variable()
+            |lc| lc + (*params.edwards_a(), x2.get_variable())
                     + y2.get_variable(),
             |lc| lc + one,
             |lc| lc + one
@@ -339,30 +339,14 @@ impl<E: JubjubEngine> EdwardsPoint<E> {
     ) -> Result<Self, SynthesisError>
         where CS: ConstraintSystem<E>
     {
-        // Compute T = (x1 + y1) * (x1 + y1)
-        let t = AllocatedNum::alloc(cs.namespace(|| "T"), || {
-            let mut t0 = *self.x.get_value().get()?;
-            t0.add_assign(self.y.get_value().get()?);
-
-            let mut t1 = *self.x.get_value().get()?;
-            t1.add_assign(self.y.get_value().get()?);
-
-            t0.mul_assign(&t1);
-
-            Ok(t0)
-        })?;
-
-        cs.enforce(
-            || "T computation",
-            |lc| lc + self.x.get_variable()
-                    + self.y.get_variable(),
-            |lc| lc + self.x.get_variable()
-                    + self.y.get_variable(),
-            |lc| lc + t.get_variable()
-        );
-
         // Compute A = x1 * y1
         let a = self.x.mul(cs.namespace(|| "A computation"), &self.y)?;
+
+        // Compute T = x1 * x1
+        let t = self.x.mul(cs.namespace(|| "T computation"), &self.x)?;
+
+        // Compute U = y1 * y1
+        let u = self.y.mul(cs.namespace(|| "U computation"), &self.y)?;
 
         // Compute C = d*A*A
         let c = AllocatedNum::alloc(cs.namespace(|| "C"), || {
@@ -409,12 +393,14 @@ impl<E: JubjubEngine> EdwardsPoint<E> {
                     + a.get_variable()
         );
 
-        // Compute y3 = (U - 2.A) / (1 - C)
+        // Compute y3 = (U - edwards_a.T) / (1 - C)
         let y3 = AllocatedNum::alloc(cs.namespace(|| "y3"), || {
-            let mut t0 = *a.get_value().get()?;
-            t0.double();
-            t0.negate();
-            t0.add_assign(t.get_value().get()?);
+            let mut t0 = *u.get_value().get()?;
+
+            let mut u0 = *t.get_value().get()?;
+            u0.mul_assign(params.edwards_a());
+
+            t0.sub_assign(&u0);
 
             let mut t1 = E::Fr::one();
             t1.sub_assign(c.get_value().get()?);
@@ -431,13 +417,13 @@ impl<E: JubjubEngine> EdwardsPoint<E> {
             }
         })?;
 
+        // y3 = (U - edwards_a.T) / (1 - C)
         cs.enforce(
             || "y3 computation",
             |lc| lc + one - c.get_variable(),
             |lc| lc + y3.get_variable(),
-            |lc| lc + t.get_variable()
-                    - a.get_variable()
-                    - a.get_variable()
+            |lc| lc + u.get_variable()
+                    - (*params.edwards_a(), t.get_variable())
         );
 
         Ok(EdwardsPoint {
@@ -455,33 +441,17 @@ impl<E: JubjubEngine> EdwardsPoint<E> {
     ) -> Result<Self, SynthesisError>
         where CS: ConstraintSystem<E>
     {
-        // Compute U = (x1 + y1) * (x2 + y2)
-        let u = AllocatedNum::alloc(cs.namespace(|| "U"), || {
-            let mut t0 = *self.x.get_value().get()?;
-            t0.add_assign(self.y.get_value().get()?);
-
-            let mut t1 = *other.x.get_value().get()?;
-            t1.add_assign(other.y.get_value().get()?);
-
-            t0.mul_assign(&t1);
-
-            Ok(t0)
-        })?;
-
-        cs.enforce(
-            || "U computation",
-            |lc| lc + self.x.get_variable()
-                    + self.y.get_variable(),
-            |lc| lc + other.x.get_variable()
-                    + other.y.get_variable(),
-            |lc| lc + u.get_variable()
-        );
-
         // Compute A = y2 * x1
         let a = other.y.mul(cs.namespace(|| "A computation"), &self.x)?;
 
         // Compute B = x2 * y1
         let b = other.x.mul(cs.namespace(|| "B computation"), &self.y)?;
+
+        // Compute T = x1 * x2
+        let t = other.x.mul(cs.namespace(|| "T computation"), &self.x)?;
+
+        // Compute U = y1 * y2
+        let u = other.y.mul(cs.namespace(|| "U computation"), &self.y)?;
 
         // Compute C = d*A*B
         let c = AllocatedNum::alloc(cs.namespace(|| "C"), || {
@@ -528,20 +498,23 @@ impl<E: JubjubEngine> EdwardsPoint<E> {
                     + b.get_variable()
         );
 
-        // Compute y3 = (U - A - B) / (1 - C)
+        // Compute y3 = (U - edwards.a.T) / (1 - C)
         let y3 = AllocatedNum::alloc(cs.namespace(|| "y3"), || {
-            let mut t0 = *u.get_value().get()?;
-            t0.sub_assign(a.get_value().get()?);
-            t0.sub_assign(b.get_value().get()?);
+            let mut u0 = *u.get_value().get()?;
+
+            let mut t0 = *t.get_value().get()?;
+            t0.mul_assign(params.edwards_a());
+
+            u0.sub_assign(&t0);
 
             let mut t1 = E::Fr::one();
             t1.sub_assign(c.get_value().get()?);
 
             match t1.inverse() {
                 Some(t1) => {
-                    t0.mul_assign(&t1);
+                    u0.mul_assign(&t1);
 
-                    Ok(t0)
+                    Ok(u0)
                 },
                 None => {
                     Err(SynthesisError::DivisionByZero)
@@ -554,8 +527,7 @@ impl<E: JubjubEngine> EdwardsPoint<E> {
             |lc| lc + one - c.get_variable(),
             |lc| lc + y3.get_variable(),
             |lc| lc + u.get_variable()
-                    - a.get_variable()
-                    - b.get_variable()
+                    - (*params.edwards_a(), t.get_variable())
         );
 
         Ok(EdwardsPoint {
@@ -752,17 +724,17 @@ impl<E: JubjubEngine> MontgomeryPoint<E> {
 mod test {
     use bellman::{ConstraintSystem};
     use rand::{XorShiftRng, SeedableRng, Rand, Rng};
-    use pairing::bls12_381::{Bls12, Fr};
+    use pairing::bn256::{Bn256, Fr};
     use ff::{BitIterator, Field, PrimeField};
     use ::circuit::test::*;
-    use ::jubjub::{
+    use ::babyjubjub::{
         montgomery,
         edwards,
-        JubjubBls12,
+        JubjubBn256,
         JubjubParams,
         FixedGenerators
     };
-    use ::jubjub::fs::Fs;
+    use ::babyjubjub::fs::Fs;
     use super::{
         MontgomeryPoint,
         EdwardsPoint,
@@ -776,473 +748,7 @@ mod test {
 
     #[test]
     fn test_into_edwards() {
-        let params = &JubjubBls12::new();
-        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-
-        for _ in 0..100 {
-            let mut cs = TestConstraintSystem::<Bls12>::new();
-
-            let p = montgomery::Point::<Bls12, _>::rand(rng, params);
-            let (u, v) = edwards::Point::from_montgomery(&p, params).into_xy();
-            let (x, y) = p.into_xy().unwrap();
-
-            let numx = AllocatedNum::alloc(cs.namespace(|| "mont x"), || {
-                Ok(x)
-            }).unwrap();
-            let numy = AllocatedNum::alloc(cs.namespace(|| "mont y"), || {
-                Ok(y)
-            }).unwrap();
-
-            let p = MontgomeryPoint::interpret_unchecked(numx.into(), numy.into());
-
-            let q = p.into_edwards(&mut cs, params).unwrap();
-
-            assert!(cs.is_satisfied());
-            assert!(q.x.get_value().unwrap() == u);
-            assert!(q.y.get_value().unwrap() == v);
-
-            cs.set("u/num", rng.gen());
-            assert_eq!(cs.which_is_unsatisfied().unwrap(), "u computation");
-            cs.set("u/num", u);
-            assert!(cs.is_satisfied());
-
-            cs.set("v/num", rng.gen());
-            assert_eq!(cs.which_is_unsatisfied().unwrap(), "v computation");
-            cs.set("v/num", v);
-            assert!(cs.is_satisfied());
-        }
-    }
-
-    #[test]
-    fn test_interpret() {
-        let params = &JubjubBls12::new();
-        let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-
-        for _ in 0..100 {
-            let p = edwards::Point::<Bls12, _>::rand(rng, &params);
-
-            let mut cs = TestConstraintSystem::<Bls12>::new();
-            let q = EdwardsPoint::witness(
-                &mut cs,
-                Some(p.clone()),
-                &params
-            ).unwrap();
-
-            let p = p.into_xy();
-
-            assert!(cs.is_satisfied());
-            assert_eq!(q.x.get_value().unwrap(), p.0);
-            assert_eq!(q.y.get_value().unwrap(), p.1);
-        }
-
-        for _ in 0..100 {
-            let p = edwards::Point::<Bls12, _>::rand(rng, &params);
-            let (x, y) = p.into_xy();
-
-            let mut cs = TestConstraintSystem::<Bls12>::new();
-            let numx = AllocatedNum::alloc(cs.namespace(|| "x"), || {
-                Ok(x)
-            }).unwrap();
-            let numy = AllocatedNum::alloc(cs.namespace(|| "y"), || {
-                Ok(y)
-            }).unwrap();
-
-            let p = EdwardsPoint::interpret(&mut cs, &numx, &numy, &params).unwrap();
-
-            assert!(cs.is_satisfied());
-            assert_eq!(p.x.get_value().unwrap(), x);
-            assert_eq!(p.y.get_value().unwrap(), y);
-        }
-
-        // Random (x, y) are unlikely to be on the curve.
-        for _ in 0..100 {
-            let x = rng.gen();
-            let y = rng.gen();
-
-            let mut cs = TestConstraintSystem::<Bls12>::new();
-            let numx = AllocatedNum::alloc(cs.namespace(|| "x"), || {
-                Ok(x)
-            }).unwrap();
-            let numy = AllocatedNum::alloc(cs.namespace(|| "y"), || {
-                Ok(y)
-            }).unwrap();
-
-            EdwardsPoint::interpret(&mut cs, &numx, &numy, &params).unwrap();
-
-            assert_eq!(cs.which_is_unsatisfied().unwrap(), "on curve check");
-        }
-    }
-
-    #[test]
-    fn test_edwards_fixed_base_multiplication()  {
-        let params = &JubjubBls12::new();
-        let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-
-        for _ in 0..100 {
-            let mut cs = TestConstraintSystem::<Bls12>::new();
-
-            let p = params.generator(FixedGenerators::NoteCommitmentRandomness);
-            let s = Fs::rand(rng);
-            let q = p.mul(s, params);
-            let (x1, y1) = q.into_xy();
-
-            let mut s_bits = BitIterator::new(s.into_repr()).collect::<Vec<_>>();
-            s_bits.reverse();
-            s_bits.truncate(Fs::NUM_BITS as usize);
-
-            let s_bits = s_bits.into_iter()
-                               .enumerate()
-                               .map(|(i, b)| AllocatedBit::alloc(cs.namespace(|| format!("scalar bit {}", i)), Some(b)).unwrap())
-                               .map(|v| Boolean::from(v))
-                               .collect::<Vec<_>>();
-
-            let q = fixed_base_multiplication(
-                cs.namespace(|| "multiplication"),
-                FixedGenerators::NoteCommitmentRandomness,
-                &s_bits,
-                params
-            ).unwrap();
-
-            assert_eq!(q.x.get_value().unwrap(), x1);
-            assert_eq!(q.y.get_value().unwrap(), y1);
-        }
-    }
-
-    #[test]
-    fn test_edwards_multiplication() {
-        let params = &JubjubBls12::new();
-        let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-
-        for _ in 0..100 {
-            let mut cs = TestConstraintSystem::<Bls12>::new();
-
-            let p = edwards::Point::<Bls12, _>::rand(rng, params);
-            let s = Fs::rand(rng);
-            let q = p.mul(s, params);
-
-            let (x0, y0) = p.into_xy();
-            let (x1, y1) = q.into_xy();
-
-            let num_x0 = AllocatedNum::alloc(cs.namespace(|| "x0"), || {
-                Ok(x0)
-            }).unwrap();
-            let num_y0 = AllocatedNum::alloc(cs.namespace(|| "y0"), || {
-                Ok(y0)
-            }).unwrap();
-
-            let p = EdwardsPoint {
-                x: num_x0,
-                y: num_y0
-            };
-
-            let mut s_bits = BitIterator::new(s.into_repr()).collect::<Vec<_>>();
-            s_bits.reverse();
-            s_bits.truncate(Fs::NUM_BITS as usize);
-
-            let s_bits = s_bits.into_iter()
-                               .enumerate()
-                               .map(|(i, b)| AllocatedBit::alloc(cs.namespace(|| format!("scalar bit {}", i)), Some(b)).unwrap())
-                               .map(|v| Boolean::from(v))
-                               .collect::<Vec<_>>();
-
-            let q = p.mul(
-                cs.namespace(|| "scalar mul"),
-                &s_bits,
-                params
-            ).unwrap();
-
-            assert!(cs.is_satisfied());
-
-            assert_eq!(
-                q.x.get_value().unwrap(),
-                x1
-            );
-
-            assert_eq!(
-                q.y.get_value().unwrap(),
-                y1
-            );
-        }
-    }
-
-    #[test]
-    fn test_conditionally_select() {
-        let params = &JubjubBls12::new();
-        let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-
-        for _ in 0..1000 {
-            let mut cs = TestConstraintSystem::<Bls12>::new();
-
-            let p = edwards::Point::<Bls12, _>::rand(rng, params);
-
-            let (x0, y0) = p.into_xy();
-
-            let num_x0 = AllocatedNum::alloc(cs.namespace(|| "x0"), || {
-                Ok(x0)
-            }).unwrap();
-            let num_y0 = AllocatedNum::alloc(cs.namespace(|| "y0"), || {
-                Ok(y0)
-            }).unwrap();
-
-            let p = EdwardsPoint {
-                x: num_x0,
-                y: num_y0
-            };
-
-            let mut should_we_select = rng.gen();
-
-            // Conditionally allocate
-            let mut b = if rng.gen() {
-                Boolean::from(AllocatedBit::alloc(
-                    cs.namespace(|| "condition"),
-                    Some(should_we_select)
-                ).unwrap())
-            } else {
-                Boolean::constant(should_we_select)
-            };
-
-            // Conditionally negate
-            if rng.gen() {
-                b = b.not();
-                should_we_select = !should_we_select;
-            }
-
-            let q = p.conditionally_select(cs.namespace(|| "select"), &b).unwrap();
-
-            assert!(cs.is_satisfied());
-
-            if should_we_select {
-                assert_eq!(q.x.get_value().unwrap(), x0);
-                assert_eq!(q.y.get_value().unwrap(), y0);
-
-                cs.set("select/y'/num", Fr::one());
-                assert_eq!(cs.which_is_unsatisfied().unwrap(), "select/y' computation");
-                cs.set("select/x'/num", Fr::zero());
-                assert_eq!(cs.which_is_unsatisfied().unwrap(), "select/x' computation");
-            } else {
-                assert_eq!(q.x.get_value().unwrap(), Fr::zero());
-                assert_eq!(q.y.get_value().unwrap(), Fr::one());
-
-                cs.set("select/y'/num", x0);
-                assert_eq!(cs.which_is_unsatisfied().unwrap(), "select/y' computation");
-                cs.set("select/x'/num", y0);
-                assert_eq!(cs.which_is_unsatisfied().unwrap(), "select/x' computation");
-            }
-        }
-    }
-
-    #[test]
-    fn test_edwards_addition() {
-        let params = &JubjubBls12::new();
-        let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-
-        for _ in 0..100 {
-            let p1 = edwards::Point::<Bls12, _>::rand(rng, params);
-            let p2 = edwards::Point::<Bls12, _>::rand(rng, params);
-
-            let p3 = p1.add(&p2, params);
-
-            let (x0, y0) = p1.into_xy();
-            let (x1, y1) = p2.into_xy();
-            let (x2, y2) = p3.into_xy();
-
-            let mut cs = TestConstraintSystem::<Bls12>::new();
-
-            let num_x0 = AllocatedNum::alloc(cs.namespace(|| "x0"), || {
-                Ok(x0)
-            }).unwrap();
-            let num_y0 = AllocatedNum::alloc(cs.namespace(|| "y0"), || {
-                Ok(y0)
-            }).unwrap();
-
-            let num_x1 = AllocatedNum::alloc(cs.namespace(|| "x1"), || {
-                Ok(x1)
-            }).unwrap();
-            let num_y1 = AllocatedNum::alloc(cs.namespace(|| "y1"), || {
-                Ok(y1)
-            }).unwrap();
-
-            let p1 = EdwardsPoint {
-                x: num_x0,
-                y: num_y0
-            };
-
-            let p2 = EdwardsPoint {
-                x: num_x1,
-                y: num_y1
-            };
-
-            let p3 = p1.add(cs.namespace(|| "addition"), &p2, params).unwrap();
-
-            assert!(cs.is_satisfied());
-
-            assert!(p3.x.get_value().unwrap() == x2);
-            assert!(p3.y.get_value().unwrap() == y2);
-
-            let u = cs.get("addition/U/num");
-            cs.set("addition/U/num", rng.gen());
-            assert_eq!(cs.which_is_unsatisfied(), Some("addition/U computation"));
-            cs.set("addition/U/num", u);
-            assert!(cs.is_satisfied());
-
-            let x3 = cs.get("addition/x3/num");
-            cs.set("addition/x3/num", rng.gen());
-            assert_eq!(cs.which_is_unsatisfied(), Some("addition/x3 computation"));
-            cs.set("addition/x3/num", x3);
-            assert!(cs.is_satisfied());
-
-            let y3 = cs.get("addition/y3/num");
-            cs.set("addition/y3/num", rng.gen());
-            assert_eq!(cs.which_is_unsatisfied(), Some("addition/y3 computation"));
-            cs.set("addition/y3/num", y3);
-            assert!(cs.is_satisfied());
-        }
-    }
-
-    #[test]
-    fn test_edwards_doubling() {
-        let params = &JubjubBls12::new();
-        let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-
-        for _ in 0..100 {
-            let p1 = edwards::Point::<Bls12, _>::rand(rng, params);
-            let p2 = p1.double(params);
-
-            let (x0, y0) = p1.into_xy();
-            let (x1, y1) = p2.into_xy();
-
-            let mut cs = TestConstraintSystem::<Bls12>::new();
-
-            let num_x0 = AllocatedNum::alloc(cs.namespace(|| "x0"), || {
-                Ok(x0)
-            }).unwrap();
-            let num_y0 = AllocatedNum::alloc(cs.namespace(|| "y0"), || {
-                Ok(y0)
-            }).unwrap();
-
-            let p1 = EdwardsPoint {
-                x: num_x0,
-                y: num_y0
-            };
-
-            let p2 = p1.double(cs.namespace(|| "doubling"), params).unwrap();
-
-            assert!(cs.is_satisfied());
-
-            assert!(p2.x.get_value().unwrap() == x1);
-            assert!(p2.y.get_value().unwrap() == y1);
-        }
-    }
-
-    #[test]
-    fn test_montgomery_addition() {
-        let params = &JubjubBls12::new();
-        let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-
-        for _ in 0..100 {
-            let p1 = loop {
-                let x: Fr = rng.gen();
-                let s: bool = rng.gen();
-
-                if let Some(p) = montgomery::Point::<Bls12, _>::get_for_x(x, s, params) {
-                    break p;
-                }
-            };
-
-            let p2 = loop {
-                let x: Fr = rng.gen();
-                let s: bool = rng.gen();
-
-                if let Some(p) = montgomery::Point::<Bls12, _>::get_for_x(x, s, params) {
-                    break p;
-                }
-            };
-
-            let p3 = p1.add(&p2, params);
-
-            let (x0, y0) = p1.into_xy().unwrap();
-            let (x1, y1) = p2.into_xy().unwrap();
-            let (x2, y2) = p3.into_xy().unwrap();
-
-            let mut cs = TestConstraintSystem::<Bls12>::new();
-
-            let num_x0 = AllocatedNum::alloc(cs.namespace(|| "x0"), || {
-                Ok(x0)
-            }).unwrap();
-            let num_y0 = AllocatedNum::alloc(cs.namespace(|| "y0"), || {
-                Ok(y0)
-            }).unwrap();
-
-            let num_x1 = AllocatedNum::alloc(cs.namespace(|| "x1"), || {
-                Ok(x1)
-            }).unwrap();
-            let num_y1 = AllocatedNum::alloc(cs.namespace(|| "y1"), || {
-                Ok(y1)
-            }).unwrap();
-
-            let p1 = MontgomeryPoint {
-                x: num_x0.into(),
-                y: num_y0.into()
-            };
-
-            let p2 = MontgomeryPoint {
-                x: num_x1.into(),
-                y: num_y1.into()
-            };
-
-            let p3 = p1.add(cs.namespace(|| "addition"), &p2, params).unwrap();
-
-            assert!(cs.is_satisfied());
-
-            assert!(p3.x.get_value().unwrap() == x2);
-            assert!(p3.y.get_value().unwrap() == y2);
-
-            cs.set("addition/yprime/num", rng.gen());
-            assert_eq!(cs.which_is_unsatisfied(), Some("addition/evaluate yprime"));
-            cs.set("addition/yprime/num", y2);
-            assert!(cs.is_satisfied());
-
-            cs.set("addition/xprime/num", rng.gen());
-            assert_eq!(cs.which_is_unsatisfied(), Some("addition/evaluate xprime"));
-            cs.set("addition/xprime/num", x2);
-            assert!(cs.is_satisfied());
-
-            cs.set("addition/lambda/num", rng.gen());
-            assert_eq!(cs.which_is_unsatisfied(), Some("addition/evaluate lambda"));
-        }
-    }
-}
-
-#[cfg(test)]
-mod baby_test {
-    use bellman::{ConstraintSystem};
-    use rand::{XorShiftRng, SeedableRng, Rand, Rng};
-    use pairing::bn256::{Bn256, Fr};
-    use ff::{BitIterator, Field, PrimeField};
-    use ::circuit::test::*;
-    use ::alt_babyjubjub::{
-        montgomery,
-        edwards,
-        AltJubjubBn256,
-        JubjubParams,
-        FixedGenerators
-    };
-    use ::alt_babyjubjub::fs::Fs;
-
-        use super::{
-        MontgomeryPoint,
-        EdwardsPoint,
-        AllocatedNum,
-        fixed_base_multiplication
-    };
-    use super::super::boolean::{
-        Boolean,
-        AllocatedBit
-    };
-
-    #[test]
-    fn test_into_edwards() {
-        let params = &AltJubjubBn256::new();
+        let params = &JubjubBn256::new();
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for _ in 0..100 {
@@ -1281,7 +787,7 @@ mod baby_test {
 
     #[test]
     fn test_interpret() {
-        let params = &AltJubjubBn256::new();
+        let params = &JubjubBn256::new();
         let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for _ in 0..100 {
@@ -1341,7 +847,7 @@ mod baby_test {
 
     #[test]
     fn test_edwards_fixed_base_multiplication()  {
-        let params = &AltJubjubBn256::new();
+        let params = &JubjubBn256::new();
         let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for _ in 0..100 {
@@ -1376,7 +882,7 @@ mod baby_test {
 
     #[test]
     fn test_edwards_multiplication() {
-        let params = &AltJubjubBn256::new();
+        let params = &JubjubBn256::new();
         let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for _ in 0..100 {
@@ -1433,7 +939,7 @@ mod baby_test {
 
     #[test]
     fn test_conditionally_select() {
-        let params = &AltJubjubBn256::new();
+        let params = &JubjubBn256::new();
         let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for _ in 0..1000 {
@@ -1499,7 +1005,7 @@ mod baby_test {
 
     #[test]
     fn test_edwards_addition() {
-        let params = &AltJubjubBn256::new();
+        let params = &JubjubBn256::new();
         let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for _ in 0..100 {
@@ -1545,11 +1051,11 @@ mod baby_test {
             assert!(p3.x.get_value().unwrap() == x2);
             assert!(p3.y.get_value().unwrap() == y2);
 
-            let u = cs.get("addition/U/num");
-            cs.set("addition/U/num", rng.gen());
-            assert_eq!(cs.which_is_unsatisfied(), Some("addition/U computation"));
-            cs.set("addition/U/num", u);
-            assert!(cs.is_satisfied());
+            // let u = cs.get("addition/U/num");
+            // cs.set("addition/U/num", rng.gen());
+            // assert_eq!(cs.which_is_unsatisfied(), Some("addition/U computation"));
+            // cs.set("addition/U/num", u);
+            // assert!(cs.is_satisfied());
 
             let x3 = cs.get("addition/x3/num");
             cs.set("addition/x3/num", rng.gen());
@@ -1567,7 +1073,7 @@ mod baby_test {
 
     #[test]
     fn test_edwards_doubling() {
-        let params = &AltJubjubBn256::new();
+        let params = &JubjubBn256::new();
         let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for _ in 0..100 {
@@ -1602,7 +1108,7 @@ mod baby_test {
 
     #[test]
     fn test_montgomery_addition() {
-        let params = &AltJubjubBn256::new();
+        let params = &JubjubBn256::new();
         let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for _ in 0..100 {

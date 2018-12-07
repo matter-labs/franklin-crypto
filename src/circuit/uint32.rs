@@ -1,5 +1,8 @@
 use pairing::{
     Engine,
+};
+
+use ff::{
     Field,
     PrimeField
 };
@@ -416,7 +419,7 @@ mod test {
     use ::circuit::boolean::{Boolean};
     use super::{UInt32};
     use pairing::bls12_381::{Bls12};
-    use pairing::{Field};
+    use ff::{Field};
     use ::circuit::test::*;
     use bellman::{ConstraintSystem};
     use circuit::multieq::MultiEq;

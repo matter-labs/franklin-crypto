@@ -1,15 +1,17 @@
-//! Jubjub is a twisted Edwards curve defined over the BLS12-381 scalar
-//! field, Fr. It takes the form `-x^2 + y^2 = 1 + dx^2y^2` with
-//! `d = -(10240/10241)`. It is birationally equivalent to a Montgomery
+//! Baby Jubjub is a twisted Edwards curve defined over the BN256 scalar
+//! field, Fr. It takes the form `168700 * x^2 + y^2 = 1 + dx^2y^2` with
+//! `d = 168696`. It is birationally equivalent to a Montgomery
 //! curve of the form `y^2 = x^3 + Ax^2 + x` with `A = 40962`. This
 //! value `A` is the smallest integer choice such that:
 //!
+//! Curve itself is defined over BN256 prime order group with 
+//! `r = 21888242871839275222246405745257275088548364400416034343698204186575808495617`
 //! * `(A - 2) / 4` is a small integer (`10240`).
 //! * `A^2 - 4` is quadratic nonresidue.
 //! * The group order of the curve and its quadratic twist has a large
 //!   prime factor.
 //!
-//! Jubjub has `s = 0x0e7db4ea6533afa906673b0101343b00a6682093ccc81082d0970e5ed6f72cb7`
+//! Baby Jubjub has `s = 2736030358979909402780800718157159386076813972158567259200215660948447373041`
 //! as the prime subgroup order, with cofactor 8. (The twist has
 //! cofactor 4.)
 //!
@@ -27,12 +29,12 @@ use ff::{
     SqrtField
 };
 
-use group_hash::group_hash;
+use baby_group_hash::group_hash;
 
 use constants;
 
-use pairing::bls12_381::{
-    Bls12,
+use pairing::bn256::{
+    Bn256,
     Fr
 };
 
@@ -90,7 +92,6 @@ pub enum FixedGenerators {
 
 pub trait ToUniform {
     fn to_uniform(digest: &[u8]) -> Self;
-    fn to_uniform_32(digest: &[u8]) -> Self;
 }
 
 /// This is an extension to the pairing Engine trait which
@@ -106,6 +107,8 @@ pub trait JubjubEngine: Engine {
 /// The pre-computed parameters for Jubjub, including curve
 /// constants and various limits and window tables.
 pub trait JubjubParams<E: JubjubEngine>: Sized {
+    /// The `a` constant of the twisted Edwards curve.
+    fn edwards_a(&self) -> &E::Fr;
     /// The `d` constant of the twisted Edwards curve.
     fn edwards_d(&self) -> &E::Fr;
     /// The `A` constant of the birationally equivalent Montgomery curve.
@@ -137,38 +140,41 @@ pub trait JubjubParams<E: JubjubEngine>: Sized {
     fn pedersen_hash_exp_window_size() -> u32;
 }
 
-impl JubjubEngine for Bls12 {
+impl JubjubEngine for Bn256 {
     type Fs = self::fs::Fs;
-    type Params = JubjubBls12;
+    type Params = JubjubBn256;
 }
 
-pub struct JubjubBls12 {
+pub struct JubjubBn256 {
+    edwards_a: Fr,
     edwards_d: Fr,
     montgomery_a: Fr,
     montgomery_2a: Fr,
     scale: Fr,
 
-    pedersen_hash_generators: Vec<edwards::Point<Bls12, PrimeOrder>>,
-    pedersen_hash_exp: Vec<Vec<Vec<edwards::Point<Bls12, PrimeOrder>>>>,
+    pedersen_hash_generators: Vec<edwards::Point<Bn256, PrimeOrder>>,
+    pedersen_hash_exp: Vec<Vec<Vec<edwards::Point<Bn256, PrimeOrder>>>>,
     pedersen_circuit_generators: Vec<Vec<Vec<(Fr, Fr)>>>,
 
-    fixed_base_generators: Vec<edwards::Point<Bls12, PrimeOrder>>,
+    fixed_base_generators: Vec<edwards::Point<Bn256, PrimeOrder>>,
     fixed_base_circuit_generators: Vec<Vec<Vec<(Fr, Fr)>>>,
 }
 
-impl JubjubParams<Bls12> for JubjubBls12 {
+impl JubjubParams<Bn256> for JubjubBn256 {
+    fn edwards_a(&self) -> &Fr { &self.edwards_a }
     fn edwards_d(&self) -> &Fr { &self.edwards_d }
     fn montgomery_a(&self) -> &Fr { &self.montgomery_a }
     fn montgomery_2a(&self) -> &Fr { &self.montgomery_2a }
     fn scale(&self) -> &Fr { &self.scale }
-    fn pedersen_hash_generators(&self) -> &[edwards::Point<Bls12, PrimeOrder>] {
+    fn pedersen_hash_generators(&self) -> &[edwards::Point<Bn256, PrimeOrder>] {
         &self.pedersen_hash_generators
     }
-    fn pedersen_hash_exp_table(&self) -> &[Vec<Vec<edwards::Point<Bls12, PrimeOrder>>>] {
+    fn pedersen_hash_exp_table(&self) -> &[Vec<Vec<edwards::Point<Bn256, PrimeOrder>>>] {
         &self.pedersen_hash_exp
     }
+    // HERE it's different from jubjub
     fn pedersen_hash_chunks_per_generator(&self) -> usize {
-        63
+        62
     }
     fn fixed_base_chunks_per_generator(&self) -> usize {
         84
@@ -176,7 +182,7 @@ impl JubjubParams<Bls12> for JubjubBls12 {
     fn pedersen_circuit_generators(&self) -> &[Vec<Vec<(Fr, Fr)>>] {
         &self.pedersen_circuit_generators
     }
-    fn generator(&self, base: FixedGenerators) -> &edwards::Point<Bls12, PrimeOrder>
+    fn generator(&self, base: FixedGenerators) -> &edwards::Point<Bn256, PrimeOrder>
     {
         &self.fixed_base_generators[base as usize]
     }
@@ -189,21 +195,23 @@ impl JubjubParams<Bls12> for JubjubBls12 {
     }
 }
 
-impl JubjubBls12 {
+impl JubjubBn256 {
     pub fn new() -> Self {
-        let montgomery_a = Fr::from_str("40962").unwrap();
+        let montgomery_a = Fr::from_str("168698").unwrap();
         let mut montgomery_2a = montgomery_a;
         montgomery_2a.double();
 
-        let mut tmp_params = JubjubBls12 {
-            // d = -(10240/10241)
-            edwards_d: Fr::from_str("19257038036680949359750312669786877991949435402254120286184196891950884077233").unwrap(),
-            // A = 40962
+        let mut tmp_params = JubjubBn256 {
+            // a = 168700
+            edwards_a: Fr::from_str("168700").unwrap(),
+            // d = 168696
+            edwards_d: Fr::from_str("168696").unwrap(),
+            // A = 168698
             montgomery_a: montgomery_a,
             // 2A = 2.A
             montgomery_2a: montgomery_2a,
             // scaling factor = sqrt(4 / (a - d))
-            scale: Fr::from_str("17814886934372412843466061268024708274627479829237077604635722030778476050649").unwrap(),
+            scale: Fr::from_str("1").unwrap(),
 
             // We'll initialize these below
             pedersen_hash_generators: vec![],
@@ -282,7 +290,7 @@ impl JubjubBls12 {
             for g in &tmp_params.pedersen_hash_generators {
                 let mut g = g.clone();
 
-                let window = JubjubBls12::pedersen_hash_exp_window_size();
+                let window = JubjubBn256::pedersen_hash_exp_window_size();
 
                 let mut tables = vec![];
 
@@ -411,29 +419,34 @@ impl JubjubBls12 {
 }
 
 #[test]
-fn test_jubjub_bls12() {
-    let params = JubjubBls12::new();
+fn test_params() {
+    let params = JubjubBn256::new();
+    tests::test_jubjub_params::<Bn256>(&params);
+}
 
-    tests::test_suite::<Bls12>(&params);
+#[test]
+fn test_jubjub_bn256() {
+    let params = JubjubBn256::new();
+    tests::test_suite::<Bn256>(&params);
 
-    let test_repr = hex!("9d12b88b08dcbef8a11ee0712d94cb236ee2f4ca17317075bfafc82ce3139d31");
-    let p = edwards::Point::<Bls12, _>::read(&test_repr[..], &params).unwrap();
-    let q = edwards::Point::<Bls12, _>::get_for_y(
-        Fr::from_str("22440861827555040311190986994816762244378363690614952020532787748720529117853").unwrap(),
-        false,
-        &params
-    ).unwrap();
+    // let test_repr = hex!("9d12b88b08dcbef8a11ee0712d94cb236ee2f4ca17317075bfafc82ce3139d31");
+    // let p = edwards::Point::<Bn256, _>::read(&test_repr[..], &params).unwrap();
+    // let q = edwards::Point::<Bn256, _>::get_for_y(
+    //     Fr::from_str("22440861827555040311190986994816762244378363690614952020532787748720529117853").unwrap(),
+    //     false,
+    //     &params
+    // ).unwrap();
 
-    assert!(p == q);
+    // assert!(p == q);
 
-    // Same thing, but sign bit set
-    let test_repr = hex!("9d12b88b08dcbef8a11ee0712d94cb236ee2f4ca17317075bfafc82ce3139db1");
-    let p = edwards::Point::<Bls12, _>::read(&test_repr[..], &params).unwrap();
-    let q = edwards::Point::<Bls12, _>::get_for_y(
-        Fr::from_str("22440861827555040311190986994816762244378363690614952020532787748720529117853").unwrap(),
-        true,
-        &params
-    ).unwrap();
+    // // Same thing, but sign bit set
+    // let test_repr = hex!("9d12b88b08dcbef8a11ee0712d94cb236ee2f4ca17317075bfafc82ce3139db1");
+    // let p = edwards::Point::<Bn256, _>::read(&test_repr[..], &params).unwrap();
+    // let q = edwards::Point::<Bn256, _>::get_for_y(
+    //     Fr::from_str("22440861827555040311190986994816762244378363690614952020532787748720529117853").unwrap(),
+    //     true,
+    //     &params
+    // ).unwrap();
 
-    assert!(p == q);
+    // assert!(p == q);
 }

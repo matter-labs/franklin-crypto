@@ -1,5 +1,8 @@
 use pairing::{
     Engine,
+};
+
+use ff::{
     Field,
     PrimeField,
     PrimeFieldRepr,
@@ -394,6 +397,95 @@ impl<E: Engine> AllocatedNum<E> {
         Ok((c, d))
     }
 
+    /// Takes two allocated numbers (a, b) and returns
+    /// a if the condition is true, and b
+    /// otherwise.
+    /// Most often to be used with b = 0
+    pub fn conditionally_select<CS>(
+        mut cs: CS,
+        a: &Self,
+        b: &Self,
+        condition: &Boolean
+    ) -> Result<(Self), SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let c = Self::alloc(
+            cs.namespace(|| "conditional select result"),
+            || {
+                if *condition.get_value().get()? {
+                    Ok(*a.value.get()?)
+                } else {
+                    Ok(*b.value.get()?)
+                }
+            }
+        )?;
+
+        // a * condition + b*(1-condition) = c ->
+        // a * condition - b*condition = c - b
+
+        cs.enforce(
+            || "conditional select constraint",
+            |lc| lc + a.variable - b.variable,
+            |_| condition.lc(CS::one(), E::Fr::one()),
+            |lc| lc + c.variable - b.variable
+        );
+
+        Ok(c)
+    }
+
+    /// Limits number of bits. The easiest example when required
+    /// is to add or subtract two "small" (with bit length smaller 
+    /// than one of the field) numbers and check for overflow
+    pub fn limit_number_of_bits<CS>(
+        &self,
+        mut cs: CS,
+        number_of_bits: usize
+    ) -> Result<(), SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        // do the bit decomposition and check that higher bits are all zeros
+
+        let mut bits = self.into_bits_le(
+            cs.namespace(|| "unpack to limit number of bits")
+        )?;
+
+        bits.drain(0..number_of_bits);
+
+        // repack
+
+        let mut top_bits_lc = Num::<E>::zero();
+        let mut coeff = E::Fr::one();
+        for bit in bits.into_iter() {
+            top_bits_lc = top_bits_lc.add_bool_with_coeff(CS::one(), &bit, coeff);
+            coeff.double();
+        }
+
+        // let top_bits_value = AllocatedNum::alloc(
+        //     cs.namespace(|| "allocate top bits"),
+        //     || Ok(top_bits_lc.get_value().get()?)
+        // ).unwrap();
+
+        // enforce packing and zeroness
+
+        cs.enforce(
+            || "repack top bits",
+            |lc| lc,
+            |lc| lc + CS::one(),
+            |_| top_bits_lc.lc(E::Fr::one())
+        );
+
+        // enforce top bits to be zero
+        // cs.enforce(
+        //     || "repack top bits",
+        //     |lc| lc + top_bits_value.get_variable(),
+        //     |lc| lc + CS::one(),
+        //     |_| top_bits_lc.lc(E::Fr::one())
+        // );
+
+
+        Ok(())
+    }
+
     pub fn get_value(&self) -> Option<E::Fr> {
         self.value
     }
@@ -463,7 +555,7 @@ mod test {
     use rand::{SeedableRng, Rand, Rng, XorShiftRng};
     use bellman::{ConstraintSystem};
     use pairing::bls12_381::{Bls12, Fr};
-    use pairing::{Field, PrimeField, BitIterator};
+    use ff::{Field, PrimeField, BitIterator};
     use ::circuit::test::*;
     use super::{AllocatedNum, Boolean};
 
@@ -487,6 +579,27 @@ mod test {
         assert!(cs.get("squared num") == Fr::from_str("9").unwrap());
         assert!(n2.value.unwrap() == Fr::from_str("9").unwrap());
         cs.set("squared num", Fr::from_str("10").unwrap());
+        assert!(!cs.is_satisfied());
+    }
+
+    #[test]
+    fn test_limit_number_of_bits() {
+        let mut cs = TestConstraintSystem::<Bls12>::new();
+
+        let n = AllocatedNum::alloc(&mut cs, || Ok(Fr::from_str("3").unwrap())).unwrap();
+
+        n.limit_number_of_bits(&mut cs, 2).unwrap();
+
+        assert!(cs.is_satisfied());
+    }
+
+    #[test]
+    fn test_limit_number_of_bits_error() {
+        let mut cs = TestConstraintSystem::<Bls12>::new();
+
+        let n = AllocatedNum::alloc(&mut cs, || Ok(Fr::from_str("3").unwrap())).unwrap();
+
+        n.limit_number_of_bits(&mut cs, 1).unwrap();
         assert!(!cs.is_satisfied());
     }
 
@@ -534,6 +647,29 @@ mod test {
 
             assert_eq!(a.value.unwrap(), d.value.unwrap());
             assert_eq!(b.value.unwrap(), c.value.unwrap());
+        }
+    }
+
+    #[test]
+    fn test_num_conditional_select() {
+        let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+        {
+            let mut cs = TestConstraintSystem::<Bls12>::new();
+
+            let a = AllocatedNum::alloc(cs.namespace(|| "a"), || Ok(rng.gen())).unwrap();
+            let b = AllocatedNum::alloc(cs.namespace(|| "b"), || Ok(rng.gen())).unwrap();
+
+            let condition_true = Boolean::constant(true);
+            let c = AllocatedNum::conditionally_select(cs.namespace(|| "c"), &a, &b, &condition_true).unwrap();
+
+            let condition_false = Boolean::constant(false);
+            let d = AllocatedNum::conditionally_select(cs.namespace(|| "d"), &a, &b, &condition_false).unwrap();
+
+            assert!(cs.is_satisfied());
+            assert!(cs.num_constraints() == 2);
+
+            assert_eq!(a.value.unwrap(), c.value.unwrap());
+            assert_eq!(b.value.unwrap(), d.value.unwrap());
         }
     }
 

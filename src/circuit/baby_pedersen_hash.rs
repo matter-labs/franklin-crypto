@@ -1,15 +1,15 @@
 use super::*;
-use super::ecc::{
+use super::baby_ecc::{
     MontgomeryPoint,
     EdwardsPoint
 };
 use super::boolean::Boolean;
-use ::jubjub::*;
+use ::babyjubjub::*;
 use bellman::{
     ConstraintSystem
 };
 use super::lookup::*;
-pub use pedersen_hash::Personalization;
+pub use baby_pedersen_hash::Personalization;
 
 impl Personalization {
     fn get_constant_bools(&self) -> Vec<Boolean> {
@@ -116,97 +116,13 @@ mod test {
     use super::*;
     use ::circuit::test::*;
     use ::circuit::boolean::{Boolean, AllocatedBit};
-    use pairing::bls12_381::{Bls12, Fr};
+    use pairing::bn256::{Bn256, Fr};
     use ff::PrimeField;
 
     #[test]
     fn test_pedersen_hash_constraints() {
         let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-        let params = &JubjubBls12::new();
-        let mut cs = TestConstraintSystem::<Bls12>::new();
-
-        let input: Vec<bool> = (0..(Fr::NUM_BITS * 2)).map(|_| rng.gen()).collect();
-
-        let input_bools: Vec<Boolean> = input.iter().enumerate().map(|(i, b)| {
-            Boolean::from(
-                AllocatedBit::alloc(cs.namespace(|| format!("input {}", i)), Some(*b)).unwrap()
-            )
-        }).collect();
-
-        pedersen_hash(
-            cs.namespace(|| "pedersen hash"),
-            Personalization::NoteCommitment,
-            &input_bools,
-            params
-        ).unwrap();
-
-        assert!(cs.is_satisfied());
-        assert_eq!(cs.num_constraints(), 1377);
-    }
-
-    #[test]
-    fn test_pedersen_hash() {
-        let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-        let params = &JubjubBls12::new();
-
-        for length in 0..751 {
-            for _ in 0..5 {
-                let mut input: Vec<bool> = (0..length).map(|_| rng.gen()).collect();
-
-                let mut cs = TestConstraintSystem::<Bls12>::new();
-
-                let input_bools: Vec<Boolean> = input.iter().enumerate().map(|(i, b)| {
-                    Boolean::from(
-                        AllocatedBit::alloc(cs.namespace(|| format!("input {}", i)), Some(*b)).unwrap()
-                    )
-                }).collect();
-
-                let res = pedersen_hash(
-                    cs.namespace(|| "pedersen hash"),
-                    Personalization::MerkleTree(1),
-                    &input_bools,
-                    params
-                ).unwrap();
-
-                assert!(cs.is_satisfied());
-
-                let expected = ::pedersen_hash::pedersen_hash::<Bls12, _>(
-                    Personalization::MerkleTree(1),
-                    input.clone().into_iter(),
-                    params
-                ).into_xy();
-
-                assert_eq!(res.get_x().get_value().unwrap(), expected.0);
-                assert_eq!(res.get_y().get_value().unwrap(), expected.1);
-
-                // Test against the output of a different personalization
-                let unexpected = ::pedersen_hash::pedersen_hash::<Bls12, _>(
-                    Personalization::MerkleTree(0),
-                    input.into_iter(),
-                    params
-                ).into_xy();
-
-                assert!(res.get_x().get_value().unwrap() != unexpected.0);
-                assert!(res.get_y().get_value().unwrap() != unexpected.1);
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-mod baby_test {
-    use rand::{SeedableRng, Rng, XorShiftRng};
-    use super::*;
-    use ::circuit::test::*;
-    use ::circuit::boolean::{Boolean, AllocatedBit};
-    use pairing::bn256::{Bn256, Fr};
-    use ff::PrimeField;
-    use ::alt_babyjubjub::{AltJubjubBn256};
-
-    #[test]
-    fn test_baby_pedersen_hash_constraints() {
-        let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-        let params = &AltJubjubBn256::new();
+        let params = &JubjubBn256::new();
         let mut cs = TestConstraintSystem::<Bn256>::new();
 
         let input: Vec<bool> = (0..(Fr::NUM_BITS * 2)).map(|_| rng.gen()).collect();
@@ -225,13 +141,13 @@ mod baby_test {
         ).unwrap();
 
         assert!(cs.is_satisfied());
-        assert_eq!(cs.num_constraints(), 1374);
+        assert_eq!(cs.num_constraints(), 1376);
     }
 
     #[test]
-    fn test_baby_pedersen_hash() {
+    fn test_pedersen_hash() {
         let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-        let params = &AltJubjubBn256::new();
+        let params = &JubjubBn256::new();
 
         for length in 0..751 {
             for _ in 0..5 {
@@ -247,15 +163,15 @@ mod baby_test {
 
                 let res = pedersen_hash(
                     cs.namespace(|| "pedersen hash"),
-                    Personalization::MerkleTree(0),
+                    Personalization::MerkleTree(1),
                     &input_bools,
                     params
                 ).unwrap();
 
                 assert!(cs.is_satisfied());
 
-                let expected = ::pedersen_hash::pedersen_hash::<Bn256, _>(
-                    Personalization::MerkleTree(0),
+                let expected = ::baby_pedersen_hash::pedersen_hash::<Bn256, _>(
+                    Personalization::MerkleTree(1),
                     input.clone().into_iter(),
                     params
                 ).into_xy();
@@ -264,8 +180,8 @@ mod baby_test {
                 assert_eq!(res.get_y().get_value().unwrap(), expected.1);
 
                 // Test against the output of a different personalization
-                let unexpected = ::pedersen_hash::pedersen_hash::<Bn256, _>(
-                    Personalization::MerkleTree(1),
+                let unexpected = ::baby_pedersen_hash::pedersen_hash::<Bn256, _>(
+                    Personalization::MerkleTree(0),
                     input.into_iter(),
                     params
                 ).into_xy();

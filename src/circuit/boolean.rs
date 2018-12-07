@@ -1,5 +1,8 @@
 use pairing::{
     Engine,
+};
+
+use ff::{
     Field,
     PrimeField,
     BitIterator
@@ -371,6 +374,14 @@ impl Boolean {
         match *self {
             Boolean::Constant(_) => true,
             _ => false
+        }
+    }
+
+    pub fn get_variable(&self) -> Option<&AllocatedBit> {
+        match *self {
+            Boolean::Is(ref v) => Some(v),
+            Boolean::Not(ref v) => Some(v),
+            Boolean::Constant(_) => None
         }
     }
 
@@ -807,7 +818,7 @@ impl From<AllocatedBit> for Boolean {
 mod test {
     use bellman::{ConstraintSystem};
     use pairing::bls12_381::{Bls12, Fr};
-    use pairing::{Field, PrimeField};
+    use ff::{Field, PrimeField};
     use ::circuit::test::*;
     use super::{
         AllocatedBit,

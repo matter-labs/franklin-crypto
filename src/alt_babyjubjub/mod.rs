@@ -1,7 +1,18 @@
-//! Jubjub is a twisted Edwards curve defined over the BLS12-381 scalar
-//! field, Fr. It takes the form `-x^2 + y^2 = 1 + dx^2y^2` with
-//! `d = -(10240/10241)`. It is birationally equivalent to a Montgomery
-//! curve of the form `y^2 = x^3 + Ax^2 + x` with `A = 40962`. This
+//! Alternative Baby Jubjub is a twisted Edwards curve defined over the BN256 scalar
+//! field, Fr. 
+//! `Fr modulus = 21888242871839275222246405745257275088548364400416034343698204186575808495617`
+//! 
+//! It takes the form `-x^2 + y^2 = 1 + dx^2y^2` with
+//! `d = -(168696/168700)` using the isomorphism from usual Baby Jubjub 
+//! with a requirement that `a' = -1, a = 168696`, that results in 
+//! ```
+//! scaling = 1911982854305225074381251344103329931637610209014896889891168275855466657090 
+//! a' = 21888242871839275222246405745257275088548364400416034343698204186575808495616 == -1 = a*scale^2 mod P
+//! d' = 12181644023421730124874158521699555681764249180949974110617291017600649128846 == -(168696/168700) = d*scale^2
+//! ```
+//! 
+//! It is birationally equivalent to a Montgomery
+//! curve of the form `y^2 = x^3 + Ax^2 + x` with `A = 168698`. This
 //! value `A` is the smallest integer choice such that:
 //!
 //! * `(A - 2) / 4` is a small integer (`10240`).
@@ -9,7 +20,7 @@
 //! * The group order of the curve and its quadratic twist has a large
 //!   prime factor.
 //!
-//! Jubjub has `s = 0x0e7db4ea6533afa906673b0101343b00a6682093ccc81082d0970e5ed6f72cb7`
+//! Jubjub has `s = 2736030358979909402780800718157159386076813972158567259200215660948447373041`
 //! as the prime subgroup order, with cofactor 8. (The twist has
 //! cofactor 4.)
 //!
@@ -17,31 +28,46 @@
 //! the Montgomery curve forms a group isomorphism, allowing points
 //! to be freely converted between the two forms.
 
-use pairing::{
-    Engine,
-};
+// use ::jubjub::{
+//     Unknown,
+//     PrimeOrder,
+//     FixedGenerators,
+//     ToUniform,
+//     JubjubEngine,
+//     JubjubParams,
+// };
 
 use ff::{
     Field,
     PrimeField,
-    SqrtField
 };
 
-use group_hash::group_hash;
+use group_hash::baby_group_hash;
 
 use constants;
 
-use pairing::bls12_381::{
-    Bls12,
+use pairing::bn256::{
+    Bn256,
     Fr
 };
 
-/// This is an implementation of the twisted Edwards Jubjub curve.
-pub mod edwards;
+pub use ::jubjub::{
+    Unknown,
+    PrimeOrder,
+    FixedGenerators,
+    ToUniform,
+    JubjubEngine,
+    JubjubParams,
+    edwards,
+    montgomery
+};
 
-/// This is an implementation of the birationally equivalent
-/// Montgomery curve.
-pub mod montgomery;
+// /// This is an implementation of the twisted Edwards Jubjub curve.
+// pub mod edwards;
+
+// /// This is an implementation of the birationally equivalent
+// /// Montgomery curve.
+// pub mod montgomery;
 
 /// This is an implementation of the scalar field for Jubjub.
 pub mod fs;
@@ -49,126 +75,38 @@ pub mod fs;
 #[cfg(test)]
 pub mod tests;
 
-/// Point of unknown order.
-pub enum Unknown { }
-
-/// Point of prime order.
-pub enum PrimeOrder { }
-
-/// Fixed generators of the Jubjub curve of unknown
-/// exponent.
-#[derive(Copy, Clone)]
-pub enum FixedGenerators {
-    /// The prover will demonstrate knowledge of discrete log
-    /// with respect to this base when they are constructing
-    /// a proof, in order to authorize proof construction.
-    ProofGenerationKey = 0,
-
-    /// The note commitment is randomized over this generator.
-    NoteCommitmentRandomness = 1,
-
-    /// The node commitment is randomized again by the position
-    /// in order to supply the nullifier computation with a
-    /// unique input w.r.t. the note being spent, to prevent
-    /// Faerie gold attacks.
-    NullifierPosition = 2,
-
-    /// The value commitment is used to check balance between
-    /// inputs and outputs. The value is placed over this
-    /// generator.
-    ValueCommitmentValue = 3,
-    /// The value commitment is randomized over this generator,
-    /// for privacy.
-    ValueCommitmentRandomness = 4,
-
-    /// The spender proves discrete log with respect to this
-    /// base at spend time.
-    SpendingKeyGenerator = 5,
-
-    Max = 6
-}
-
-pub trait ToUniform {
-    fn to_uniform(digest: &[u8]) -> Self;
-    fn to_uniform_32(digest: &[u8]) -> Self;
-}
-
-/// This is an extension to the pairing Engine trait which
-/// offers a scalar field for the embedded curve (Jubjub)
-/// and some pre-computed parameters.
-pub trait JubjubEngine: Engine {
-    /// The scalar field of the Jubjub curve
-    type Fs: PrimeField + SqrtField + ToUniform;
-    /// The parameters of Jubjub and the Sapling protocol
-    type Params: JubjubParams<Self>;
-}
-
-/// The pre-computed parameters for Jubjub, including curve
-/// constants and various limits and window tables.
-pub trait JubjubParams<E: JubjubEngine>: Sized {
-    /// The `d` constant of the twisted Edwards curve.
-    fn edwards_d(&self) -> &E::Fr;
-    /// The `A` constant of the birationally equivalent Montgomery curve.
-    fn montgomery_a(&self) -> &E::Fr;
-    /// The `A` constant, doubled.
-    fn montgomery_2a(&self) -> &E::Fr;
-    /// The scaling factor used for conversion from the Montgomery form.
-    fn scale(&self) -> &E::Fr;
-    /// Returns the generators (for each segment) used in all Pedersen commitments.
-    fn pedersen_hash_generators(&self) -> &[edwards::Point<E, PrimeOrder>];
-    /// Returns the exp table for Pedersen hashes.
-    fn pedersen_hash_exp_table(&self) -> &[Vec<Vec<edwards::Point<E, PrimeOrder>>>];
-    /// Returns the maximum number of chunks per segment of the Pedersen hash.
-    fn pedersen_hash_chunks_per_generator(&self) -> usize;
-    /// Returns the pre-computed window tables [-4, 3, 2, 1, 1, 2, 3, 4] of different
-    /// magnitudes of the Pedersen hash segment generators.
-    fn pedersen_circuit_generators(&self) -> &[Vec<Vec<(E::Fr, E::Fr)>>];
-
-    /// Returns the number of chunks needed to represent a full scalar during fixed-base
-    /// exponentiation.
-    fn fixed_base_chunks_per_generator(&self) -> usize;
-    /// Returns a fixed generator.
-    fn generator(&self, base: FixedGenerators) -> &edwards::Point<E, PrimeOrder>;
-    /// Returns a window table [0, 1, ..., 8] for different magnitudes of some
-    /// fixed generator.
-    fn circuit_generators(&self, FixedGenerators) -> &[Vec<(E::Fr, E::Fr)>];
-    /// Returns the window size for exponentiation of Pedersen hash generators
-    /// outside the circuit
-    fn pedersen_hash_exp_window_size() -> u32;
-}
-
-impl JubjubEngine for Bls12 {
+impl JubjubEngine for Bn256 {
     type Fs = self::fs::Fs;
-    type Params = JubjubBls12;
+    type Params = AltJubjubBn256;
 }
 
-pub struct JubjubBls12 {
+pub struct AltJubjubBn256 {
     edwards_d: Fr,
     montgomery_a: Fr,
     montgomery_2a: Fr,
     scale: Fr,
 
-    pedersen_hash_generators: Vec<edwards::Point<Bls12, PrimeOrder>>,
-    pedersen_hash_exp: Vec<Vec<Vec<edwards::Point<Bls12, PrimeOrder>>>>,
+    pedersen_hash_generators: Vec<edwards::Point<Bn256, PrimeOrder>>,
+    pedersen_hash_exp: Vec<Vec<Vec<edwards::Point<Bn256, PrimeOrder>>>>,
     pedersen_circuit_generators: Vec<Vec<Vec<(Fr, Fr)>>>,
 
-    fixed_base_generators: Vec<edwards::Point<Bls12, PrimeOrder>>,
+    fixed_base_generators: Vec<edwards::Point<Bn256, PrimeOrder>>,
     fixed_base_circuit_generators: Vec<Vec<Vec<(Fr, Fr)>>>,
 }
 
-impl JubjubParams<Bls12> for JubjubBls12 {
+impl JubjubParams<Bn256> for AltJubjubBn256 {
     fn edwards_d(&self) -> &Fr { &self.edwards_d }
     fn montgomery_a(&self) -> &Fr { &self.montgomery_a }
     fn montgomery_2a(&self) -> &Fr { &self.montgomery_2a }
     fn scale(&self) -> &Fr { &self.scale }
-    fn pedersen_hash_generators(&self) -> &[edwards::Point<Bls12, PrimeOrder>] {
+    fn pedersen_hash_generators(&self) -> &[edwards::Point<Bn256, PrimeOrder>] {
         &self.pedersen_hash_generators
     }
-    fn pedersen_hash_exp_table(&self) -> &[Vec<Vec<edwards::Point<Bls12, PrimeOrder>>>] {
+    fn pedersen_hash_exp_table(&self) -> &[Vec<Vec<edwards::Point<Bn256, PrimeOrder>>>] {
         &self.pedersen_hash_exp
     }
     fn pedersen_hash_chunks_per_generator(&self) -> usize {
-        63
+        62
     }
     fn fixed_base_chunks_per_generator(&self) -> usize {
         84
@@ -176,7 +114,7 @@ impl JubjubParams<Bls12> for JubjubBls12 {
     fn pedersen_circuit_generators(&self) -> &[Vec<Vec<(Fr, Fr)>>] {
         &self.pedersen_circuit_generators
     }
-    fn generator(&self, base: FixedGenerators) -> &edwards::Point<Bls12, PrimeOrder>
+    fn generator(&self, base: FixedGenerators) -> &edwards::Point<Bn256, PrimeOrder>
     {
         &self.fixed_base_generators[base as usize]
     }
@@ -189,21 +127,21 @@ impl JubjubParams<Bls12> for JubjubBls12 {
     }
 }
 
-impl JubjubBls12 {
+impl AltJubjubBn256 {
     pub fn new() -> Self {
-        let montgomery_a = Fr::from_str("40962").unwrap();
+        let montgomery_a = Fr::from_str("168698").unwrap();
         let mut montgomery_2a = montgomery_a;
         montgomery_2a.double();
 
-        let mut tmp_params = JubjubBls12 {
-            // d = -(10240/10241)
-            edwards_d: Fr::from_str("19257038036680949359750312669786877991949435402254120286184196891950884077233").unwrap(),
-            // A = 40962
+        let mut tmp_params = AltJubjubBn256 {
+            // d = -(168696/168700)
+            edwards_d: Fr::from_str("12181644023421730124874158521699555681764249180949974110617291017600649128846").unwrap(),
+            // A = 168698
             montgomery_a: montgomery_a,
             // 2A = 2.A
             montgomery_2a: montgomery_2a,
             // scaling factor = sqrt(4 / (a - d))
-            scale: Fr::from_str("17814886934372412843466061268024708274627479829237077604635722030778476050649").unwrap(),
+            scale: Fr::from_str("6360561867910373094066688120553762416144456282423235903351243436111059670888").unwrap(),
 
             // We'll initialize these below
             pedersen_hash_generators: vec![],
@@ -224,7 +162,7 @@ impl JubjubBls12 {
             tag.push(0u8);
 
             loop {
-                let gh = group_hash(
+                let gh = baby_group_hash(
                     &tag,
                     personalization,
                     params
@@ -282,7 +220,7 @@ impl JubjubBls12 {
             for g in &tmp_params.pedersen_hash_generators {
                 let mut g = g.clone();
 
-                let window = JubjubBls12::pedersen_hash_exp_window_size();
+                let window = AltJubjubBn256::pedersen_hash_exp_window_size();
 
                 let mut tables = vec![];
 
@@ -411,29 +349,29 @@ impl JubjubBls12 {
 }
 
 #[test]
-fn test_jubjub_bls12() {
-    let params = JubjubBls12::new();
+fn test_jubjub_altbn256() {
+    let params = AltJubjubBn256::new();
 
-    tests::test_suite::<Bls12>(&params);
+    tests::test_suite::<Bn256>(&params);
 
-    let test_repr = hex!("9d12b88b08dcbef8a11ee0712d94cb236ee2f4ca17317075bfafc82ce3139d31");
-    let p = edwards::Point::<Bls12, _>::read(&test_repr[..], &params).unwrap();
-    let q = edwards::Point::<Bls12, _>::get_for_y(
-        Fr::from_str("22440861827555040311190986994816762244378363690614952020532787748720529117853").unwrap(),
-        false,
-        &params
-    ).unwrap();
+    // let test_repr = hex!("9d12b88b08dcbef8a11ee0712d94cb236ee2f4ca17317075bfafc82ce3139d31");
+    // let p = edwards::Point::<Bn256, _>::read(&test_repr[..], &params).unwrap();
+    // let q = edwards::Point::<Bn256, _>::get_for_y(
+    //     Fr::from_str("22440861827555040311190986994816762244378363690614952020532787748720529117853").unwrap(),
+    //     false,
+    //     &params
+    // ).unwrap();
 
-    assert!(p == q);
+    // assert!(p == q);
 
-    // Same thing, but sign bit set
-    let test_repr = hex!("9d12b88b08dcbef8a11ee0712d94cb236ee2f4ca17317075bfafc82ce3139db1");
-    let p = edwards::Point::<Bls12, _>::read(&test_repr[..], &params).unwrap();
-    let q = edwards::Point::<Bls12, _>::get_for_y(
-        Fr::from_str("22440861827555040311190986994816762244378363690614952020532787748720529117853").unwrap(),
-        true,
-        &params
-    ).unwrap();
+    // // Same thing, but sign bit set
+    // let test_repr = hex!("9d12b88b08dcbef8a11ee0712d94cb236ee2f4ca17317075bfafc82ce3139db1");
+    // let p = edwards::Point::<Bn256, _>::read(&test_repr[..], &params).unwrap();
+    // let q = edwards::Point::<Bn256, _>::get_for_y(
+    //     Fr::from_str("22440861827555040311190986994816762244378363690614952020532787748720529117853").unwrap(),
+    //     true,
+    //     &params
+    // ).unwrap();
 
-    assert!(p == q);
+    // assert!(p == q);
 }

@@ -1,5 +1,8 @@
 use pairing::{
     Engine,
+};
+
+use ff::{
     Field,
     PrimeField,
     PrimeFieldRepr
@@ -19,6 +22,7 @@ use std::fmt::Write;
 use byteorder::{BigEndian, ByteOrder};
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
+use std::collections::HashSet;
 
 use blake2_rfc::blake2s::Blake2s;
 
@@ -225,6 +229,52 @@ impl<E: Engine> TestConstraintSystem<E> {
         }
 
         write!(&mut s, "\n").unwrap();
+
+        s
+    }
+
+    pub fn find_unconstrained(&self) -> String {
+        let mut s = String::new();
+        let pp = |hm: & mut HashSet<String>, lc: &LinearCombination<E>| {
+            for (var, coeff) in proc_lc::<E>(lc.as_ref()) {
+                match var.0.get_unchecked() {
+                    Index::Input(i) => {
+                        let v = self.inputs[i].clone();
+                        hm.insert(v.1);
+                    },
+                    Index::Aux(i) => {
+                        let v = self.aux[i].clone();
+                        hm.insert(v.1);
+                    }
+                }
+            }
+        };
+
+        let i_max = self.constraints.len();
+
+        let mut set = HashSet::new();
+        for &(ref a, ref b, ref c, ref _name) in &self.constraints {
+
+            pp(&mut set, a);
+            pp(&mut set, b);
+            pp(&mut set, c);
+        }
+
+        for inp in self.inputs.iter() {
+            if set.get(&inp.1).is_none() {
+                write!(&mut s, "\n").unwrap();
+                write!(&mut s, "{}", inp.1).unwrap();
+                write!(&mut s, "\n").unwrap();
+            }
+        }
+
+        for inp in self.aux.iter() {
+            if set.get(&inp.1).is_none() {
+                write!(&mut s, "\n").unwrap();
+                write!(&mut s, "{}", inp.1).unwrap();
+                write!(&mut s, "\n").unwrap();
+            }
+        }
 
         s
     }
@@ -446,7 +496,7 @@ impl<E: Engine> ConstraintSystem<E> for TestConstraintSystem<E> {
 #[test]
 fn test_cs() {
     use pairing::bls12_381::{Bls12, Fr};
-    use pairing::PrimeField;
+    use ff::PrimeField;
 
     let mut cs = TestConstraintSystem::<Bls12>::new();
     assert!(cs.is_satisfied());

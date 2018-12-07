@@ -118,25 +118,27 @@ impl<E: JubjubEngine> Point<E, Unknown> {
 
     pub fn get_for_y(y: E::Fr, sign: bool, params: &E::Params) -> Option<Self>
     {
-        // Given a y on the curve, x^2 = (y^2 - 1) / (dy^2 + 1)
+        // HERE it' different from jubjub
+        // Given a y on the curve, x^2 = (y^2 - 1) / (dy^2 - a)
         // This is defined for all valid y-coordinates,
-        // as dy^2 + 1 = 0 has no solution in Fr.
+        // as dy^2 - a = 0 has no solution in Fr.
 
         // tmp1 = y^2
         let mut tmp1 = y;
         tmp1.square();
 
-        // tmp2 = (y^2 * d) + 1
+        // tmp2 = (y^2 * d) - a
         let mut tmp2 = tmp1;
         tmp2.mul_assign(params.edwards_d());
-        tmp2.add_assign(&E::Fr::one());
+        tmp2.sub_assign(params.edwards_a()); 
+        // tmp2.add_assign(&E::Fr::one());
 
         // tmp1 = y^2 - 1
         tmp1.sub_assign(&E::Fr::one());
 
         match tmp2.inverse() {
             Some(tmp2) => {
-                // tmp1 = (y^2 - 1) / (dy^2 + 1)
+                // tmp1 = (y^2 - 1) / (dy^2 - a)
                 tmp1.mul_assign(&tmp2);
 
                 match tmp1.sqrt() {
@@ -194,8 +196,7 @@ impl<E: JubjubEngine, Subgroup> Point<E, Subgroup> {
     {
         let (x, y) = self.into_xy();
 
-        assert!(E::Fr::NUM_BITS <= 255);
-        // assert_eq!(E::Fr::NUM_BITS, 255);
+        assert_eq!(E::Fr::NUM_BITS, 254);
 
         let x_repr = x.into_repr();
         let mut y_repr = y.into_repr();
@@ -359,7 +360,7 @@ impl<E: JubjubEngine, Subgroup> Point<E, Subgroup> {
     }
 
     #[must_use]
-    pub fn double(&self, _: &E::Params) -> Self {
+    pub fn double(&self, params: &E::Params) -> Self {
         // See "Twisted Edwards Curves Revisited"
         //     Huseyin Hisil, Kenneth Koon-Ho Wong, Gary Carter, and Ed Dawson
         //     Section 3.3
@@ -378,16 +379,19 @@ impl<E: JubjubEngine, Subgroup> Point<E, Subgroup> {
         c.square();
         c.double();
 
+        // HERE it's different from jubjub
         // D = a*A
-        //   = -A
         let mut d = a;
-        d.negate();
+        d.mul_assign(params.edwards_a());
+        // d.negate();
 
         // E = (X1+Y1)^2 - A - B
         let mut e = self.x;
         e.add_assign(&self.y);
         e.square();
-        e.add_assign(&d); // -A = D
+        // HERE it's different from jubjub
+        e.sub_assign(&a);
+        // e.add_assign(&d); // -A = D
         e.sub_assign(&b);
 
         // G = D+B
@@ -451,13 +455,16 @@ impl<E: JubjubEngine, Subgroup> Point<E, Subgroup> {
         let mut d = self.z;
         d.mul_assign(&other.z);
 
+        // HERE it's different from jubjub
         // H = B - aA
-        //   = B + A
+        let mut a_a = a;
+        a_a.mul_assign(params.edwards_a());
+
         let mut h = b;
-        h.add_assign(&a);
+        h.sub_assign(&a_a);
 
         // E = (x1 + y1) * (x2 + y2) - A - B
-        //   = (x1 + y1) * (x2 + y2) - H
+        //   != (x1 + y1) * (x2 + y2) - H !!!
         let mut e = self.x;
         e.add_assign(&self.y);
         {
@@ -465,7 +472,9 @@ impl<E: JubjubEngine, Subgroup> Point<E, Subgroup> {
             tmp.add_assign(&other.y);
             e.mul_assign(&tmp);
         }
-        e.sub_assign(&h);
+        e.sub_assign(&a);
+        e.sub_assign(&b);
+        // e.sub_assign(&h);
 
         // F = D - C
         let mut f = d;
