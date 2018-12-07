@@ -1,5 +1,5 @@
 [package]
-authors = ["Sean Bowe <sean@z.cash>", , "Alex Vlasov <alex.m.vlasov@gmail.com>"]
+authors = ["Sean Bowe <sean@z.cash>", "Alex Vlasov <alex.m.vlasov@gmail.com>"]
 description = "Cryptographic library for Zcash Sapling with more content"
 documentation = "https://github.com/matterinc/sapling-crypto"
 homepage = "https://github.com/matterinc/sapling-crypto"
