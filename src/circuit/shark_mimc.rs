@@ -17,7 +17,7 @@ const num_round_keys: usize = (middle_rounds + 7) * num_branches;
 const num_round_constants: usize = (middle_rounds + 6) * num_branches;
 
 pub struct SharkMimc<E: Engine> {
-    round_constants : [E::Fr; num_round_constants],
+    // round_constants : [E::Fr; num_round_constants],
     round_keys:  [E::Fr; num_round_keys],
     matrix_1: [[E::Fr; num_branches]; num_branches],
     matrix_2: [[E::Fr; num_branches]; num_branches],
@@ -41,11 +41,11 @@ impl<E:Engine> SharkMimc<E> {
         }
 
         // prepare round constants
-        let mut round_constants = [E::Fr::zero(); num_round_constants];
-        for i in 0..num_round_constants {
-            let random_element: E::Fr = rng.gen();
-            round_keys[i] = random_element;
-        }
+        // let mut round_constants = [E::Fr::zero(); num_round_constants];
+        // for i in 0..num_round_constants {
+        //     let random_element: E::Fr = rng.gen();
+        //     round_keys[i] = random_element;
+        // }
 
         let mut matrix_1 = [[E::Fr::one(); num_branches]; num_branches];
 
@@ -142,7 +142,7 @@ impl<E:Engine> SharkMimc<E> {
         }
 
         Self {
-            round_constants : round_constants,
+            // round_constants : round_constants,
             round_keys:  round_keys,
             matrix_1: matrix_1,
             matrix_2: matrix_2,
@@ -159,6 +159,18 @@ impl<E:Engine> SharkMimc<E> {
     ) -> Result<num::AllocatedNum<E>, SynthesisError> 
         where CS: ConstraintSystem<E>
     {
+        // Ok, idea is to do the chain
+        // M of 
+        // - full sbox
+        // - affine transformation
+        // N of
+        // - signle sbox
+        // - affine transformations
+        // M of 
+        // - full sbox
+        // - affine transformation
+
+        
         assert_eq!(inputs.len(), num_branches);
         let cs = cs.namespace(|| "Sharkmimc inverse gadget");
         let linear_vals = inputs.clone();
@@ -313,42 +325,5 @@ impl<E:Engine> SharkMimc<E> {
             }
 
         round_keys_offset += num_branches;
-
-
-
-        for(; round_no <= 3+middle_rounds; round_no++) {
-
-            uint32_t offset = round_no * this->num_branches;
-
-            this->generate_sbox_constraint(offset-this->num_branches, round_keys_offset, sbox_outs_idx);
-
-            round_keys_offset += this->num_branches;
-            sbox_outs_idx++;
-        }
-
-        for(; round_no <= 3+middle_rounds+2; round_no++) {
-
-            uint32_t offset = round_no * this->num_branches;
-            uint32_t prev_offset = offset - this->num_branches;
-
-            // 4 S-boxes, 8 constraints
-            for(uint32_t i = 0; i < this->num_branches; i++) {
-
-                this->generate_sbox_constraint(prev_offset+i, round_keys_offset, sbox_outs_idx);
-                round_keys_offset++;
-                sbox_outs_idx++;
-            }
-        }
-
-        uint32_t offset = round_no * this->num_branches;
-        uint32_t prev_offset = offset - this->num_branches;
-
-        for(uint32_t i = 0; i < this->num_branches; i++) {
-
-            this->generate_sbox_constraint(prev_offset+i, round_keys_offset, sbox_outs_idx);
-
-            sbox_outs_idx++;
-            round_keys_offset += 2;
-        }
     }
 }
