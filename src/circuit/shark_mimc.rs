@@ -62,8 +62,6 @@ impl<E:Engine> SharkMimc<E> {
                     E::Fr::from_str(&"8").unwrap()
                 ];
 
-
-
             let one = E::Fr::one();
 
             // Char - 2
@@ -170,69 +168,25 @@ impl<E:Engine> SharkMimc<E> {
         // - full sbox
         // - affine transformation
 
-        
         assert_eq!(inputs.len(), num_branches);
         let cs = cs.namespace(|| "Sharkmimc inverse gadget");
-        let linear_vals = inputs.clone();
-        let mut round_squares_constraint_idx = 0;
-        let mut round_keys_offset = 0;
+        let M = 6;
+        let N = 14;
 
-        let mut s_box_outs = vec![];
+        let mut ins = inputs;
+        let mut outs = vec![];
 
-        for round_number in 1..4 {
-            let offset = round_number * num_branches;
-            let prev_offset = offset - num_branches;
+        // invert and witnessize input variables (t1, t2, t3, t4 -> t1^-1, t2^-1, t3^-1, t4^-1)
 
-            for i in 0..num_branches {
-                let lookup_index = prev_offset+i;
-                let input = inputs[lookup_index];
-                let s_box_out = num::AllocatedNum::alloc(
-                    cs.namespace(|| format!("Allocate sbox output for round number {}, branch {}", round_number, i)), 
-                    || {
-                        let mut t = input.get_value().get()?;
-                        t.add_assign(&self.round_keys[round_keys_offset]);
 
-                        match t.inverse() {
-                                Some(t) => {
-                                
-
-                                    Ok(t)
-                                },
-                            None => {
-                                Err(SynthesisError::DivisionByZero)
-                            }
-                        }
-                    }   
-                )?;
-
-                cs.enforce(
-                    || format!("s box for round {} computation, branch {}", round_number, i),
-                    |lc| lc + input.get_variable() + (self.round_keys[round_keys_offset], CS::one()),
-                    |lc| lc + s_box_out.get_variable(),
-                    |lc| lc + CS::one()
-                );
-
-                s_box_outs.push(s_box_out);
-
-                round_keys_offset += 1;
-            }
-        }
-
-        for round_number in 4..(4+middle_rounds) {
-            let offset = round_number * num_branches;
-
-            let lookup_index = offset - num_branches;
-            let input = inputs[lookup_index];
+        for branch in 0..branch_size {
+            let input = ins[branch];
             let s_box_out = num::AllocatedNum::alloc(
-                cs.namespace(|| format!("Allocate sbox output for round number {}", round_number)), 
+                cs.namespace(|| format!("Allocate sbox output for round number {}, branch {}", 0, branch)), 
                 || {
-                    let mut t = input.get_value().get()?;
-                    t.add_assign(&self.round_keys[round_keys_offset]);
-
+                    let t = input.get_value().get()?;
                     match t.inverse() {
                             Some(t) => {
-                            
-
                                 Ok(t)
                             },
                         None => {
@@ -243,32 +197,33 @@ impl<E:Engine> SharkMimc<E> {
             )?;
 
             cs.enforce(
-                || format!("s box for round {} computation", round_number),
-                |lc| lc + input.get_variable() + (self.round_keys[round_keys_offset], CS::one()),
+                || format!("s box for round {} computation, branch {}", 0, branch),
+                |lc| lc + input.get_variable(),
                 |lc| lc + s_box_out.get_variable(),
                 |lc| lc + CS::one()
             );
-            s_box_outs.push(s_box_out);
-            round_keys_offset += num_branches;
+
+            outs.push(s_box_out);
         }
 
-        for round_number in (4+middle_rounds)..(4+2+middle_rounds) {
-            let offset = round_number * num_branches;
-            let prev_offset = offset - num_branches;
-
-            for i in 0..num_branches {
-                let lookup_index = prev_offset+i;
-                let input = inputs[lookup_index];
+        for round_number in 1..M {
+            ins = outs;
+            outs = vec![];
+            // now it's more tricky - combine the affine transformation and the next s-box
+            for branch in 0..branch_size {
                 let s_box_out = num::AllocatedNum::alloc(
-                    cs.namespace(|| format!("Allocate sbox output for round number {}, branch {}", round_number, i)), 
+                    cs.namespace(|| format!("Allocate sbox output for round number {}, branch {}", round_number, branch)), 
                     || {
-                        let mut t = input.get_value().get()?;
-                        t.add_assign(&self.round_keys[round_keys_offset]);
-
+                        let mut t = self.round_keys[M*(round_number-1) + branch];
+                        let i in 0..num_branches {
+                            let input = ins[i];
+                            let mut multiplication = input.get_value().get()?;
+                            multiplication.mul_assign(&matrix_1[branch][i]);
+                            t.add_assign(&multiplication);
+                        }
+                        // this is a linear combination (c11 + a11 * t1^-1 + a12 * t12^-1 + a13 * t3^-1 + a14 * t4^-1)
                         match t.inverse() {
                                 Some(t) => {
-                                
-
                                     Ok(t)
                                 },
                             None => {
@@ -279,51 +234,24 @@ impl<E:Engine> SharkMimc<E> {
                 )?;
 
                 cs.enforce(
-                    || format!("s box for round {} computation, branch {}", round_number, i),
-                    |lc| lc + input.get_variable() + (self.round_keys[round_keys_offset], CS::one()),
+                    || format!("affine + s box for round {} computation, branch {}", round_number, branch),
+                    |lc| {
+                        let mut l = lc + (self.round_keys[M*(round_number-1) + branch], CS::one());
+                        let i in 0..num_branches {
+                            let input = ins[i];
+                            l = l + (matrix_1[branch][i], input.get_variable());                            
+                        }
+
+                        l
+                    },
                     |lc| lc + s_box_out.get_variable(),
                     |lc| lc + CS::one()
                 );
-                s_box_outs.push(s_box_out);
-                round_keys_offset += 1;
+
+                outs.push(s_box_out);
             }
         }
 
-        let offset = (4+2+middle_rounds) * num_branches;
-        let prev_offset = offset - num_branches;
-
-        for i in 0..num_branches {
-                let lookup_index = prev_offset+i;
-                let input = inputs[lookup_index];
-                let s_box_out = num::AllocatedNum::alloc(
-                    cs.namespace(|| format!("Allocate sbox output for round number {}, branch {}", (4+2+middle_rounds), i)), 
-                    || {
-                        let mut t = input.get_value().get()?;
-                        t.add_assign(&self.round_keys[round_keys_offset]);
-
-                        match t.inverse() {
-                                Some(t) => {
-                                
-
-                                    Ok(t)
-                                },
-                            None => {
-                                Err(SynthesisError::DivisionByZero)
-                            }
-                        }
-                    }   
-                )?;
-
-                cs.enforce(
-                    || format!("s box for round {} computation, branch {}", round_number, i),
-                    |lc| lc + input.get_variable() + (self.round_keys[round_keys_offset], CS::one()),
-                    |lc| lc + s_box_out.get_variable(),
-                    |lc| lc + CS::one()
-                );
-                s_box_outs.push(s_box_out);
-                round_keys_offset += 2;
-            }
-
-        round_keys_offset += num_branches;
+        out[num_branches - 1]
     }
 }
