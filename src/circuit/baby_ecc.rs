@@ -447,11 +447,27 @@ impl<E: JubjubEngine> EdwardsPoint<E> {
         // Compute B = x2 * y1
         let b = other.x.mul(cs.namespace(|| "B computation"), &self.y)?;
 
-        // Compute T = x1 * x2
-        let t = other.x.mul(cs.namespace(|| "T computation"), &self.x)?;
+        // Compute T = (-a * x1 + y1) * (x2 + y2)
+        let t = AllocatedNum::alloc(cs.namespace(|| "t"), || {
+            let mut t0 = *self.x.get_value().get()?;
+            t0.mul_assign(params.edwards_a());
+            t0.negate();
+            t0.add_assign(self.y.get_value().get()?);
 
-        // Compute U = y1 * y2
-        let u = other.y.mul(cs.namespace(|| "U computation"), &self.y)?;
+            let mut t1 = *other.x.get_value().get()?;
+            t1.add_assign(other.y.get_value().get()?);
+
+            t0.mul_assign(&t1);
+
+            Ok(t0)
+        })?;
+
+        cs.enforce(
+            || "T computation",
+            |lc| lc - (*params.edwards_a(), self.x.get_variable()) + self.y.get_variable(),
+            |lc| lc + other.x.get_variable() + other.y.get_variable(),
+            |lc| lc + t.get_variable()
+        );
 
         // Compute C = d*A*B
         let c = AllocatedNum::alloc(cs.namespace(|| "C"), || {
@@ -498,23 +514,23 @@ impl<E: JubjubEngine> EdwardsPoint<E> {
                     + b.get_variable()
         );
 
-        // Compute y3 = (U - edwards.a.T) / (1 - C)
+        // Compute y3 = (T + edwards.a * A - B) / (1 - C)
         let y3 = AllocatedNum::alloc(cs.namespace(|| "y3"), || {
-            let mut u0 = *u.get_value().get()?;
+            let mut a0 = *a.get_value().get()?;
+            a0.mul_assign(params.edwards_a());
 
             let mut t0 = *t.get_value().get()?;
-            t0.mul_assign(params.edwards_a());
-
-            u0.sub_assign(&t0);
+            t0.add_assign(&a0);
+            t0.sub_assign(b.get_value().get()?);
 
             let mut t1 = E::Fr::one();
             t1.sub_assign(c.get_value().get()?);
 
             match t1.inverse() {
                 Some(t1) => {
-                    u0.mul_assign(&t1);
+                    t0.mul_assign(&t1);
 
-                    Ok(u0)
+                    Ok(t0)
                 },
                 None => {
                     Err(SynthesisError::DivisionByZero)
@@ -526,8 +542,8 @@ impl<E: JubjubEngine> EdwardsPoint<E> {
             || "y3 computation",
             |lc| lc + one - c.get_variable(),
             |lc| lc + y3.get_variable(),
-            |lc| lc + u.get_variable()
-                    - (*params.edwards_a(), t.get_variable())
+            |lc| lc + t.get_variable()
+                    + (*params.edwards_a(), a.get_variable()) - b.get_variable()
         );
 
         Ok(EdwardsPoint {
