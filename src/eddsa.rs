@@ -333,21 +333,21 @@ impl<E: JubjubEngine> PublicKey<E> {
 
         // pad with zeroes to match representation length
         let mut msg_padded : Vec<u8> = msg.iter().cloned().collect();
-        for _ in 0..(32 - msg.len()) {
-            msg_padded.extend(&[0u8;1]);
-        }
+        msg_padded.resize(32, 0u8);
 
         let c = E::Fs::to_uniform_32(msg_padded.as_ref());
 
         // this one is for a simple sanity check. In application purposes the pk will always be in a right group 
         let order_check_pk = self.0.mul(E::Fs::char(), params);
         if !order_check_pk.eq(&Point::zero()) {
+            println!("Order check for public key failed");
             return false;
         }
 
         // r is input from user, so always check it!
         let order_check_r = sig.r.mul(E::Fs::char(), params);
         if !order_check_r.eq(&Point::zero()) {
+            println!("Order check for r failed");
             return false;
         }
 
@@ -380,9 +380,7 @@ impl<E: JubjubEngine> PublicKey<E> {
         let concatenated: Vec<u8> = r_g_x_bytes.iter().cloned().collect();
 
         let mut msg_padded : Vec<u8> = msg.iter().cloned().collect();
-        for _ in 0..(32-msg.len()) {
-            msg_padded.extend(&[0u8;1]);
-        }
+        msg_padded.resize(32, 0u8);
 
         let c = h_star_s::<E>(&concatenated[..], &msg_padded[..]);
 

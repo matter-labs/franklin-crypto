@@ -6,13 +6,16 @@ homepage = "https://github.com/matterinc/sapling-crypto"
 license = "MIT/Apache-2.0"
 name = "sapling-crypto"
 repository = "https://github.com/matterinc/sapling-crypto"
-version = "0.0.2"
+version = "0.0.3"
+
+[lib]
+crate-type = ["lib", "staticlib"]
  
 [dependencies]
 rand = "0.4"
 digest = "0.7"
 byteorder = "1"
-ff = { version = "0.4", features = ["derive"] }
+ff = { git = 'https://github.com/matterinc/ff', features = ["derive"] }
 pairing = { git = 'https://github.com/matterinc/pairing', features = ["expose-arith"] }
 bellman = { git = 'https://github.com/matterinc/bellman'}
 

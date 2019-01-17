@@ -31,11 +31,15 @@ use std::io::{
 //
 // See "Twisted Edwards Curves Revisited"
 //     Huseyin Hisil, Kenneth Koon-Ho Wong, Gary Carter, and Ed Dawson
+#[derive(Serialize, Deserialize, Default)]
 pub struct Point<E: JubjubEngine, Subgroup> {
     x: E::Fr,
     y: E::Fr,
     t: E::Fr,
     z: E::Fr,
+
+    #[serde(skip)]
+    #[serde(bound = "")]
     _marker: PhantomData<Subgroup>
 }
 
@@ -114,6 +118,44 @@ impl<E: JubjubEngine> Point<E, Unknown> {
                 Err(io::Error::new(io::ErrorKind::InvalidInput, "y is not in field"))
             }
         }
+    }
+
+    pub fn from_xy(x: E::Fr, y: E::Fr, params: &E::Params) -> Option<Self>
+    {
+        // check that a point is on curve
+        // y^2 - x^2 = 1 + d * x^2 * y^2
+
+        // tmp0 = x^2
+        let mut tmp0 = x;
+        tmp0.square();
+
+        // tmp1 = y^2
+        let mut tmp1 = y;
+        tmp1.square();
+
+        let mut lhs = tmp1;
+        lhs.sub_assign(&tmp0);
+
+        let mut rhs = tmp0;
+        rhs.mul_assign(&tmp1);
+        rhs.mul_assign(params.edwards_d());
+        rhs.add_assign(&E::Fr::one());
+
+        if rhs != lhs {
+            return None;
+
+        }
+
+        let mut t = x;
+        t.mul_assign(&y);
+
+        Some(Point {
+            x: x,
+            y: y,
+            t: t,
+            z: E::Fr::one(),
+            _marker: PhantomData
+        })
     }
 
     pub fn get_for_y(y: E::Fr, sign: bool, params: &E::Params) -> Option<Self>
