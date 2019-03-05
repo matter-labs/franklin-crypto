@@ -1,4 +1,4 @@
-use pairing::{Engine};
+use bellman::pairing::{Engine};
 use bellman::{ConstraintSystem, SynthesisError};
 use circuit::boolean::{Boolean};
 

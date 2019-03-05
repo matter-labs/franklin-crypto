@@ -1,5 +1,5 @@
-use pairing::{Engine,};
-use ff::{Field};
+use bellman::pairing::{Engine,};
+use bellman::pairing::ff::{Field};
 use super::*;
 use super::num::{
     AllocatedNum,
@@ -199,7 +199,7 @@ mod test {
     use super::*;
     use ::circuit::test::*;
     use ::circuit::boolean::{Boolean, AllocatedBit};
-    use pairing::bls12_381::{Bls12, Fr};
+    use bellman::pairing::bls12_381::{Bls12, Fr};
 
     #[test]
     fn test_lookup3_xy() {

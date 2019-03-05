@@ -1,4 +1,4 @@
-use pairing::{
+use bellman::pairing::{
     Engine,
 };
 
@@ -321,7 +321,7 @@ pub fn blake2s<E: Engine, CS: ConstraintSystem<E>>(
 #[cfg(test)]
 mod test {
     use rand::{XorShiftRng, SeedableRng, Rng};
-    use pairing::bls12_381::{Bls12};
+    use bellman::pairing::bls12_381::{Bls12};
     use ::circuit::boolean::{Boolean, AllocatedBit};
     use ::circuit::test::TestConstraintSystem;
     use super::blake2s;

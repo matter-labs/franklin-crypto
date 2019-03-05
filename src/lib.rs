@@ -2,13 +2,12 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-extern crate pairing;
 extern crate bellman;
 extern crate blake2_rfc;
 extern crate digest;
 extern crate rand;
 extern crate byteorder;
-extern crate ff;
+extern crate tiny_keccak;
 
 #[cfg(test)]
 #[macro_use]
@@ -32,6 +31,7 @@ pub mod redjubjub;
 pub mod baby_util;
 pub mod util;
 pub mod eddsa;
+pub mod interpolation;
 
 extern crate serde;
 #[macro_use]

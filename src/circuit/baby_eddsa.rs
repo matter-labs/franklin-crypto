@@ -1,8 +1,8 @@
-use pairing::{
+use bellman::pairing::{
     Engine,
 };
 
-use ff::{Field};
+use bellman::pairing::ff::{Field};
 
 use bellman::{
     SynthesisError,
@@ -233,8 +233,8 @@ mod test {
     use super::*;
     use ::circuit::test::*;
     use ::circuit::boolean::{Boolean, AllocatedBit};
-    use pairing::bn256::{Bn256, Fr};
-    use ff::{PrimeField, PrimeFieldRepr};
+    use bellman::pairing::bn256::{Bn256, Fr};
+    use bellman::pairing::ff::{PrimeField, PrimeFieldRepr};
     use ::alt_babyjubjub::AltJubjubBn256;
     
     #[test]

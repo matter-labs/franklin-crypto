@@ -2,11 +2,11 @@
 
 extern crate rand;
 extern crate test;
-extern crate pairing;
+extern crate bellman;
 extern crate sapling_crypto;
 
 use rand::{Rand, thread_rng};
-use pairing::bls12_381::Bls12;
+use bellman::pairing::bls12_381::Bls12;
 use sapling_crypto::jubjub::JubjubBls12;
 use sapling_crypto::pedersen_hash::{pedersen_hash, Personalization};
 

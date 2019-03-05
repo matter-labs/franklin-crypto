@@ -1,7 +1,7 @@
 //! This is an implementation of EdDSA as refered in literature
 //! Generation of randomness is not specified
 
-use ff::{Field, PrimeField, PrimeFieldRepr};
+use bellman::pairing::ff::{Field, PrimeField, PrimeFieldRepr};
 use rand::{Rng};
 use std::io::{self, Read, Write};
 
@@ -442,7 +442,7 @@ impl<E: JubjubEngine> PublicKey<E> {
 
 #[cfg(test)]
 mod baby_tests {
-    use pairing::bn256::Bn256;
+    use bellman::pairing::bn256::Bn256;
     use rand::thread_rng;
 
     use alt_babyjubjub::{AltJubjubBn256, fs::Fs, edwards, FixedGenerators};

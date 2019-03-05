@@ -1,7 +1,7 @@
 //! Implementation of RedJubjub, a specialization of RedDSA to the Jubjub curve.
 //! See section 5.4.6 of the Sapling protocol specification.
 
-use ff::{Field, PrimeField, PrimeFieldRepr};
+use bellman::pairing::ff::{Field, PrimeField, PrimeFieldRepr};
 use rand::{Rng, Rand};
 use std::io::{self, Read, Write};
 
@@ -204,7 +204,7 @@ pub fn batch_verify<'a, E: JubjubEngine, R: Rng>(
 
 #[cfg(test)]
 mod tests {
-    use pairing::bn256::Bn256;
+    use bellman::pairing::bn256::Bn256;
     use rand::thread_rng;
 
     use babyjubjub::{JubjubBn256, fs::Fs, edwards};

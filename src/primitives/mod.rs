@@ -1,4 +1,4 @@
-use ff::{
+use bellman::pairing::ff::{
     Field,
     PrimeField,
     PrimeFieldRepr

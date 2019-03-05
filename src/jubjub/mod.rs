@@ -17,11 +17,11 @@
 //! the Montgomery curve forms a group isomorphism, allowing points
 //! to be freely converted between the two forms.
 
-use pairing::{
+use bellman::pairing::{
     Engine,
 };
 
-use ff::{
+use bellman::pairing::ff::{
     Field,
     PrimeField,
     SqrtField
@@ -31,7 +31,7 @@ use group_hash::group_hash;
 
 use constants;
 
-use pairing::bls12_381::{
+use bellman::pairing::bls12_381::{
     Bls12,
     Fr
 };
@@ -436,4 +436,11 @@ fn test_jubjub_bls12() {
     ).unwrap();
 
     assert!(p == q);
+}
+
+#[test]
+fn test_jubjub_bls12_num_generators() {
+    let params = JubjubBls12::new();
+
+    assert_eq!(params.pedersen_circuit_generators.len(), 5);
 }

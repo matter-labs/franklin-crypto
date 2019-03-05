@@ -1,5 +1,5 @@
-use pairing::{Engine};
-use ff::{Field};
+use bellman::pairing::{Engine};
+use bellman::pairing::ff::{Field};
 use bellman::{ConstraintSystem, SynthesisError, Circuit, LinearCombination};
 use circuit::boolean::{
     AllocatedBit,
@@ -354,7 +354,7 @@ fn witness_u252<E, CS>(
 
 #[test]
 fn test_sprout_constraints() {
-    use pairing::bls12_381::{Bls12};
+    use bellman::pairing::bls12_381::{Bls12};
     use ::circuit::test::*;
 
     use byteorder::{WriteBytesExt, ReadBytesExt, LittleEndian};

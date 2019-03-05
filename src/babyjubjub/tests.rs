@@ -6,7 +6,7 @@ use super::{
     edwards
 };
 
-use ff::{
+use bellman::pairing::ff::{
     Field,
     PrimeField,
     PrimeFieldRepr,

@@ -19,11 +19,11 @@
 //! the Montgomery curve forms a group isomorphism, allowing points
 //! to be freely converted between the two forms.
 
-use pairing::{
+use bellman::pairing::{
     Engine,
 };
 
-use ff::{
+use bellman::pairing::ff::{
     Field,
     PrimeField,
     SqrtField
@@ -33,7 +33,7 @@ use baby_group_hash::group_hash;
 
 use constants;
 
-use pairing::bn256::{
+use bellman::pairing::bn256::{
     Bn256,
     Fr
 };

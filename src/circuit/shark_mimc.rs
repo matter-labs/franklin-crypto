@@ -1,9 +1,9 @@
 // This is an attempt to write an implementation of Dmitry Khovratovich
 
-use pairing::{Engine};
+use bellman::pairing::{Engine};
 use bellman::{ConstraintSystem, SynthesisError};
 use rand::Rng;
-use ff::{Field, PrimeField, PrimeFieldRepr, BitIterator};
+use bellman::pairing::ff::{Field, PrimeField, PrimeFieldRepr, BitIterator};
 
 use super::*;
 

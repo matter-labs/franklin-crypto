@@ -2,11 +2,11 @@
 
 extern crate rand;
 extern crate test;
-extern crate pairing;
+extern crate bellman;
 extern crate sapling_crypto;
 
 use rand::{Rand, thread_rng};
-use pairing::bn256::Bn256;
+use bellman::pairing::bn256::Bn256;
 use sapling_crypto::alt_babyjubjub::AltJubjubBn256;
 use sapling_crypto::pedersen_hash::{pedersen_hash, Personalization};
 

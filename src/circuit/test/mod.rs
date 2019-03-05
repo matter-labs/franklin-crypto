@@ -1,8 +1,8 @@
-use pairing::{
+use bellman::pairing::{
     Engine,
 };
 
-use ff::{
+use bellman::pairing::ff::{
     Field,
     PrimeField,
     PrimeFieldRepr
@@ -495,8 +495,8 @@ impl<E: Engine> ConstraintSystem<E> for TestConstraintSystem<E> {
 
 #[test]
 fn test_cs() {
-    use pairing::bls12_381::{Bls12, Fr};
-    use ff::PrimeField;
+    use bellman::pairing::bls12_381::{Bls12, Fr};
+    use bellman::pairing::ff::PrimeField;
 
     let mut cs = TestConstraintSystem::<Bls12>::new();
     assert!(cs.is_satisfied());

@@ -4,7 +4,7 @@ use babyjubjub::{
     edwards
 };
 
-use ff::{
+use bellman::pairing::ff::{
     PrimeField
 };
 

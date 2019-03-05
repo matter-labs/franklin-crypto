@@ -1,5 +1,5 @@
-use pairing::{Engine};
-use ff::{Field, PrimeField};
+use bellman::pairing::{Engine};
+use bellman::pairing::ff::{Field, PrimeField};
 use bellman::{ConstraintSystem, SynthesisError};
 use super::boolean::{Boolean};
 use super::num::{AllocatedNum, Num};
@@ -237,7 +237,7 @@ pub fn parse_float_to_u128(
 fn test_parsing() {
     use rand::{SeedableRng, Rng, XorShiftRng};
     use bellman::{ConstraintSystem};
-    use pairing::bn256::{Bn256};
+    use bellman::pairing::bn256::{Bn256};
     use ::circuit::test::*;
     use super::boolean::{AllocatedBit, Boolean};
 

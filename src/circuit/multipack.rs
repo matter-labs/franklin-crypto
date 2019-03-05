@@ -1,5 +1,5 @@
-use pairing::{Engine,};
-use ff::{Field, PrimeField};
+use bellman::pairing::{Engine,};
+use bellman::pairing::ff::{Field, PrimeField};
 use bellman::{ConstraintSystem, SynthesisError};
 use super::boolean::{Boolean};
 use super::num::Num;
@@ -82,7 +82,7 @@ pub fn compute_multipacking<E: Engine>(
 fn test_multipacking() {
     use rand::{SeedableRng, Rng, XorShiftRng};
     use bellman::{ConstraintSystem};
-    use pairing::bls12_381::{Bls12};
+    use bellman::pairing::bls12_381::{Bls12};
     use ::circuit::test::*;
     use super::boolean::{AllocatedBit, Boolean};
 

@@ -1,8 +1,8 @@
-// use pairing::{
+// use bellman::pairing::{
 //
 // };
 
-use ff::{
+use bellman::pairing::ff::{
     PrimeField,
     PrimeFieldRepr,
     Field,
@@ -604,8 +604,8 @@ impl<'a, E: JubjubEngine> Circuit<E> for Output<'a, E> {
 
 #[test]
 fn test_input_circuit_with_bls12_381() {
-    use ff::{Field, BitIterator};
-    use pairing::bls12_381::*;
+    use bellman::pairing::ff::{Field, BitIterator};
+    use bellman::pairing::bls12_381::*;
     use rand::{SeedableRng, Rng, XorShiftRng};
     use ::circuit::test::*;
     use jubjub::{JubjubBls12, fs, edwards};
@@ -736,8 +736,8 @@ fn test_input_circuit_with_bls12_381() {
 
 #[test]
 fn test_output_circuit_with_bls12_381() {
-    use ff::{Field};
-    use pairing::bls12_381::*;
+    use bellman::pairing::ff::{Field};
+    use bellman::pairing::bls12_381::*;
     use rand::{SeedableRng, Rng, XorShiftRng};
     use ::circuit::test::*;
     use jubjub::{JubjubBls12, fs, edwards};

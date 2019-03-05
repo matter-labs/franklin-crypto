@@ -1,7 +1,7 @@
 use byteorder::{ByteOrder, LittleEndian};
-use ff::{adc, sbb, mac_with_carry};
-use ff::{BitIterator, Field, PrimeField, SqrtField, PrimeFieldRepr, PrimeFieldDecodingError, LegendreSymbol};
-use ff::LegendreSymbol::*;
+use bellman::pairing::ff::{adc, sbb, mac_with_carry};
+use bellman::pairing::ff::{BitIterator, Field, PrimeField, SqrtField, PrimeFieldRepr, PrimeFieldDecodingError, LegendreSymbol};
+use bellman::pairing::ff::LegendreSymbol::*;
 use super::ToUniform;
 
 // s = 6554484396890773809930967563523245729705921265872317281365359162392183254199

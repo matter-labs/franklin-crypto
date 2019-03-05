@@ -1,7 +1,6 @@
 extern crate sapling_crypto;
 extern crate bellman;
 extern crate rand;
-extern crate pairing;
 
 use std::time::{Duration, Instant};
 use sapling_crypto::jubjub::{
@@ -17,9 +16,10 @@ use sapling_crypto::primitives::{
     ProofGenerationKey,
     ValueCommitment
 };
+
 use bellman::groth16::*;
 use rand::{XorShiftRng, SeedableRng, Rng};
-use pairing::bls12_381::{Bls12, Fr};
+use bellman::pairing::bls12_381::{Bls12, Fr};
 
 const TREE_DEPTH: usize = 32;
 

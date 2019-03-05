@@ -1,8 +1,8 @@
-use pairing::{
+use bellman::pairing::{
     Engine,
 };
 
-use ff::{Field};
+use bellman::pairing::ff::{Field};
 
 use bellman::{
     SynthesisError,
@@ -724,8 +724,8 @@ impl<E: JubjubEngine> MontgomeryPoint<E> {
 mod test {
     use bellman::{ConstraintSystem};
     use rand::{XorShiftRng, SeedableRng, Rand, Rng};
-    use pairing::bn256::{Bn256, Fr};
-    use ff::{BitIterator, Field, PrimeField};
+    use bellman::pairing::bn256::{Bn256, Fr};
+    use bellman::pairing::ff::{BitIterator, Field, PrimeField};
     use ::circuit::test::*;
     use ::babyjubjub::{
         montgomery,

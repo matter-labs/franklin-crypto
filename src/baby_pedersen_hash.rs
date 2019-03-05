@@ -1,5 +1,5 @@
 use babyjubjub::*;
-use ff::{Field, PrimeField, PrimeFieldRepr};
+use bellman::pairing::ff::{Field, PrimeField, PrimeFieldRepr};
 
 #[derive(Copy, Clone)]
 pub enum Personalization {

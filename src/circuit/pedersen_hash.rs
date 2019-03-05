@@ -116,8 +116,8 @@ mod test {
     use super::*;
     use ::circuit::test::*;
     use ::circuit::boolean::{Boolean, AllocatedBit};
-    use pairing::bls12_381::{Bls12, Fr};
-    use ff::PrimeField;
+    use bellman::pairing::bls12_381::{Bls12, Fr};
+    use bellman::pairing::ff::PrimeField;
 
     #[test]
     fn test_pedersen_hash_constraints() {
@@ -199,8 +199,8 @@ mod baby_test {
     use super::*;
     use ::circuit::test::*;
     use ::circuit::boolean::{Boolean, AllocatedBit};
-    use pairing::bn256::{Bn256, Fr};
-    use ff::PrimeField;
+    use bellman::pairing::bn256::{Bn256, Fr};
+    use bellman::pairing::ff::PrimeField;
     use ::alt_babyjubjub::{AltJubjubBn256};
 
     #[test]

@@ -1,8 +1,8 @@
-use pairing::{
+use bellman::pairing::{
     Engine,
 };
 
-use ff::{
+use bellman::pairing::ff::{
     Field,
     PrimeField,
     BitIterator
@@ -817,8 +817,8 @@ impl From<AllocatedBit> for Boolean {
 #[cfg(test)]
 mod test {
     use bellman::{ConstraintSystem};
-    use pairing::bls12_381::{Bls12, Fr};
-    use ff::{Field, PrimeField};
+    use bellman::pairing::bls12_381::{Bls12, Fr};
+    use bellman::pairing::ff::{Field, PrimeField};
     use ::circuit::test::*;
     use super::{
         AllocatedBit,
