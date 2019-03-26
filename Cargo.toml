@@ -24,7 +24,7 @@ serde_derive = "1.0.80"
 tiny-keccak = "1.4.2"
 
 #bellman = { path = "../bellman"}
-bellman = { git = 'https://github.com/poma/bellman', default-features = false}
+bellman = { git = 'https://github.com/poma/bellman', tag = '0.2.0', default-features = false}
 
 [dependencies.blake2-rfc]
 git = "https://github.com/gtank/blake2-rfc"
