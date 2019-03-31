@@ -3,7 +3,7 @@
 #![allow(unused_variables)]
 
 extern crate bellman_ce as bellman;
-extern crate blake2_rfc;
+extern crate blake2_rfc_bellman_edition as blake2_rfc;
 extern crate digest;
 extern crate rand;
 extern crate byteorder;

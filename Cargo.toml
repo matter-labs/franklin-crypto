@@ -25,10 +25,7 @@ tiny-keccak = "1.4.2"
 
 #bellman_ce = { path = "../bellman"}
 bellman_ce = { version = "0.3.0", default-features = false}
-
-[dependencies.blake2-rfc]
-path = "./src/dependencies/blake2-rfc/"
-version = "0.2.17"
+blake2-rfc_bellman_edition = "0.0.1"
 
 [dev-dependencies]
 hex-literal = "0.1"
