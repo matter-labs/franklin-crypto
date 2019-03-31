@@ -272,7 +272,7 @@ mod test {
 
         let mut sigs_bytes = [0u8; 32];
         sig1.s.into_repr().write_le(& mut sigs_bytes[..]).expect("get LE bytes of signature S");
-        let mut sigs_repr = <pairing::bn256::Fr as PrimeField>::Repr::from(0);
+        let mut sigs_repr = <Fr as PrimeField>::Repr::from(0);
         sigs_repr.read_le(&sigs_bytes[..]).expect("interpret S as field element representation");
 
         let sigs_converted = Fr::from_repr(sigs_repr).unwrap();
@@ -332,7 +332,7 @@ mod test {
 
         let mut sigs_bytes = [0u8; 32];
         sig1.s.into_repr().write_le(& mut sigs_bytes[..]).expect("get LE bytes of signature S");
-        let mut sigs_repr = <pairing::bn256::Fr as PrimeField>::Repr::from(0);
+        let mut sigs_repr = <Fr as PrimeField>::Repr::from(0);
         sigs_repr.read_le(&sigs_bytes[..]).expect("interpret S as field element representation");
 
         let sigs_converted = Fr::from_repr(sigs_repr).unwrap();

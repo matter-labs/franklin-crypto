@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-extern crate bellman;
+extern crate bellman_ce as bellman;
 extern crate blake2_rfc;
 extern crate digest;
 extern crate rand;

@@ -2,8 +2,8 @@
 
 extern crate rand;
 extern crate test;
-extern crate bellman;
-extern crate sapling_crypto;
+extern crate bellman_ce as bellman;
+extern crate sapling_crypto_ce as sapling_crypto;
 
 use rand::{Rand, thread_rng};
 use bellman::pairing::bn256::Bn256;

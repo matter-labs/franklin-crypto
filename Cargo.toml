@@ -1,11 +1,11 @@
 [package]
 authors = ["Sean Bowe <sean@z.cash>", "Alex Vlasov <alex.m.vlasov@gmail.com>"]
 description = "Cryptographic library for Zcash Sapling with more content"
-documentation = "https://github.com/matterinc/sapling-crypto"
-homepage = "https://github.com/matterinc/sapling-crypto"
+documentation = "https://github.com/matter-labs/sapling-crypto"
+homepage = "https://github.com/matter-labs/sapling-crypto"
 license = "MIT/Apache-2.0"
-name = "sapling-crypto"
-repository = "https://github.com/matterinc/sapling-crypto"
+name = "sapling-crypto_ce"
+repository = "https://github.com/matter-labs/sapling-crypto"
 version = "0.0.4"
 
 [lib]
@@ -13,7 +13,7 @@ crate-type = ["lib", "staticlib"]
 
 [features]
 default = ["multicore"]
-multicore = ["bellman/multicore"]
+multicore = ["bellman_ce/multicore"]
  
 [dependencies]
 rand = "0.4"
@@ -23,8 +23,8 @@ serde = "1.0.80"
 serde_derive = "1.0.80"
 tiny-keccak = "1.4.2"
 
-#bellman = { path = "../bellman"}
-bellman = { git = 'https://github.com/poma/bellman', tag = '0.2.0', default-features = false}
+#bellman_ce = { path = "../bellman"}
+bellman_ce = { version = "0.3.0", default-features = false}
 
 [dependencies.blake2-rfc]
 git = "https://github.com/gtank/blake2-rfc"

@@ -1,5 +1,5 @@
-extern crate sapling_crypto;
-extern crate bellman;
+extern crate sapling_crypto_ce as sapling_crypto;
+extern crate bellman_ce as bellman;
 extern crate rand;
 
 use std::time::{Duration, Instant};
