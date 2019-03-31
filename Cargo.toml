@@ -10,6 +10,10 @@ version = "0.0.4"
 
 [lib]
 crate-type = ["lib", "staticlib"]
+
+[features]
+default = ["multicore"]
+multicore = ["bellman/multicore"]
  
 [dependencies]
 rand = "0.4"
@@ -19,8 +23,8 @@ serde = "1.0.80"
 serde_derive = "1.0.80"
 tiny-keccak = "1.4.2"
 
-bellman = { git = 'https://github.com/matterinc/bellman', tag = "0.2.0"}
 #bellman = { path = "../bellman"}
+bellman = { git = 'https://github.com/poma/bellman', tag = '0.2.0', default-features = false}
 
 [dependencies.blake2-rfc]
 git = "https://github.com/gtank/blake2-rfc"
