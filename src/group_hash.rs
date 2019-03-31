@@ -211,3 +211,16 @@ fn test_export_blake_generators() {
         assert!(blake_point == generic_point);
     }
 }
+
+#[test]
+fn blake2s_consistency_test() {
+    let personalization = b"Hello_w!";
+    let tag = b"World_123!";
+    let mut h = Blake2s::with_params(32, &[], &[], personalization);
+    h.update(constants::GH_FIRST_BLOCK);
+    h.update(tag);
+    let h = h.finalize().as_ref().to_vec();
+    let reference = hex!("989e1d96f8d977db95b7fcb59d26fe7f66b4e21e84cdb9387b67aa78ebd07ecf");
+
+    assert_eq!(reference[..], h[..]);
+}

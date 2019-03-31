@@ -1,0 +1,37 @@
+language: rust
+matrix:
+  include:
+  - rust: 1.20.0
+    env: FEATURES=
+  - rust: 1.20.0
+    env: FEATURES=--no-default-features
+  - rust: stable
+    env: FEATURES=
+  - rust: stable
+    env: FEATURES=--no-default-features
+  - rust: beta
+    env: FEATURES=
+  - rust: beta
+    env: FEATURES=--no-default-features
+  - rust: nightly
+    env: FEATURES=
+  - rust: nightly
+    env: FEATURES=--features=simd
+  - rust: nightly
+    env: FEATURES=--features=simd_opt
+  - rust: nightly
+    env: FEATURES=--features=simd_asm
+  - rust: nightly
+    env: 'FEATURES="--no-default-features"'
+  - rust: nightly
+    env: 'FEATURES="--no-default-features --features=simd"'
+  - rust: nightly
+    env: 'FEATURES="--no-default-features --features=simd_opt"'
+  - rust: nightly
+    env: 'FEATURES="--no-default-features --features=simd_asm"'
+script:
+  - cargo build --verbose $FEATURES
+  - cargo test --verbose $FEATURES
+  - cargo build --verbose --release $FEATURES
+  - cargo test --verbose --release $FEATURES
+  - '[ "$TRAVIS_RUST_VERSION" != "nightly" ] || cargo bench --verbose $FEATURES'

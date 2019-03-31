@@ -27,8 +27,9 @@ tiny-keccak = "1.4.2"
 bellman_ce = { version = "0.3.0", default-features = false}
 
 [dependencies.blake2-rfc]
-git = "https://github.com/gtank/blake2-rfc"
-rev = "7a5b5fc99ae483a0043db7547fb79a6fa44b88a9"
+path = "./src/dependencies/blake2-rfc/"
+#git = "https://github.com/gtank/blake2-rfc"
+#rev = "7a5b5fc99ae483a0043db7547fb79a6fa44b88a9"
 
 [dev-dependencies]
 hex-literal = "0.1"
