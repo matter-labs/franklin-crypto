@@ -28,7 +28,7 @@ bellman_ce = { version = "0.3.0", default-features = false}
 
 [dependencies.blake2-rfc]
 path = "./src/dependencies/blake2-rfc/"
-version = "0.2.18"
+version = "0.2.17"
 
 [dev-dependencies]
 hex-literal = "0.1"

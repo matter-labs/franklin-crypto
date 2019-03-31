@@ -1,6 +1,6 @@
 [package]
 name = "blake2-rfc"
-version = "0.2.18"
+version = "0.2.17"
 authors = ["Cesar Eduardo Barros <cesarb@cesarb.eti.br>"]
 description = "A pure Rust implementation of BLAKE2 based on RFC 7693."
 documentation = "https://docs.rs/blake2-rfc"
