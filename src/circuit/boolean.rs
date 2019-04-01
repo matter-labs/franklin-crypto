@@ -304,6 +304,21 @@ pub fn u64_into_boolean_vec_le<E: Engine, CS: ConstraintSystem<E>>(
     Ok(bits)
 }
 
+// changes an order of the bits to transform bits in LSB first order into
+// LE bytes. Takes 8 bit chunks and reverses them
+pub fn le_bits_into_le_bytes(bits: Vec<Boolean>) -> Vec<Boolean> {
+    assert_eq!(bits.len() % 8, 0);
+
+    let mut result = vec![];
+    for chunk in bits.chunks(8) {
+        for b in chunk.iter().rev() {
+            result.push(b.clone());
+        }
+    }
+
+    result
+}
+
 pub fn field_into_boolean_vec_le<E: Engine, CS: ConstraintSystem<E>, F: PrimeField>(
     cs: CS,
     value: Option<F>

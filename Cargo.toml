@@ -22,11 +22,12 @@ byteorder = "1"
 serde = "1.0.80"
 serde_derive = "1.0.80"
 tiny-keccak = "1.4.2"
+rust-crypto = "0.2"
 
-#bellman_ce = { path = "../bellman"}
-bellman_ce = { version = "0.3.0", default-features = false}
+bellman_ce = { path = "../bellman"}
+#bellman_ce = { version = "0.3.0", default-features = false}
 blake2-rfc_bellman_edition = "0.0.1"
 
 [dev-dependencies]
 hex-literal = "0.1"
-rust-crypto = "0.2"
+

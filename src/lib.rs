@@ -8,13 +8,11 @@ extern crate digest;
 extern crate rand;
 extern crate byteorder;
 extern crate tiny_keccak;
+extern crate crypto;
 
 #[cfg(test)]
 #[macro_use]
 extern crate hex_literal;
-
-#[cfg(test)]
-extern crate crypto;
 
 pub mod babyjubjub;
 pub mod jubjub;

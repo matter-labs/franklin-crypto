@@ -12,7 +12,8 @@ use jubjub::{
     Unknown, 
     edwards::Point,
     ToUniform};
-use util::{hash_to_scalar, hash_to_scalar_s};
+
+use util::{hash_to_scalar, hash_to_scalar_s, sha256_hash_to_scalar};
 
 use ::constants::{MATTER_EDDSA_BLAKE2S_PERSONALIZATION};
 
@@ -39,6 +40,10 @@ fn h_star<E: JubjubEngine>(a: &[u8], b: &[u8]) -> E::Fs {
 
 fn h_star_s<E: JubjubEngine>(a: &[u8], b: &[u8]) -> E::Fs {
     hash_to_scalar_s::<E>(MATTER_EDDSA_BLAKE2S_PERSONALIZATION, a, b)
+}
+
+fn sha256_h_star<E: JubjubEngine>(a: &[u8], b: &[u8]) -> E::Fs {
+    sha256_hash_to_scalar::<E>(&[], a, b)
 }
 
 #[derive(Copy, Clone)]
@@ -138,7 +143,9 @@ impl<E: JubjubEngine> PrivateKey<E> {
         Signature { r: as_unknown, s: s }
     }
 
-    pub fn sign_for_snark<R: Rng>(
+
+    // This is a plain Schnorr signature that does not capture public key into the hash
+    pub fn sign_schnorr_blake2s<R: Rng>(
         &self,
         msg: &[u8],
         rng: &mut R,
@@ -176,12 +183,66 @@ impl<E: JubjubEngine> PrivateKey<E> {
         let concatenated: Vec<u8> = r_g_x_bytes.iter().cloned().collect();
 
         let mut msg_padded : Vec<u8> = msg.iter().cloned().collect();
-        for _ in 0..(32-msg.len()) {
-            msg_padded.extend(&[0u8;1]);
-        }
+        msg_padded.resize(32, 0u8);
 
         // S = r + H*(R_X || M) . sk
         let mut s = h_star_s::<E>(&concatenated[..], &msg_padded[..]);
+        s.mul_assign(&self.0);
+        s.add_assign(&r);
+    
+        let as_unknown = Point::from(r_g);
+        Signature { r: as_unknown, s: s }
+    }
+
+    // sign a message by following MuSig protocol, with public key being just a trivial key,
+    // not a multisignature one
+    pub fn musig_sha256_sign<R: Rng>(
+        &self,
+        msg: &[u8],
+        rng: &mut R,
+        p_g: FixedGenerators,
+        params: &E::Params,
+    ) -> Signature<E> {
+        // T = (l_H + 128) bits of randomness
+        // For H*, l_H = 512 bits
+        let mut t = [0u8; 80];
+        rng.fill_bytes(&mut t[..]);
+
+        // Generate randomness using hash function based on some entropy and the message
+        // Generation of randommess is completely off-chain, so we use BLAKE2b!
+        // r = H*(T || M)
+        let r = h_star::<E>(&t[..], msg);
+
+        let pk = PublicKey::from_private(&self, p_g, params);
+        let order_check = pk.0.mul(E::Fs::char(), params);
+        assert!(order_check.eq(&Point::zero()));
+
+        let (pk_x, _) = pk.0.into_xy();
+        let mut pk_x_bytes = [0u8; 32];
+        pk_x.into_repr().write_le(& mut pk_x_bytes[..]).expect("has serialized pk_x");
+
+        // for hash function for a part that is INSIDE the zkSNARK it's 
+        // sha256 that has 3*256 of input and 256 bits of output,
+        // so we use PK_X || R_X || M as an input to hash,
+        // with a point coordinates padded to 256 bits
+
+        // R = r . P_G
+        let r_g = params.generator(p_g).mul(r, params);
+
+        let (r_g_x, _) = r_g.into_xy();
+        let mut r_g_x_bytes = [0u8; 32];
+        r_g_x.into_repr().write_le(& mut r_g_x_bytes[..]).expect("has serialized r_g_x");
+
+        // we also pad message to 256 bits as LE
+
+        let mut concatenated: Vec<u8> = pk_x_bytes.as_ref().to_vec();
+        concatenated.extend(r_g_x_bytes.as_ref().to_vec().into_iter());
+
+        let mut msg_padded : Vec<u8> = msg.iter().cloned().collect();
+        msg_padded.resize(32, 0u8);
+
+        // S = r + H*(PK_X || R_X || M) . sk
+        let mut s = sha256_h_star::<E>(&concatenated[..], &msg_padded[..]);
         s.mul_assign(&self.0);
         s.add_assign(&r);
     
@@ -340,14 +401,12 @@ impl<E: JubjubEngine> PublicKey<E> {
         // this one is for a simple sanity check. In application purposes the pk will always be in a right group 
         let order_check_pk = self.0.mul(E::Fs::char(), params);
         if !order_check_pk.eq(&Point::zero()) {
-            println!("Order check for public key failed");
             return false;
         }
 
         // r is input from user, so always check it!
         let order_check_r = sig.r.mul(E::Fs::char(), params);
         if !order_check_r.eq(&Point::zero()) {
-            println!("Order check for r failed");
             return false;
         }
 
@@ -365,7 +424,7 @@ impl<E: JubjubEngine> PublicKey<E> {
         ).eq(&Point::zero())
     }
     
-    pub fn verify_for_snark(
+    pub fn verify_schnorr_blake2s(
         &self,
         msg: &[u8],
         sig: &Signature<E>,
@@ -402,6 +461,58 @@ impl<E: JubjubEngine> PublicKey<E> {
         //     params
         // ).mul_by_cofactor(params).eq(&Point::zero());
 
+
+        // 0 = -S . P_G + R + c . vk that requires all points to be in the same group
+        self.0.mul(c, params).add(&sig.r, params).add(
+            &params.generator(p_g).mul(sig.s, params).negate().into(),
+            params
+        ).eq(&Point::zero())
+    }
+
+
+    // verify MuSig. While we are on the Edwards curve with cofactor,
+    // verification will be successful if and only if every element is in the main group
+    pub fn verify_musig_sha256(
+        &self,
+        msg: &[u8],
+        sig: &Signature<E>,
+        p_g: FixedGenerators,
+        params: &E::Params,
+    ) -> bool {
+        // c = H*(PK_x || R_x || M)
+        let (pk_x, _) = self.0.into_xy();
+        let mut pk_x_bytes = [0u8; 32];
+        pk_x.into_repr().write_le(& mut pk_x_bytes[..]).expect("has serialized pk_x");
+
+        let (r_g_x, _) = sig.r.into_xy();
+        let mut r_g_x_bytes = [0u8; 32];
+        r_g_x.into_repr().write_le(& mut r_g_x_bytes[..]).expect("has serialized r_g_x");
+
+        let mut concatenated: Vec<u8> = pk_x_bytes.as_ref().to_vec();
+        concatenated.extend(r_g_x_bytes.as_ref().to_vec().into_iter());
+
+        let mut msg_padded : Vec<u8> = msg.iter().cloned().collect();
+        msg_padded.resize(32, 0u8);
+
+        let c = sha256_h_star::<E>(&concatenated[..], &msg_padded[..]);
+
+        // this one is for a simple sanity check. In application purposes the pk will always be in a right group 
+        let order_check_pk = self.0.mul(E::Fs::char(), params);
+        if !order_check_pk.eq(&Point::zero()) {
+            return false;
+        }
+
+        // r is input from user, so always check it!
+        let order_check_r = sig.r.mul(E::Fs::char(), params);
+        if !order_check_r.eq(&Point::zero()) {
+            return false;
+        }
+
+        // 0 = h_G(-S . P_G + R + c . vk)
+        // self.0.mul(c, params).add(&sig.r, params).add(
+        //     &params.generator(p_g).mul(sig.s, params).negate().into(),
+        //     params
+        // ).mul_by_cofactor(params).eq(&Point::zero());
 
         // 0 = -S . P_G + R + c . vk that requires all points to be in the same group
         self.0.mul(c, params).add(&sig.r, params).add(
@@ -562,25 +673,25 @@ mod baby_tests {
             let msg1 = b"Foo bar";
             let msg2 = b"Spam eggs";
 
-            let sig1 = sk.sign_for_snark(msg1, rng, p_g, params);
-            let sig2 = sk.sign_for_snark(msg2, rng, p_g, params);
+            let sig1 = sk.sign_schnorr_blake2s(msg1, rng, p_g, params);
+            let sig2 = sk.sign_schnorr_blake2s(msg2, rng, p_g, params);
 
-            assert!(vk.verify_for_snark(msg1, &sig1, p_g, params));
-            assert!(vk.verify_for_snark(msg2, &sig2, p_g, params));
-            assert!(!vk.verify_for_snark(msg1, &sig2, p_g, params));
-            assert!(!vk.verify_for_snark(msg2, &sig1, p_g, params));
+            assert!(vk.verify_schnorr_blake2s(msg1, &sig1, p_g, params));
+            assert!(vk.verify_schnorr_blake2s(msg2, &sig2, p_g, params));
+            assert!(!vk.verify_schnorr_blake2s(msg1, &sig2, p_g, params));
+            assert!(!vk.verify_schnorr_blake2s(msg2, &sig1, p_g, params));
 
             let alpha = rng.gen();
             let rsk = sk.randomize(alpha);
             let rvk = vk.randomize(alpha, p_g, params);
 
-            let sig1 = rsk.sign_for_snark(msg1, rng, p_g, params);
-            let sig2 = rsk.sign_for_snark(msg2, rng, p_g, params);
+            let sig1 = rsk.sign_schnorr_blake2s(msg1, rng, p_g, params);
+            let sig2 = rsk.sign_schnorr_blake2s(msg2, rng, p_g, params);
 
-            assert!(rvk.verify_for_snark(msg1, &sig1, p_g, params));
-            assert!(rvk.verify_for_snark(msg2, &sig2, p_g, params));
-            assert!(!rvk.verify_for_snark(msg1, &sig2, p_g, params));
-            assert!(!rvk.verify_for_snark(msg2, &sig1, p_g, params));
+            assert!(rvk.verify_schnorr_blake2s(msg1, &sig1, p_g, params));
+            assert!(rvk.verify_schnorr_blake2s(msg2, &sig2, p_g, params));
+            assert!(!rvk.verify_schnorr_blake2s(msg1, &sig2, p_g, params));
+            assert!(!rvk.verify_schnorr_blake2s(msg2, &sig1, p_g, params));
         }
     }
 
@@ -618,6 +729,43 @@ mod baby_tests {
             assert!(rvk.verify_for_raw_message(msg2, &sig2, p_g, params, max_message_size));
             assert!(!rvk.verify_for_raw_message(msg1, &sig2, p_g, params, max_message_size));
             assert!(!rvk.verify_for_raw_message(msg2, &sig1, p_g, params, max_message_size));
+        }
+    }
+
+    #[test]
+    fn random_signatures_for_sha256_musig() {
+        let rng = &mut thread_rng();
+        let p_g = FixedGenerators::SpendingKeyGenerator;
+        let params = &AltJubjubBn256::new();
+
+        for _ in 0..1000 {
+            let sk = PrivateKey::<Bn256>(rng.gen());
+            let vk = PublicKey::from_private(&sk, p_g, params);
+
+            let msg1 = b"Foo bar";
+            let msg2 = b"Spam eggs";
+
+            let max_message_size: usize = 16;
+
+            let sig1 = sk.musig_sha256_sign(msg1, rng, p_g, params);
+            let sig2 = sk.musig_sha256_sign(msg2, rng, p_g, params);
+
+            assert!(vk.verify_musig_sha256(msg1, &sig1, p_g, params));
+            assert!(vk.verify_musig_sha256(msg2, &sig2, p_g, params));
+            assert!(!vk.verify_musig_sha256(msg1, &sig2, p_g, params));
+            assert!(!vk.verify_musig_sha256(msg2, &sig1, p_g, params));
+
+            let alpha = rng.gen();
+            let rsk = sk.randomize(alpha);
+            let rvk = vk.randomize(alpha, p_g, params);
+
+            let sig1 = rsk.musig_sha256_sign(msg1, rng, p_g, params);
+            let sig2 = rsk.musig_sha256_sign(msg2, rng, p_g, params);
+
+            assert!(rvk.verify_musig_sha256(msg1, &sig1, p_g, params));
+            assert!(rvk.verify_musig_sha256(msg2, &sig2, p_g, params));
+            assert!(!rvk.verify_musig_sha256(msg1, &sig2, p_g, params));
+            assert!(!rvk.verify_musig_sha256(msg2, &sig1, p_g, params));
         }
     }
 
