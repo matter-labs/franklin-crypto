@@ -347,6 +347,22 @@ impl<E: Engine> AllocatedNum<E> {
         Ok(())
     }
 
+    pub fn assert_zero<CS>(
+        &self,
+        mut cs: CS
+    ) -> Result<(), SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        cs.enforce(
+            || "zero assertion constraint",
+            |lc| lc + self.variable,
+            |lc| lc + CS::one(),
+            |lc| lc
+        );
+
+        Ok(())
+    }
+
     /// Takes two allocated numbers (a, b) and returns
     /// (b, a) if the condition is true, and (a, b)
     /// otherwise.
