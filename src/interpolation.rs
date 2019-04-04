@@ -12,22 +12,22 @@ pub fn interpolate<E: Engine>(
 ) -> Option<Vec<E::Fr>> {
     let max_degree_plus_one = points.len();
     assert!(max_degree_plus_one >= 2, "should interpolate for degree >= 1");
-    let external_iter = points.clone().into_iter();
-    let internal = points.clone();
     let mut coeffs = vec![E::Fr::zero(); max_degree_plus_one];
-    for (k, p_k) in external_iter.enumerate() {
+    // external iterator
+    for (k, p_k) in points.iter().enumerate() {
         let (x_k, y_k) = p_k;
         // coeffs from 0 to max_degree - 1
         let mut contribution = vec![E::Fr::zero(); max_degree_plus_one];
         let mut demoninator = E::Fr::one();
         let mut max_contribution_degree = 0;
-        for (j, p_j) in internal.iter().enumerate() {
+        // internal iterator
+        for (j, p_j) in points.iter().enumerate() {
             let (x_j, _) = p_j;
             if j == k {
                 continue;
             }
 
-            let mut diff = x_k.clone();
+            let mut diff = *x_k;
             diff.sub_assign(&x_j);
             demoninator.mul_assign(&diff);
 
@@ -37,7 +37,7 @@ pub fn interpolate<E: Engine>(
                 contribution.get_mut(1).expect("must have enough coefficients").add_assign(&E::Fr::one());
             } else {
                 let mul_by_minus_x_j: Vec<E::Fr> = contribution.iter().map(|el| {
-                    let mut tmp = el.clone();
+                    let mut tmp = *el;
                     tmp.mul_assign(&x_j);
                     tmp.negate();
 
