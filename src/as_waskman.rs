@@ -2,11 +2,12 @@ use rand::{
     Rng
 };
 
-const EMPTY_STATE: u64 = std::u64::MAX;
+const EMPTY_STATE: usize = std::usize::MAX;
 
 // this is basically a grid of size x columns
 pub struct AsWaksmanTopology {
-    pub topology: Vec<Vec<(u64, u64)>>,
+    pub topology: Vec<Vec<(usize, usize)>>,
+    // pub switches: Vec<std::collections::HashMap<usize, bool>>
 }
 
 impl AsWaksmanTopology {
@@ -14,11 +15,12 @@ impl AsWaksmanTopology {
         assert!(size > 1, "don't make strange moves");
 
         let num_colunms = Self::num_colunms(size);
+        // println!("Making {} columns", num_colunms);
 
         // make the grid
         let mut topology = vec![vec![(EMPTY_STATE, EMPTY_STATE); size]; num_colunms];
 
-        let destinations: Vec<u64> = (0..(size as u64)).collect();
+        let destinations: Vec<usize> = (0..size).collect();
 
         // recursively iterate and construct the topology
         Self::construct_inner(0, num_colunms-1, 0, size-1, &destinations, &mut topology);
@@ -28,10 +30,14 @@ impl AsWaksmanTopology {
         }
     }
 
+    fn calculate_top_height(size: usize) -> usize {
+        size / 2
+    }
+
     fn construct_inner(left: usize, right: usize, 
                         low: usize, high: usize,
-                        destinations: &[u64],
-                        topology: &mut [Vec<(u64, u64)>]) 
+                        destinations: &[usize],
+                        topology: &mut [Vec<(usize, usize)>]) 
     {
         if left > right {
             return;
@@ -52,17 +58,16 @@ impl AsWaksmanTopology {
             // just add straight edges. This also handles the size-1 base case.
             //
             for idx in low..=high {
-                topology[low][idx].0 = idx as u64;
-                topology[low][idx].1 = idx as u64;
+                topology[left][idx].0 = idx;
+                topology[left][idx].1 = idx;
 
-                topology[high][idx].0 = destinations[idx - low];
-                topology[high][idx].1 = destinations[idx - low];
+                topology[right][idx].0 = destinations[idx - low];
+                topology[right][idx].1 = destinations[idx - low];
             }
-
             let mut subdestinations = vec![EMPTY_STATE; rows_to_generate];
 
             for idx in low..=high {
-                subdestinations[idx-low] = idx as u64;
+                subdestinations[idx-low] = idx;
             }
 
             Self::construct_inner(left+1, right-1, low, high, &subdestinations, topology);
@@ -76,11 +81,11 @@ impl AsWaksmanTopology {
             // recursion step
 
             let mut subdestinations = vec![EMPTY_STATE; rows_to_generate];
-            let subnet_is_even = rows_to_generate % 2 == 0;
-            let mut limit = high;
-            if !subnet_is_even {
-                limit += 1;
-            }
+            let limit = if rows_to_generate % 2 == 1 {
+                high
+            } else {
+                high + 1
+            };
 
             for idx in (low..limit).step_by(2) {
                 let top_idx = Self::calculate_in_out_index(rows_to_generate, low, idx, true);
@@ -91,25 +96,25 @@ impl AsWaksmanTopology {
                 topology[left][idx].1 = bottom_idx;
                 topology[left][idx+1].0 = bottom_idx;
 
-                subdestinations[(top_idx as usize)-low] = idx as u64;
-                subdestinations[(bottom_idx as usize)-low] = (idx + 1) as u64;
+                subdestinations[(top_idx as usize) - low] = idx;
+                subdestinations[(bottom_idx as usize) - low] = idx + 1;
 
-                topology[right][idx].0 = subdestinations[idx - low];
-                topology[right][idx+1].1 = subdestinations[idx - low];
+                topology[right][idx].0 = destinations[idx - low];
+                topology[right][idx+1].1 = destinations[idx - low];
 
-                topology[right][idx].1 = subdestinations[idx + 1 - low];
-                topology[right][idx+1].0 = subdestinations[idx + 1 - low];
+                topology[right][idx].1 = destinations[idx + 1 - low];
+                topology[right][idx+1].0 = destinations[idx + 1 - low];
             }
 
             if rows_to_generate % 2 == 1
             {
-                topology[left][high].0 = high as u64;
-                topology[left][high].1 = high as u64;
+                topology[left][high].0 = high;
+                topology[left][high].1 = high;
 
                 topology[right][high].0 = destinations[high - low];
                 topology[right][high].1 = destinations[high - low];
 
-                subdestinations[high - low] = high as u64;
+                subdestinations[high - low] = high;
             }
             else
             {
@@ -126,17 +131,15 @@ impl AsWaksmanTopology {
         }
     }
 
-    pub fn num_colunms(size: usize) -> usize {
+    pub(crate) fn num_colunms(size: usize) -> usize {
         if size <= 1 {
             return 0;
         }
 
-        let mut c = size;
-        let mut num_colunms = 0;
-        while c != 0 {
-            num_colunms += 1;
-            c = c << 1;
-        }
+        let as_float = f64::from(size as u32);
+
+        let ceil = as_float.log(2.0).ceil();
+        let num_colunms = ceil as usize;
 
         2*num_colunms - 1
     }
@@ -146,591 +149,117 @@ impl AsWaksmanTopology {
         offset: usize,
         index: usize,
         is_top: bool
-    ) -> u64 {
-        let relative_position = index - offset;
+    ) -> usize {
+        // println!("calcualte switch for index = {}, offset = {}, top = {}", index, offset, is_top);
+        let mut relative_position = index - offset;
         assert!(relative_position % 2 == 0 && relative_position + 1 < size);
+        relative_position >>= 1;
         let mut suboffset = 0;
-        if is_top {
+        if !is_top {
             suboffset = size / 2;
         }
 
-        (offset + relative_position/2 + suboffset) as u64
+        offset + relative_position + suboffset
     }
 }
 
-pub struct ASWaksman
-{
-    m_top: Vec<ASWaksman>,
-    m_bot: Vec<ASWaksman>,
-    m_gate_size: usize,
-    m_size: usize,
-    m_inputs: Vec<u32>,
-    m_outputs: Vec<u32>,
-    m_gates: Vec<bool>,
-}
+// Integer representation should always be generated starting from 0 and only internal calls should
+// generate it from non-zero start
 
-impl ASWaksman
-{
-    fn calculate_gate_size(size: usize) -> usize
-    {
-        if size == 0 {return 0;}
-        if size == 1 {return 0;}
-        if size == 2 {return 1;}
-        if size == 3 {return 3;}
-        if size == 4 {return 5;}
-
-        let is_odd = size % 2 != 0;
-        if is_odd == true
-        {
-            return ASWaksman::calculate_gate_size((size / 2) + 1) + ASWaksman::calculate_gate_size(size / 2) + size - 1;
-        }
-        return ASWaksman::calculate_gate_size(size / 2) + ASWaksman::calculate_gate_size(size / 2) + size - 1;
-    }
-
-    fn set_inputs(&mut self, input: Vec<u32>)
-    {
-        for i in 0..input.len()
-        {
-            self.m_inputs[i] = input[i];
-        }
-    }
-
-    fn calculate_outputs(&mut self)
-    {
-        if self.m_size == 0 {return;}
-
-        if self.m_size == 1
-        {
-            self.m_outputs[0] = self.m_inputs[0];
-            return;
-        }
-
-        if self.m_size == 2 
-        {
-
-             if self.m_gates[0] == true
-            {
-                self.m_outputs[0] = self.m_inputs[1];
-                self.m_outputs[1] = self.m_inputs[0];
-            }
-            else
-            {
-                self.m_outputs[0] = self.m_inputs[0];
-                self.m_outputs[1] = self.m_inputs[1];
-            }
-            return;
-        }
-
-        if self.m_size == 3
-        {
-            if self.m_gates[0] == true
-            {
-                self.m_outputs[0] = self.m_inputs[1];
-                self.m_outputs[1] = self.m_inputs[0];
-            }
-            else
-            {
-                self.m_outputs[0] = self.m_inputs[0];
-                self.m_outputs[1] = self.m_inputs[1];
-            }
-
-             self.m_outputs[2] = self.m_inputs[2];
-
-             if self.m_gates[2] == true // the "passthrough"
-            {
-                let tmp = self.m_outputs[1];
-                self.m_outputs[1] = self.m_outputs[2];
-                self.m_outputs[2] = tmp;
-            }
-
-             if self.m_gates[1] == true // the rightmost
-            {
-                let tmp = self.m_outputs[0];
-                self.m_outputs[0] = self.m_outputs[1];
-                self.m_outputs[1] = tmp;
-            }
-            return;
-        }
-
-        if self.m_size == 4
-        {
-            if self.m_gates[0] == true
-            {
-                self.m_outputs[0] = self.m_inputs[1];
-                self.m_outputs[1] = self.m_inputs[0];
-            }
-            else
-            {
-                self.m_outputs[0] = self.m_inputs[0];
-                self.m_outputs[1] = self.m_inputs[1];
-            }
-
-             if self.m_gates[1] == true
-            {
-                self.m_outputs[2] = self.m_inputs[3];
-                self.m_outputs[3] = self.m_inputs[2];
-            }
-            else
-            {
-                self.m_outputs[2] = self.m_inputs[2];
-                self.m_outputs[3] = self.m_inputs[3];
-            }
-
-            // first flip top only line 1 and 2 are flipped
-            let tmp = self.m_outputs[1];
-            self.m_outputs[1] = self.m_outputs[2];
-            self.m_outputs[2] = tmp;
-
-            if self.m_gates[3] == true // middle top gate
-            {
-                let tmp = self.m_outputs[0];
-                self.m_outputs[0] = self.m_outputs[1];
-                self.m_outputs[1] = tmp;
-            }
-
-            if self.m_gates[4] == true // middle bot gate
-            {
-                let tmp = self.m_outputs[2];
-                self.m_outputs[2] = self.m_outputs[3];
-                self.m_outputs[3] = tmp;
-            }
-
-             // final flip top only line 1 and 2 are flipped
-            let tmp = self.m_outputs[1];
-            self.m_outputs[1] = self.m_outputs[2];
-            self.m_outputs[2] = tmp;
-
-            if self.m_gates[2] == true // end top gate
-            {
-                let tmp = self.m_outputs[0];
-                self.m_outputs[0] = self.m_outputs[1];
-                self.m_outputs[1] = tmp;
-            }
-            return;
-        }
-
-         // size is at least 5
-        let num_of_left_gates:usize = self.m_size / 2;
-        let my_size = self.m_size;
-        let mut tmp_input = vec![0; my_size];        
-        // copy to tmp
-        for i in 0..my_size
-        {
-            tmp_input[i] = self.m_inputs[i];
-        }
-
-         // first gate check
-        for i in 0..num_of_left_gates
-        {
-            if self.m_gates[i] == true
-            {
-                let tmp = tmp_input[i*2];
-                tmp_input[i * 2] = tmp_input[i * 2 + 1];
-                tmp_input[i * 2 + 1] = tmp;
-            }
-        }
-
-        let mut tmp_input_top = vec![0; num_of_left_gates];
-        let mut tmp_input_bot = vec![0; my_size - num_of_left_gates];
-        let mut countleft = 0;
-        let mut countright = 0;       
-        // spliting the inputs to top and bottom
-        for i in 0..my_size
-        {
-            if i % 2 == 0 // counting from 0 is funny..
-            {
-                if i == (my_size - 1)
-                {
-                   tmp_input_bot[countright] = tmp_input[i];
-                    countright += 1;
-                }
-                else
-                {
-                    tmp_input_top[countleft] = tmp_input[i];
-                    countleft += 1;
-                }  
-            }
-            else
-            {
-                tmp_input_bot[countright] = tmp_input[i];
-                countright += 1;
-            }
-        }
-
-         // copy back
-        for i in 0..my_size
-        {
-            if i >= tmp_input_top.len()
-            {
-                tmp_input[i] = tmp_input_bot[i - tmp_input_top.len()];
-            }
-            else
-            {
-                tmp_input[i] = tmp_input_top[i];
-            }
-        }
-
-         // send into recursive wakeman
-        if self.m_top.len() != 0
-        {
-            let top_size = self.m_top[0].m_size;
-            let mut tmp_top_input = vec![0; top_size];
-            for i in 0..top_size
-            {
-                tmp_top_input[i] = tmp_input[i];
-            }
-            self.m_top[0].set_inputs(tmp_top_input);
-            self.m_top[0].calculate_outputs();
-        }
-
-         if self.m_bot.len() != 0
-        {
-            let bot_size = self.m_bot[0].m_size;
-            let mut tmp_bot_input = vec![0; bot_size];
-            for i in 0..bot_size
-            {
-                let mut top_size_for_bot:usize = 0;
-                if self.m_top.len() != 0
-                {
-                    top_size_for_bot = self.m_top[0].m_size;
-                }
-                let offset_counter_bottom = i + top_size_for_bot;
-                if offset_counter_bottom >= my_size
-                {
-                    tmp_bot_input[i] = tmp_input[tmp_input.len()-1];
-                }
-                else
-                {
-                    tmp_bot_input[i] = tmp_input[offset_counter_bottom];
-                }
-            }
-            self.m_bot[0].set_inputs(tmp_bot_input);
-            self.m_bot[0].calculate_outputs();
-        }
-
-         // extraction of data from internal structures
-        if self.m_top.len() != 0
-        {
-            let top_size:usize = self.m_top[0].m_size;
-            for i in 0..top_size
-            {
-                tmp_input[i] = self.m_top[0].m_outputs[i];
-            }
-        }
-
-         if self.m_bot.len() != 0
-        {
-            let bot_size:usize = self.m_bot[0].m_size;
-            for i in 0..bot_size
-            {
-                let mut top_size_out:usize = 0;
-                if self.m_top.len() != 0 
-                {
-                    top_size_out = self.m_top[0].m_size;
-                }
-                tmp_input[i + top_size_out] = self.m_bot[0].m_outputs[i];
-            }
-        }
-
-         // last gate check
-        let mut num_of_right_gates:usize = my_size / 2;
-        if my_size % 2 == 0
-        {
-            num_of_right_gates -= 1
-        }
-
-         // spliting the inputs to top and bottom
-        countleft = 0;
-        countright = 0;
-        for i in 0..my_size
-        {
-            if i % 2 == 0 // counting from 0 is funny..
-            {
-                if i == my_size - 1
-                {
-                    tmp_input_bot[countright] = tmp_input[i];
-                    countright += 1;
-                }
-                else
-                {
-                    tmp_input_top[countleft] = tmp_input[i];
-                    countleft += 1;
-                }  
-            }
-            else
-            {
-                tmp_input_bot[countright] = tmp_input[i];
-                countright += 1;
-            }
-        }
-
-         // copy back
-        for i in 0..my_size
-        {
-            if i >= tmp_input_top.len()
-            {
-                tmp_input[i] = tmp_input_bot[i - tmp_input_top.len()];
-            }
-            else
-            {
-                tmp_input[i] = tmp_input_top[i];
-            }
-        }
-
-         for i in 0..num_of_right_gates
-        {
-            let counter_final_gate = i + num_of_left_gates - 1;
-            if self.m_gates[counter_final_gate] == true 
-            {
-                let right_gate_tmp = tmp_input[i * 2];
-                tmp_input[i * 2] = tmp_input[i * 2 + 1];
-                tmp_input[i * 2 + 1] = right_gate_tmp;
-            }
-        }
-
-         // copy to outputs
-        for i in 0..my_size
-        {
-            self.m_outputs[i] = tmp_input[i];
-        }
-        return;
-    }
-
-     fn calculate_witness(self)-> Vec<bool>
-    {
-        let max_count = 2_u64.pow(self.m_gate_size as u32); // this is max permutations to bruteforce
-        let failed_permuation = vec![];
-        let mut cur_permuation = vec![false; self.m_gate_size];
-        for j in 0..max_count
-        {
-            // change the configuration to handle stuffs.
-            for i in 0..self.m_gate_size
-            {
-                let currentindex = j & (1 << i);
-                if currentindex != 0
-                {
-                    cur_permuation[i] = true;
-                }
-                else
-                {
-                    cur_permuation[i] = false;
-                }
-            }
-
-
-             // calculate a new permutation
-            let mut test_aswaksman = ASWaksman::new_internal(self.m_size, self.m_inputs.clone(), self.m_outputs.clone(), cur_permuation.clone());
-            test_aswaksman.calculate_outputs();
-
-             let mut is_result_good = true;
-            for i in 0..self.m_size
-            {
-                if test_aswaksman.m_outputs[i] != self.m_outputs[i]
-                {
-                    is_result_good = false;
-                    break;
-                }
-            }
-
-             if is_result_good
-            {
-                return cur_permuation;
-            }
-        }
-
-         return failed_permuation;
-    }
-
-     #[allow(dead_code)]
-    fn new(size: usize) -> ASWaksman
-    {
-        return ASWaksman::new_internal(size, vec![], vec![], vec![])
-    }
-
-     fn new_internal(size: usize, input: Vec<u32>, output: Vec<u32>, _gates: Vec<bool>) -> ASWaksman
-    {
-        let gate_size = ASWaksman::calculate_gate_size(size);
-        let mut top = vec![];
-        let mut bot = vec![];
-
-         // recursive creation
-        let top_size:usize = size / 2;
-        let mut bot_size = top_size + 1;
-        if size % 2 == 0 {bot_size = top_size}
-        let rounded_down_gates:usize;
-        if size % 2 == 0 {rounded_down_gates = size} else {rounded_down_gates = size - 1}
-
-         // only split if its more than 4
-        if size > 4
-        {
-            // handle gates
-            // handle top gate
-            let top_gate_size = ASWaksman::calculate_gate_size(top_size);
-            let mut top_gates = vec![false; top_gate_size];
-            if top_gate_size != 0
-            {
-                for i in 0..top_gate_size
-                {
-                    let offset_count = i + rounded_down_gates - 1;
-                    top_gates[i] = _gates[offset_count];
-                }
-            }
-            // handle bot gate
-            let bot_gate_size = ASWaksman::calculate_gate_size(bot_size);
-            let mut bot_gates = vec![false; bot_gate_size];
-            if bot_gate_size != 0
-            {
-                for i in 0..bot_gate_size
-                {                   
-                    let offset_count = i + rounded_down_gates - 1 + top_gate_size;
-                    bot_gates[i] = _gates[offset_count];
-                }
-            }
-
-             // handle inputs
-            // handle top half of aswakeman inputs
-            let mut top_inputs = vec![0; top_size];
-            if top_size != 0
-            {
-                for i in 0..top_size
-                {
-                    let offset_count = i * 2; //-> 0, 2, 4
-                    top_inputs[i] = input[offset_count];
-                }
-            }
-
-             let mut bot_inputs = vec![0; bot_size];
-            if bot_size != 0
-            {
-                for i in 0..bot_size
-                {
-                    let offset_count = (i * 2) + 1; // -> 1,3,5,7 i
-                    if offset_count >= size
-                    { 
-                        bot_inputs[bot_size - 1] = input[offset_count - 1];
-                    }
-                    else
-                    {
-                        bot_inputs[i] = input[offset_count];
-                    }
-
-                 }
-            }
-
-             // handle outputs
-            // handle top half of aswakeman outputs
-            let mut top_outputs = vec![0; top_size];
-            if top_size != 0
-            {
-                for i in 0..top_size
-                {
-                    let offset_count = i*2;
-                    top_outputs[i] = output[offset_count];
-                }
-            }
-
-             let mut bot_outputs = vec![0; bot_size];
-            if bot_size != 0
-            {
-                for i in 0..bot_size
-                {
-                    let offset_count = (i*2) + 1;
-                    if offset_count >= (size) {break;}
-                    bot_outputs[i] = output[offset_count];
-                }
-            }
-
-             // recursive construction
-            if top_size > 1
-            {
-                top.push(ASWaksman::new_internal(top_size, top_inputs, top_outputs, top_gates));
-            }
-
-             if bot_size > 1
-            {
-                bot.push(ASWaksman::new_internal(bot_size, bot_inputs, bot_outputs, bot_gates));
-            }
-        }
-        return ASWaksman 
-        {
-            m_top: top,
-            m_bot: bot,
-            m_gate_size: gate_size,
-            m_size: size,
-            m_inputs: input,
-            m_outputs: output,
-            m_gates: _gates,
-        };
-    }
-
-     #[allow(dead_code)]
-    fn print(&self) -> String
-    {
-        return String::from(format!("ASWaksman: {} {:?} {:?} {:?}",self.m_size, self.m_inputs, self.m_outputs, self.m_gates));
-    }
-}
-
+#[derive(Debug)]
 pub struct IntegerPermutation {
-    pub elements: Vec<u64>,
-    pub elements_permuted: Vec<u64>,
-    pub min: u64,
-    pub max: u64
+    pub elements: Vec<usize>,
+    pub min: usize,
+    pub max: usize
 }
 
 impl IntegerPermutation {
     pub fn new(size: usize) -> Self {
-        Self::new_from(0, size)
+        Self::new_for_max_and_min(0, size - 1)
     }
 
-    pub fn new_from(from: usize, size: usize) -> Self {
-        let elements: Vec<u64> = ((from as u64)..((from+size) as u64)).map(|e| e).collect();
+    pub fn new_from_permutation(permutation: Vec<u64>) -> Self {
+        unimplemented!();
+    }
+
+    pub(crate) fn new_for_max_and_min(min: usize, max: usize) -> Self {
+        let elements: Vec<usize> = (min..=max).collect();
 
         Self {
             elements,
-            elements_permuted: vec![],
-            min: from as u64,
-            max: (from+size - 1) as u64
+            min: min,
+            max: max
         }
     }
 
     pub fn size(&self) -> usize {
-        self.elements.len()
+        self.max - self.min + 1
+        // self.elements.len()
     }
 
     pub fn make_permutation<R: Rng>(&mut self, rng: &mut R) {
         let mut copy = self.elements.clone();
         rng.shuffle(&mut copy);
-        self.elements_permuted = copy;
+        self.elements = copy;
     }
 
-    pub fn get(&self, index: usize) -> u64 {
-        self.elements_permuted[index]
+    pub fn get(&self, index: usize) -> usize {
+        assert!(index >= self.min && index <= self.max);
+        self.elements[index - self.min]
+    }
+
+    pub fn set(&mut self, index: usize, value: usize) {
+        assert!(index >= self.min && index <= self.max);
+        self.elements[index - self.min] = value;
+    }
+
+    pub fn slice(&self, min: usize, max: usize) -> Self {
+        assert!(self.min <= min && min <= max && max <= self.max);
+        // println!("Making a slice of {:?} with range [{}, {}]", self, min, max);
+
+        let result = Self {
+            elements: self.elements[(min - self.min)..(max - self.min + 1)].to_vec(),
+            min: min,
+            max: max
+        };
+
+        assert!(result.size() == result.elements.len());
+
+        // println!("Slice result = {:?}", result);
+
+        result
     }
 
     pub fn inverse(&self) -> Self {
-        let mut new_permutation = vec![0u64; self.size()];
-        for idx in 0..self.size() {
-            new_permutation[(self.elements_permuted[idx] - self.min) as usize] = (idx as u64) + self.min;
+        // println!("Inversing {:?}", self);
+        let mut new = Self::new_for_max_and_min(self.min, self.max);
+        for idx in self.min..=self.max {
+            // let this = self.elements[idx - self.min];
+            // let that = this - self.min;
+            // if that > self.elements.len() {
+            //     println!("Idx = {}, this = {}, that = {}, min = {}", idx, this, that, self.min);
+            // }
+            new.elements[self.elements[idx - self.min] - self.min] = idx;
         }
 
-        Self {
-            elements: self.elements.clone(),
-            elements_permuted: self.elements.clone(),
-            min: self.min,
-            max: self.max
-        }
+        // println!("Inversion result = {:?}", new);
+
+        new
     }
 
     pub fn is_valid(&self) -> bool {
-        if self.elements_permuted.len() == 0 {
-            return false;
+        if self.elements.len() == 0 {
+            return true;
         }
-        let mut set: std::collections::HashSet<u64, > = std::collections::HashSet::with_capacity(self.elements.len());
-        for element in self.elements_permuted.iter() {
+
+        let mut set: std::collections::HashSet<usize, > = std::collections::HashSet::with_capacity(self.elements.len());
+        for element in self.elements.iter() {
             if *element < self.min || *element > self.max {
+                // println!("Element = {}, min = {}, max = {}", element, self.min, self.max);
                 return false;
             }
             if set.contains(element) {
+                // println!("Element = {}, set = {:?}", element, set);
                 return false;
             }
             set.insert(*element);
@@ -740,13 +269,479 @@ impl IntegerPermutation {
     }    
 }
 
+// #[derive(Debug)]
+// pub struct IntegerPermutation {
+//     pub elements: std::collections::HashMap<usize, usize>
+// }
+
+// impl IntegerPermutation {
+//     pub fn new(size: usize) -> Self {
+//         Self::new_for_max_and_min(0, size - 1)
+//     }
+
+//     pub fn new_from_permutation(permutation: Vec<u64>) -> Self {
+//         unimplemented!();
+//     }
+
+//     pub(crate) fn new_for_max_and_min(min: usize, max: usize) -> Self {
+//         let mut elements: std::collections::HashMap<usize, usize> = std::collections::HashMap::with_capacity(max - min + 1);
+//         for (i, v) in (min..=max).into_iter().enumerate() {
+//             elements.insert(i, v);
+//         }
+        
+//         Self {
+//             elements,
+//         }
+//     }
+
+//     pub fn size(&self) -> usize {
+//         self.elements.len()
+//     }
+
+//     pub fn make_permutation<R: Rng>(&mut self, rng: &mut R) {
+//         let mut t: Vec<usize> = (0..self.elements.len()).collect();
+//         rng.shuffle(&mut t);
+//         let mut elements: std::collections::HashMap<usize, usize> = std::collections::HashMap::with_capacity(self.elements.len());
+
+//         for (k, v) in self.elements.iter() {
+//             let i = t[*k];
+//             elements.insert(i, *v);
+//         }
+
+//         self.elements = elements
+//     }
+
+//     pub fn get(&self, index: usize) -> usize {
+//         *self.elements.get(&index).unwrap()
+//     }
+
+//     pub fn set(&mut self, index: usize, value: usize) {
+//         self.elements.insert(index, value);
+//     }
+
+//     pub fn inverse(&self) -> Self {
+//         let mut new = Self::new(self.elements.len());
+//         for (k, v) in self.elements.iter() {
+//             // element from position k will go into position v,
+//             // so in new one element in position v should go back to k
+//             new.elements.insert(*v, *k);
+//         }
+
+//         new
+//     }
+
+//     pub fn is_valid(&self) -> bool {
+//         if self.elements.len() == 0 {
+//             return true;
+//         }
+
+//         let mut set: std::collections::HashSet<usize, > = std::collections::HashSet::with_capacity(self.elements.len());
+//         for (_, element) in self.elements.iter() {
+//             if set.contains(element) {
+//                 return false;
+//             }
+//             set.insert(*element);
+//         }
+
+//         true
+//     }    
+// }
+
 // this is basically a grid of size x columns
 pub struct AsWaksmanRoute {
-    pub topology: AsWaksmanTopology
+    pub switches: Vec<std::collections::HashMap<usize, bool>>
 }
 
 impl AsWaksmanRoute {
     pub fn new(permutation: &IntegerPermutation) -> Self {
-        unimplemented!();
+        let size = permutation.size();
+        let num_columns = AsWaksmanTopology::num_colunms(size);
+        let empty_assignment: std::collections::HashMap<usize, bool> = std::collections::HashMap::new();
+        let mut assignments = vec![empty_assignment; num_columns];
+
+        let inversed_permutation = permutation.inverse();
+        assert!(inversed_permutation.inverse().elements == permutation.elements);
+        Self::construct_inner(0, num_columns-1, 0, size-1, permutation, &inversed_permutation, &mut assignments);
+
+        Self {
+            switches: assignments
+        }
+    }
+
+    fn get_canonical_row_index(offset: usize, row_index: usize) -> usize {
+        let suboffset = row_index - offset;
+        // if suboffset % 2 == 1 {
+        //     suboffset -= 1;
+        // }
+        // suboffset + offset
+
+        let mask = std::usize::MAX - 1;
+
+        (suboffset & mask) + offset
+    }
+
+    fn get_switch_setting_from_top_bottom_decision(offset: usize, packet_index: usize, is_top: bool) -> bool {
+        let row_index = Self::get_canonical_row_index(offset, packet_index);
+
+        (packet_index == row_index) ^ is_top
+    }
+
+    fn get_top_bottom_decision_from_switch_setting(offset: usize, packet_index: usize, is_on: bool) -> bool {
+        let row_index = Self::get_canonical_row_index(offset, packet_index);
+
+        (row_index == packet_index) ^ is_on
+    }
+
+    fn calculate_other_position(offset: usize, packet_index: usize) -> usize {
+        let row_index = Self::get_canonical_row_index(offset, packet_index);
+        (1 - (packet_index - row_index)) + row_index
+    }
+
+    fn construct_inner(
+        left: usize, right: usize,
+        low: usize, high: usize,
+        permutation: &IntegerPermutation,
+        permutation_inversed: &IntegerPermutation,
+        switches: &mut [std::collections::HashMap<usize, bool>]
+    ) {
+        if left > right
+        {
+            return;
+        }
+
+        let rows_to_generate = high - low + 1;
+        let columns_to_generate = AsWaksmanTopology::num_colunms(rows_to_generate);
+        let num_columns = right - left + 1;
+        assert!(num_columns >= columns_to_generate);
+
+        assert!(permutation.min == low);
+        assert!(permutation.max == high);
+        assert!(permutation.size() == rows_to_generate);
+        assert!(permutation.is_valid());
+        assert!(permutation.inverse().elements == permutation_inversed.elements);
+        assert!(permutation_inversed.inverse().elements == permutation.elements);
+
+        if num_columns > columns_to_generate
+        {
+            Self::construct_inner(left+1, right - 1, low, high, permutation, permutation_inversed, switches);
+        }
+        else if rows_to_generate == 2
+        {
+            assert!(permutation.get(low) == low || permutation.get(low) == low+1);
+            assert!(permutation.get(low+1) == low || permutation.get(low+1) == low+1);
+            assert!(permutation.get(low) != permutation.get(low+1));
+
+            switches[left].insert(low, permutation.get(low) != low);
+        }
+        else
+        {
+            //
+            // The algorithm first assigns a setting to a LHS switch,
+            // route its target to RHS, which will enforce a RHS switch setting.
+            // Then, it back-routes the RHS value back to LHS.
+            // If this enforces a LHS switch setting, then forward-route that;
+            // otherwise we will select the next value from LHS to route.
+            //
+            let mut new_permutation = IntegerPermutation::new_for_max_and_min(low, high);
+            let mut new_permutation_inversed = IntegerPermutation::new_for_max_and_min(low, high);
+            let mut lhs_is_routed = vec![false; rows_to_generate];
+
+            let mut to_route;
+            let mut max_unrouted;
+
+            let mut should_route_left;
+
+            if rows_to_generate % 2 == 1
+            {
+                //
+                // ODD CASE: we first deal with the bottom-most straight wire,
+                // which is not connected to any of the switches at this level
+                // of recursion and just passed into the lower subnetwork.
+                //
+                if permutation.get(high) == high
+                {
+                    //
+                    // Easy sub-case: it is routed directly to the bottom-most
+                    // wire on RHS, so no switches need to be touched.
+                    //
+                    new_permutation.set(high, high);
+                    new_permutation_inversed.set(high, high);
+                    to_route = high - 1;
+                    should_route_left = true;
+                }
+                else
+                {
+                    //
+                    // Other sub-case: the straight wire is routed to a switch
+                    // on RHS, so route the other value from that switch
+                    // using the lower subnetwork.
+                    //
+                    let rhs_switch = Self::get_canonical_row_index(low, permutation.get(high));
+                    let rhs_switch_setting = Self::get_switch_setting_from_top_bottom_decision(low, permutation.get(high), false);
+                    switches[right].insert(rhs_switch, rhs_switch_setting);
+
+                    let tprime = AsWaksmanTopology::calculate_in_out_index(rows_to_generate, low, rhs_switch, false);
+                    new_permutation.set(high, tprime);
+                    new_permutation_inversed.set(tprime, high);
+
+                    to_route = Self::calculate_other_position(low, permutation.get(high));
+
+                    should_route_left = false;
+                }
+
+                lhs_is_routed[high - low] = true;
+                max_unrouted = high - 1;
+            }
+            else
+            {
+                //
+                // EVEN CASE: the bottom-most switch is fixed to a constant
+                // straight setting. So we route wire hi accordingly.
+                //
+                switches[left].insert(high - 1, false);
+                to_route = high;
+                should_route_left = true;
+                max_unrouted = high;
+            }
+
+            loop
+            {
+                //
+                // INVARIANT: the wire `to_route' on LHS (if route_left = true),
+                // resp., RHS (if route_left = false) can be routed.
+                //
+                if should_route_left
+                {
+                    // If switch value has not been assigned, assign it arbitrarily.
+                    let lhs_switch = Self::get_canonical_row_index(low, to_route);
+                    if switches[left].get(&lhs_switch).is_none()
+                    {
+                        switches[left].insert(lhs_switch, false);
+                    }
+                    let lhs_switch_setting = *switches[left].get(&lhs_switch).unwrap();
+                    let should_use_top = Self::get_top_bottom_decision_from_switch_setting(low, to_route, lhs_switch_setting);
+                    let t = AsWaksmanTopology::calculate_in_out_index(rows_to_generate, low, lhs_switch, should_use_top);
+                    if permutation.get(to_route) == high
+                    {
+                        //
+                        // We have routed to the straight wire for the odd case,
+                        // so now we back-route from it.
+                        //
+                        new_permutation.set(t, high);
+                        new_permutation_inversed.set(high, t);
+                        lhs_is_routed[to_route - low] = true;
+                        to_route = max_unrouted;
+                        should_route_left = true;
+                    }
+                    else
+                    {
+                        let rhs_switch = Self::get_canonical_row_index(low, permutation.get(to_route));
+                        //
+                        // We know that the corresponding switch on the right-hand side
+                        // cannot be set, so we set it according to the incoming wire.
+                        //
+                        assert!(switches[right].get(&rhs_switch).is_none());
+
+                        let switch_setting = Self::get_switch_setting_from_top_bottom_decision(low, permutation.get(to_route), should_use_top);
+                        switches[right].insert(rhs_switch, switch_setting);
+                        let tprime = AsWaksmanTopology::calculate_in_out_index(rows_to_generate, low, rhs_switch, should_use_top);
+                        new_permutation.set(t, tprime);
+                        new_permutation_inversed.set(tprime, t);
+
+                        lhs_is_routed[to_route - low] = true;
+                        to_route = Self::calculate_other_position(low, permutation.get(to_route));
+                        should_route_left = false;
+                    }
+                }
+                else
+                {
+                    //
+                    // We have arrived on the right-hand side, so the switch setting is fixed.
+                    // Next, we back route from here.
+                    //
+                    let rhs_switch = Self::get_canonical_row_index(low, to_route);
+                    let lhs_switch = Self::get_canonical_row_index(low, permutation_inversed.get(to_route));
+                    assert!(switches[right].get(&rhs_switch).is_some());
+                    let rhs_switch_setting = *switches[right].get(&rhs_switch).unwrap();
+                    let should_use_top = Self::get_top_bottom_decision_from_switch_setting(low, to_route, rhs_switch_setting);
+                    let lhs_switch_setting = Self::get_switch_setting_from_top_bottom_decision(low, permutation_inversed.get(to_route) as usize, should_use_top);
+
+                    // The value on the left-hand side is either the same or not set
+                    if let Some(value) = switches[left].get(&lhs_switch) {
+                        assert!(*value == lhs_switch_setting);
+                    }
+
+                    switches[left].insert(lhs_switch, lhs_switch_setting);
+
+                    let t = AsWaksmanTopology::calculate_in_out_index(rows_to_generate, low, rhs_switch, should_use_top);
+                    let tprime = AsWaksmanTopology::calculate_in_out_index(rows_to_generate, low, lhs_switch, should_use_top);
+                    new_permutation.set(tprime, t);
+                    new_permutation_inversed.set(t, tprime);
+
+                    lhs_is_routed[permutation_inversed.get(to_route) - low] = true;
+                    to_route = Self::calculate_other_position(low, permutation_inversed.get(to_route));
+                    should_route_left = true;
+                }
+
+                /* If the next packet to be routed hasn't been routed before, then try routing it. */
+                if !should_route_left || !lhs_is_routed[to_route-low]
+                {
+                    continue;
+                }
+
+                /* Otherwise just find the next unrouted packet. */
+                while max_unrouted > low && lhs_is_routed[max_unrouted-low]
+                {
+                    max_unrouted -= 1;
+                }
+
+                if max_unrouted < low || (max_unrouted == low && lhs_is_routed[0])
+                {
+                    /* All routed! */
+                    break;
+                }
+                else
+                {
+                    to_route = max_unrouted;
+                    should_route_left = true;
+                }
+            }
+
+            if rows_to_generate % 2 == 0
+            {
+                /* Remove the AS-Waksman switch with the fixed value. */
+                switches[left].remove(&(high - 1));
+            }
+
+            assert!(new_permutation.is_valid());
+            assert!(new_permutation_inversed.is_valid());
+
+            let d = rows_to_generate / 2;
+            let new_permutation_upper = new_permutation.slice(low, low + d - 1);
+            let new_permutation_lower = new_permutation.slice(low + d, high);
+
+            let new_permutation_inversed_upper = new_permutation_inversed.slice(low, low + d - 1);
+            let new_permutation_inversed_lower = new_permutation_inversed.slice(low + d, high);
+
+            Self::construct_inner(left+1, right-1, low, low + d - 1, &new_permutation_upper, &new_permutation_inversed_upper, switches);
+            Self::construct_inner(left+1, right-1, low + d, high, &new_permutation_lower, &new_permutation_inversed_lower, switches);
+        }
+    }
+
+    fn validate_routing_for_permutation(permutation: &IntegerPermutation,
+                                        routing: &Self) -> bool 
+    {
+        let size = permutation.size();
+        let num_columns = AsWaksmanTopology::num_colunms(size);
+        let topology = AsWaksmanTopology::new(size);
+
+        let mut current_perm = IntegerPermutation::new(size);
+
+        for column_idx in 0..num_columns {
+            let mut next_perm = IntegerPermutation::new(size);
+            for packet_idx in 0..size {
+                let mut routed_index;
+                if topology.topology[column_idx][packet_idx].0 == topology.topology[column_idx][packet_idx].1 {
+                    // straight switch
+                    routed_index = topology.topology[column_idx][packet_idx].0;
+                }
+                else
+                {
+                    let a = routing.switches[column_idx].get(&packet_idx);
+                    let b = if packet_idx > 0 {
+                        routing.switches[column_idx].get(&(packet_idx - 1))
+                    } else {
+                        None
+                    };
+                    assert!(a.is_some() ^ b.is_some());
+                    let switch_setting = if a.is_some() {
+                        *a.unwrap()
+                    } else {
+                        *b.unwrap()
+                    };
+                    
+                    routed_index = if switch_setting {
+                        topology.topology[column_idx][packet_idx].1
+                    } else {
+                        topology.topology[column_idx][packet_idx].0
+                    };
+                }
+
+                next_perm.set(routed_index as usize, current_perm.get(packet_idx));
+            }
+
+            current_perm = next_perm;
+        }
+
+        current_perm.elements == permutation.inverse().elements
+    }
+}
+
+#[test]
+fn test_aswaksman() {
+    use rand::{Rand, thread_rng};
+    let size = 3;
+
+    let mut permutation = IntegerPermutation::new(size);
+    let rng = &mut thread_rng();
+    permutation.make_permutation(rng);
+    // println!("Permutation = {:?}", permutation);
+    // println!("Inverse = {:?}", permutation.inverse());
+    // println!("Permutation = {:?}", permutation.elements);
+    let no_permutation = IntegerPermutation::new(size);
+    assert!(permutation.inverse().inverse().elements == permutation.elements);
+
+    let router = AsWaksmanRoute::new(&permutation);
+
+    let is_valid = AsWaksmanRoute::validate_routing_for_permutation(&permutation, &router);
+}
+
+#[test]
+fn test_trivial_topology() {
+    for size in 2..128 {
+        println!("size = {}", size);
+        let permutation = IntegerPermutation::new(size);
+        assert!(permutation.inverse().inverse().elements == permutation.elements);
+
+        let router = AsWaksmanRoute::new(&permutation);
+
+        let is_valid = AsWaksmanRoute::validate_routing_for_permutation(&permutation, &router);
+    }
+}
+
+#[test]
+fn test_trivial_permutations() {
+    use rand::{Rand, thread_rng};
+    let rng = &mut thread_rng();
+    let topology = AsWaksmanTopology::new(3);
+    // println!("Topology = {:?}", topology.topology);
+    for _ in 0..100 {
+        for size in 2..128 {
+            let mut permutation = IntegerPermutation::new(size);
+            permutation.make_permutation(rng);
+            assert!(permutation.inverse().inverse().elements == permutation.elements);
+        }
+    }
+}
+
+#[test]
+fn test_routing_for_permutation() {
+    use rand::{Rand, thread_rng};
+    let rng = &mut thread_rng();
+    let topology = AsWaksmanTopology::new(3);
+    // println!("Topology = {:?}", topology.topology);
+    for size in 2..128 {
+        println!("size = {}", size);
+        for _ in 0..100 {
+            let mut permutation = IntegerPermutation::new(size);
+            // permutation.elements = vec![2, 1, 0];
+            permutation.make_permutation(rng);
+            // println!("P = {:?}, P_inv = {:?}", permutation, permutation.inverse());
+            assert!(permutation.inverse().inverse().elements == permutation.elements);
+
+            let router = AsWaksmanRoute::new(&permutation);
+
+            let is_valid = AsWaksmanRoute::validate_routing_for_permutation(&permutation, &router);
+        }
     }
 }
