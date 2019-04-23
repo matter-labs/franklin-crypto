@@ -30,6 +30,7 @@ pub mod baby_util;
 pub mod util;
 pub mod eddsa;
 pub mod interpolation;
+pub mod as_waksman;
 
 extern crate serde;
 #[macro_use]
