@@ -775,3 +775,98 @@ fn test_routing_for_permutation() {
         }
     }
 }
+
+#[test]
+fn test_uniformity() {
+    use rand::{Rand, thread_rng};
+    let rng = &mut thread_rng();
+    let size = 64;
+    let mut hists: Vec<std::collections::HashMap<usize, f64>> = vec![std::collections::HashMap::new(); size];
+    let permutation = IntegerPermutation::new(size);
+    let mut router = AsWaksmanRoute::new(&permutation);
+    let num_switches = router.get_number_of_gates();
+    let num_trials = 1000000;
+    for _ in 0..num_trials {
+        let switches: Vec<bool> = (0..num_switches).map(|_| rng.gen::<bool>()).collect();
+        router.assign_switches(&switches);
+        let shuffle = router.calculate_permutation();
+        for i in 0..size {
+            let subhist = &mut hists[i];
+            let routed_into = shuffle.elements[i];
+            if subhist.get(&routed_into).is_some() {
+                let e = subhist.get_mut(&routed_into).unwrap();
+                *e += 1.0;
+            } else {
+                subhist.insert(routed_into, 1.0);
+            }
+        }
+    }
+
+    let mut min_xi_squared = 10000000000f64;
+    let mut max_xi_squared = 0.0f64;
+
+    let mut max_idx = 0;
+    let mut min_idx = 0;
+
+    for i in 0..size {
+        let subhist = &hists[i];
+        let mut xi_squared = 0.0f64;
+        let expected = (num_trials as f64) / (size as f64);
+        for (_, v) in subhist.iter() {
+            xi_squared += (v - expected)*(v - expected)/expected;
+        }
+
+        if xi_squared > max_xi_squared {
+            max_xi_squared = xi_squared;
+            max_idx = i;
+        }
+
+        if xi_squared < min_xi_squared {
+            min_xi_squared = xi_squared;
+            min_idx = i;
+        }
+    }
+
+    println!("Max XI^2 = {} for bin {}", max_xi_squared, max_idx);
+    println!("Min XI^2 = {} for bin {}", min_xi_squared, min_idx);
+
+    // let norm = num_trials as f64;
+    // let mut reference_cdf = vec![0.0f64; size];
+    // for i in 0..size {
+    //     reference_cdf[i] = ((i+1) as f64)/(size as f64);
+    // }
+    // assert_eq!(reference_cdf[size-1], 1.0f64);
+
+    // let mut global_max = 0.0f64;
+
+    // for i in 0..size {
+    //     let mut normalized = vec![0.0f64; size];
+    //     let subhist = &hists[i];
+    //     for (k, v) in subhist.iter() {
+    //         normalized[*k] = v / norm;
+    //     }
+    //     let mut cdf = vec![0.0f64; size];
+    //     cdf[0] = normalized[0];
+    //     for k in 1..size {
+    //         cdf[k] = normalized[k] + cdf[k-1]; 
+    //     }
+    //     assert!(cdf[size-1] >= 0.99999);
+    //     let mut max = 0.0f64;
+    //     for k in 0..size {
+    //         if cdf[k] <= 0.01f64 {
+    //             panic!();
+    //         }
+    //         let val = (cdf[k] - reference_cdf[k]).abs();
+    //         if val > max {
+    //             max = val;
+    //         }
+    //     }
+    //     if max > global_max {
+    //         global_max = max;
+    //     }
+    // }
+    // // this is max cdf difference for Kolmogorov-Smirnov for sample size 1000000
+    // // and P = 0.99
+    // let alpha = 0.0015f64;
+    // assert!(global_max < alpha);
+}
