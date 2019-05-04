@@ -81,29 +81,6 @@ pub fn parse_with_exponent_le<E: Engine, CS: ConstraintSystem<E>>(
         cs.namespace(|| "calculate floating point result"),
         &exponent_result
     )
-
-    // return 
-
-    // let mut result = mantissa_result.get_value().get()?.clone();
-
-    // let exponent_value = exponent_result.get_value().get()?.clone();
-
-    // result.mul_assign(&exponent_value);
-
-    // let result_allocated = AllocatedNum::alloc(
-    //     cs.namespace(|| "float point parsing result"),
-    //     || Ok(result)
-    // )?;
-
-    // // num * 1 = input
-    // cs.enforce(
-    //     || "float point result constraint",
-    //     |lc| lc + exponent_result.get_variable(),
-    //     |_| mantissa_result.lc(E::Fr::one()),
-    //     |lc| lc + result_allocated.get_variable()
-    // );
-
-    // Ok(result_allocated)
 }
 
 pub fn convert_to_float(
@@ -165,17 +142,17 @@ pub fn convert_to_float(
 
     for i in 0..exponent_length {
         if exponent & (1 << i) != 0 {
-            encoding.extend(&[true; 1]);
+            encoding.push(true);
         } else {
-            encoding.extend(&[false; 1]);
+            encoding.push(false);
         }
     }
 
     for i in 0..mantissa_length {
         if mantissa & (1 << i) != 0 {
-            encoding.extend(&[true; 1]);
+            encoding.push(true);
         } else {
-            encoding.extend(&[false; 1]);
+            encoding.push(false);
         }
     }
 
@@ -183,6 +160,7 @@ pub fn convert_to_float(
 
     Ok(encoding)
 }
+
 
 pub fn parse_float_to_u128(
     encoding: Vec<bool>,
@@ -336,7 +314,7 @@ fn test_encoding_small_numbers() {
 
     for i in 0..20 {
         let encoding = convert_to_float(i as u128, 5, 11, 10).unwrap();
-        for bit in encoding.into_iter(){
+        for bit in encoding.into_iter() {
             if bit {
                 print!("1");
             } else {
@@ -345,4 +323,19 @@ fn test_encoding_small_numbers() {
         }
         print!("\n");
     }
+}
+
+#[test]
+fn test_encoding_specific() {
+    let encoding = convert_to_float(20400, 5, 11, 10).unwrap();
+    for bit in encoding.clone().into_iter(){
+        if bit {
+            print!("1");
+        } else {
+            print!("0")
+        }
+    }
+    print!("\n");
+    let decoded = parse_float_to_u128(encoding, 5, 11, 10).unwrap();
+    println!("Decode = {}", decoded);
 }
