@@ -172,7 +172,8 @@ pub fn poseidon_hash<E: PoseidonEngine>(
         round += 1;
     }
 
-    // reference implementation says that last round does not have matrix muptiplication step
+    // reference implementation says that last round does not have matrix muptiplication step,
+    // that is true due to ease of inversion
     for full_round in r_f..(2*r_f - 1) {
     // for full_round in r_f..(2*r_f) {
         let round_constants = params.full_round_key(full_round);

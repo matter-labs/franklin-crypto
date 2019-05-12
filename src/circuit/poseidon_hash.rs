@@ -255,7 +255,7 @@ pub fn poseidon_hash<E: PoseidonEngine<SBox = QuinticSBox<E> >, CS>(
             linear_transformation_results.push(linear_applied);
         }
 
-        add_round_constants::<E, CS>(params, &mut linear_transformation_results[..], r_f, false);
+        add_round_constants::<E, CS>(params, &mut linear_transformation_results[..], r_f, true);
         state = linear_transformation_results;
 
         round += 1;
@@ -315,4 +315,59 @@ fn scalar_product_over_lc<E: Engine> (input: &[Num<E>], by: &[E::Fr]) -> Num<E> 
     }
 
     result
+}
+
+fn print_lc<E: Engine>(input: &[Num<E>]) {
+    for el in input.iter() {
+        println!("{}", el.get_value().unwrap());
+    }
+}
+
+fn print_nums<E: Engine>(input: &[AllocatedNum<E>]) {
+    for el in input.iter() {
+        println!("{}", el.get_value().unwrap());
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use rand::{SeedableRng, Rng, XorShiftRng};
+    use super::*;
+    use ::circuit::test::*;
+    use bellman::pairing::bn256::{Bn256, Fr};
+    use bellman::pairing::ff::PrimeField;
+    use crate::poseidon;
+    use crate::poseidon::bn256::*;
+    use crate::group_hash::BlakeHasher;
+
+    #[test]
+    fn test_poseidon_hash_gadget() {
+        let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+        let params = Bn256PoseidonParams::new::<BlakeHasher>();
+        let input: Vec<Fr> = (0..params.t()).map(|_| rng.gen()).collect();
+        let expected = poseidon::poseidon_hash::<Bn256>(&params, &input[..]);
+
+        {
+            let mut cs = TestConstraintSystem::<Bn256>::new();
+
+            let input_words: Vec<AllocatedNum<Bn256>> = input.iter().enumerate().map(|(i, b)| {
+                AllocatedNum::alloc(
+                    cs.namespace(|| format!("input {}", i)),
+                    || {
+                        Ok(*b)
+                    }).unwrap()
+            }).collect();
+
+            let res = poseidon_hash(
+                cs.namespace(|| "poseidon hash"),
+                &input_words,
+                &params
+            ).unwrap();
+
+            assert!(cs.is_satisfied());
+            assert!(res.len() == 1);
+
+            assert_eq!(res[0].get_value().unwrap(), expected[0]);
+        }
+    }
 }

@@ -547,7 +547,7 @@ impl<E: Engine> Num<E> {
 
         self.value = newval;
         // TODO: Reword bellman to allow linear combinations to scale in-place
-        self.lc =  LinearCombination::zero() + (coeff, &self.lc);
+        self.lc = LinearCombination::zero() + (coeff, &self.lc);
     }
 
     pub fn add_number_with_coeff(
