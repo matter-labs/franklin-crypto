@@ -183,7 +183,7 @@ pub fn poseidon_hash<E: PoseidonEngine<SBox = QuinticSBox<E> >, CS>(
         let mut linear_transformation_results = vec![];
         for row in 0..t {
             let row = params.mds_matrix_row(row);
-            let linear_applied = scalar_product_lc(&s_box_applied[..], row);
+            let linear_applied = scalar_product(&s_box_applied[..], row);
             linear_transformation_results.push(linear_applied);
         }
 
@@ -205,7 +205,7 @@ pub fn poseidon_hash<E: PoseidonEngine<SBox = QuinticSBox<E> >, CS>(
         let mut linear_transformation_results = vec![];
         for row in 0..t {
             let row = params.mds_matrix_row(row);
-            let linear_applied = scalar_product_lc(&s_box_applied[..], row);
+            let linear_applied = scalar_product(&s_box_applied[..], row);
             linear_transformation_results.push(linear_applied);
         }
 
@@ -228,7 +228,7 @@ pub fn poseidon_hash<E: PoseidonEngine<SBox = QuinticSBox<E> >, CS>(
         let mut linear_transformation_results = vec![];
         for row in 0..t {
             let row = params.mds_matrix_row(row);
-            let linear_applied = scalar_product_lc(&s_box_applied[..], row);
+            let linear_applied = scalar_product_over_lc(&state[..], row);
             linear_transformation_results.push(linear_applied);
         }
 
@@ -251,7 +251,7 @@ pub fn poseidon_hash<E: PoseidonEngine<SBox = QuinticSBox<E> >, CS>(
         let mut linear_transformation_results = vec![];
         for row in 0..t {
             let row = params.mds_matrix_row(row);
-            let linear_applied = scalar_product_lc(&s_box_applied[..], row);
+            let linear_applied = scalar_product_over_lc(&state[..], row);
             linear_transformation_results.push(linear_applied);
         }
 
@@ -270,7 +270,7 @@ pub fn poseidon_hash<E: PoseidonEngine<SBox = QuinticSBox<E> >, CS>(
         let mut linear_transformation_results = vec![];
         for row in 0..t {
             let row = params.mds_matrix_row(row);
-            let linear_applied = scalar_product_lc(&s_box_applied[..], row);
+            let linear_applied = scalar_product(&s_box_applied[..], row);
             linear_transformation_results.push(linear_applied);
         }
 
@@ -291,11 +291,27 @@ pub fn poseidon_hash<E: PoseidonEngine<SBox = QuinticSBox<E> >, CS>(
     Ok(state[..output_len].to_vec())
 }
 
-fn scalar_product_lc<E: Engine> (input: &[AllocatedNum<E>], by: &[E::Fr]) -> Num<E> {
+fn scalar_product<E: Engine> (input: &[AllocatedNum<E>], by: &[E::Fr]) -> Num<E> {
     assert!(input.len() == by.len());
     let mut result = Num::zero();
     for (a, b) in input.iter().zip(by.iter()) {
         result = result.add_number_with_coeff(a, *b);
+    }
+
+    result
+}
+
+fn scalar_product_over_lc<E: Engine> (input: &[Num<E>], by: &[E::Fr]) -> Num<E> {
+    // inputs are already linear combinations, so we have to first multiply each of those by 
+    // scalar and then add them up
+    // THIS IS UNSAFE and can only be used here cause we know that each LC is unique in terms of contained variables
+    assert!(input.len() == by.len());
+    let mut result = Num::zero();
+    for (a, b) in input.iter().zip(by.iter()) {
+        // this is input LC multiplied by scalar
+        let mut this_lc = a.clone();
+        this_lc.scale(*b);
+        result.add_assign(&this_lc);
     }
 
     result

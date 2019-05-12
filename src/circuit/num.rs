@@ -510,6 +510,15 @@ impl<E: Engine> From<AllocatedNum<E>> for Num<E> {
     }
 }
 
+impl<E: Engine> Clone for Num<E> {
+    fn clone(&self) -> Self {
+        Num {
+            value: self.value,
+            lc: self.lc.clone()
+        }
+    }
+}
+
 impl<E: Engine> Num<E> {
     pub fn zero() -> Self {
         Num {
@@ -524,6 +533,21 @@ impl<E: Engine> Num<E> {
 
     pub fn lc(&self, coeff: E::Fr) -> LinearCombination<E> {
         LinearCombination::zero() + (coeff, &self.lc)
+    }
+
+    pub fn scale(&mut self, coeff: E::Fr) {
+        let newval = match self.value {
+            Some(mut curval) => {
+                curval.mul_assign(&coeff);
+
+                Some(curval)
+            },
+            _ => None
+        };
+
+        self.value = newval;
+        // TODO: Reword bellman to allow linear combinations to scale in-place
+        self.lc =  LinearCombination::zero() + (coeff, &self.lc);
     }
 
     pub fn add_number_with_coeff(
@@ -620,6 +644,29 @@ impl<E: Engine> Num<E> {
         let mut lc = LinearCombination::zero();
         std::mem::swap(&mut self.lc, &mut lc);
         self.lc = lc + &bit.lc(one, coeff);
+    }
+
+    pub fn add_assign(
+        &mut self,
+        other: &Self
+    )
+    {
+        let newval = match (self.value, other.get_value()) {
+            (Some(mut curval), Some(otherval)) => {
+                curval.add_assign(&otherval);
+
+                Some(curval)
+            },
+            _ => None
+        };
+
+        self.value = newval;
+        let mut lc = LinearCombination::zero();
+        std::mem::swap(&mut self.lc, &mut lc);
+        for (var, coeff) in other.lc.as_ref() {
+            lc = lc + (*coeff, var.clone());
+        }
+        self.lc = lc;
     }
 }
 
