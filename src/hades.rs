@@ -2,6 +2,7 @@
 use bellman::pairing::ff::{Field, PrimeField, PrimeFieldRepr};
 use bellman::pairing::{Engine};
 use std::marker::PhantomData;
+use super::group_hash::GroupHasher;
 
 pub trait SBox<E: Engine>: Sized {
     fn apply(elements: &mut [E::Fr]);
@@ -119,14 +120,53 @@ pub struct Bn256PoseidonParams {
 }
 
 impl Bn256PoseidonParams {
-    pub fn new() -> Self {
+    pub fn new<H: GroupHasher>() -> Self {
+        use byteorder::{WriteBytesExt, LittleEndian};
+        use constants;
+
+        let t = 6u32;
+        let r_f = 8u32;
+        let r_p = 84u32;
+        let tag = b"Hades";
+        // generate round constants based on some seed and hashing
+        let round_constants = {
+            let mut round_constants = vec![];
+            let mut nonce = 0u32;
+            let mut nonce_bytes = [0u8; 4];
+
+            loop {
+                (&mut nonce_bytes[0..4]).write_u32::<LittleEndian>(nonce).unwrap();
+                let mut h = H::new(&tag[..]);
+                h.update(constants::GH_FIRST_BLOCK);
+                h.update(&nonce_bytes[..]);
+                let h = h.finalize();
+                assert!(h.len() == 32);
+
+                let mut constant_repr = <bn256::Fr as PrimeField>::Repr::default();
+                constant_repr.read_le(&h[..]).unwrap();
+
+                if let Ok(constant) = bn256::Fr::from_repr(constant_repr) {
+                    round_constants.push(constant);
+                }
+
+                if round_constants.len() == ((2*r_f + r_p) as usize) {
+                    break;
+                }
+
+                nonce += 1;
+            }
+
+            round_constants
+        };
+
+
         Self {
-            t: 6,
-            r_f: 8,
-            r_p: 84,
-            round_keys: vec![bn256::Fr::zero(); 8+8+84],
+            t: t,
+            r_f: r_f,
+            r_p: r_f,
+            round_keys: round_constants,
             mds_matrix: vec![bn256::Fr::zero(); 6*6],
-            security_level: 128
+            security_level: 126
         }
     }
 }
@@ -161,8 +201,9 @@ pub fn poseidon_hash<E: PoseidonEngine>(
     params: &E::Params,
     input: &[E::Fr]
 ) -> Vec<E::Fr> {
-    let mut output_len = E::Fr::CAPACITY / params.security_level();
-    if E::Fr::CAPACITY % params.security_level() != 0 {
+    let output_bits = 2*params.security_level();
+    let mut output_len = E::Fr::CAPACITY / output_bits;
+    if E::Fr::CAPACITY % output_bits != 0 {
         output_len += 1;
     }
 
