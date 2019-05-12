@@ -3,7 +3,7 @@ use super::*;
 
 impl PoseidonEngine for bn256::Bn256 {
     type Params = Bn256PoseidonParams;
-    type SBox = QuanticSBox<bn256::Bn256>;
+    type SBox = QuinticSBox<bn256::Bn256>;
 }
 
 pub struct Bn256PoseidonParams {
@@ -183,6 +183,5 @@ mod test {
         let input: Vec<Fr> = (0..params.t()).map(|_| rng.gen()).collect();
         let output = poseidon_hash::<Bn256>(&params, &input[..]);
         assert!(output.len() == 1);
-    
     }
 }

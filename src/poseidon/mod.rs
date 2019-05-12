@@ -27,11 +27,11 @@ impl<E: Engine>SBox<E> for CubicSBox<E> {
     }
 }
 
-pub struct QuanticSBox<E: Engine> {
+pub struct QuinticSBox<E: Engine> {
     _marker: PhantomData<E>
 }
 
-impl<E: Engine>SBox<E> for QuanticSBox<E> {
+impl<E: Engine>SBox<E> for QuinticSBox<E> {
 
     fn apply(elements: &mut [E::Fr]) {
         for element in elements.iter_mut() {

@@ -573,6 +573,54 @@ impl<E: Engine> Num<E> {
             lc: self.lc + &bit.lc(one, coeff)
         }
     }
+
+    pub fn mut_add_number_with_coeff(
+        &mut self,
+        variable: &AllocatedNum<E>,
+        coeff: E::Fr
+    )
+    {
+        let newval = match (self.value, variable.get_value()) {
+            (Some(mut curval), Some(val)) => {
+                let mut tmp = val;
+                tmp.mul_assign(&coeff);
+
+                curval.add_assign(&tmp);
+
+                Some(curval)
+            },
+            _ => None
+        };
+
+        self.value = newval;
+        let mut lc = LinearCombination::zero();
+        std::mem::swap(&mut self.lc, &mut lc);
+        self.lc = lc + (coeff, variable.get_variable());
+    }
+
+    pub fn mut_add_bool_with_coeff(
+        &mut self,
+        one: Variable,
+        bit: &Boolean,
+        coeff: E::Fr
+    )
+    {
+        let newval = match (self.value, bit.get_value()) {
+            (Some(mut curval), Some(bval)) => {
+                if bval {
+                    curval.add_assign(&coeff);
+                }
+
+                Some(curval)
+            },
+            _ => None
+        };
+
+        self.value = newval;
+        let mut lc = LinearCombination::zero();
+        std::mem::swap(&mut self.lc, &mut lc);
+        self.lc = lc + &bit.lc(one, coeff);
+    }
 }
 
 #[cfg(test)]
