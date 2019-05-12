@@ -31,6 +31,7 @@ pub mod util;
 pub mod eddsa;
 pub mod interpolation;
 pub mod as_waksman;
+pub mod hades;
 
 extern crate serde;
 #[macro_use]
