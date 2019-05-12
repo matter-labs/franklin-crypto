@@ -4,6 +4,8 @@ use bellman::pairing::{Engine};
 use std::marker::PhantomData;
 use super::group_hash::GroupHasher;
 
+use rand::{Rand, Rng};
+
 pub trait SBox<E: Engine>: Sized {
     fn apply(elements: &mut [E::Fr]);
 }
@@ -121,21 +123,22 @@ pub struct Bn256PoseidonParams {
 
 impl Bn256PoseidonParams {
     pub fn new<H: GroupHasher>() -> Self {
-        use byteorder::{WriteBytesExt, LittleEndian};
+        use byteorder::{WriteBytesExt, ReadBytesExt, BigEndian};
         use constants;
 
         let t = 6u32;
         let r_f = 8u32;
         let r_p = 84u32;
-        let tag = b"Hades";
+
         // generate round constants based on some seed and hashing
         let round_constants = {
+            let tag = b"Hadescon";
             let mut round_constants = vec![];
             let mut nonce = 0u32;
             let mut nonce_bytes = [0u8; 4];
 
             loop {
-                (&mut nonce_bytes[0..4]).write_u32::<LittleEndian>(nonce).unwrap();
+                (&mut nonce_bytes[0..4]).write_u32::<BigEndian>(nonce).unwrap();
                 let mut h = H::new(&tag[..]);
                 h.update(constants::GH_FIRST_BLOCK);
                 h.update(&nonce_bytes[..]);
@@ -146,7 +149,9 @@ impl Bn256PoseidonParams {
                 constant_repr.read_le(&h[..]).unwrap();
 
                 if let Ok(constant) = bn256::Fr::from_repr(constant_repr) {
-                    round_constants.push(constant);
+                    if !constant.is_zero() {
+                        round_constants.push(constant);
+                    }
                 }
 
                 if round_constants.len() == ((2*r_f + r_p) as usize) {
@@ -159,13 +164,33 @@ impl Bn256PoseidonParams {
             round_constants
         };
 
+        let mds_matrix = {
+            use rand::{SeedableRng};
+            use rand::chacha::ChaChaRng;
+            // Create an RNG based on the outcome of the random beacon
+            let mut rng = {
+                let tag = b"Hadesmds";
+                let mut h = H::new(&tag[..]);
+                h.update(constants::GH_FIRST_BLOCK);
+                let h = h.finalize();
+                assert!(h.len() == 32);
+                let mut seed = [0u32; 8];
+                for i in 0..8 {
+                    seed[i] = (&h[..]).read_u32::<BigEndian>().expect("digest is large enough for this to work");
+                }
+
+                ChaChaRng::from_seed(&seed)
+            };
+
+            generate_mds_matrix::<bn256::Bn256, _>(t, &mut rng)
+        };
 
         Self {
             t: t,
             r_f: r_f,
             r_p: r_f,
             round_keys: round_constants,
-            mds_matrix: vec![bn256::Fr::zero(); 6*6],
+            mds_matrix: mds_matrix,
             security_level: 126
         }
     }
@@ -191,7 +216,6 @@ impl PoseidonHashParams<bn256::Bn256> for Bn256PoseidonParams {
 
         &self.mds_matrix[start..end]
     }
-
     fn security_level(&self) -> u32 {
         self.security_level
     }
@@ -216,7 +240,7 @@ pub fn poseidon_hash<E: PoseidonEngine>(
     // we have to perform R_f -> R_p -> R_f
 
     // no optimization will be done in the first version in terms of reordering of 
-    // linear transformations and round constants additions
+    // linear transformations, round constants additions and S-Boxes
 
     let mut round = 0;
 
@@ -291,4 +315,98 @@ fn scalar_product<E: Engine> (input: &[E::Fr], by: &[E::Fr]) -> E::Fr {
     }
 
     result
+}
+
+// For simplicity we'll not generate a matrix using a way from the paper and sampling
+// an element with some zero MSBs and instead just sample and retry
+fn generate_mds_matrix<E: PoseidonEngine, R: Rng>(t: u32, rng: &mut R) -> Vec<E::Fr> {
+    loop {
+        let x: Vec<E::Fr> = (0..t).map(|_| rng.gen()).collect();
+        let y: Vec<E::Fr> = (0..t).map(|_| rng.gen()).collect();
+
+        let mut invalid = false;
+
+        // quick and dirty check for uniqueness of x
+        for i in 0..(t as usize) {
+            if invalid {
+                continue;
+            }
+            let el = x[i];
+            for other in x[(i+1)..].iter() {
+                if el == *other {
+                    invalid = true;
+                    break;
+                }
+            }
+        }
+
+        if invalid {
+            continue;
+        }
+
+        // quick and dirty check for uniqueness of y
+        for i in 0..(t as usize) {
+            if invalid {
+                continue;
+            }
+            let el = y[i];
+            for other in y[(i+1)..].iter() {
+                if el == *other {
+                    invalid = true;
+                    break;
+                }
+            }
+        }
+
+        if invalid {
+            continue;
+        }
+
+        // quick and dirty check for uniqueness of x vs y
+        for i in 0..(t as usize) {
+            if invalid {
+                continue;
+            }
+            let el = x[i];
+            for other in y.iter() {
+                if el == *other {
+                    invalid = true;
+                    break;
+                }
+            }
+        }
+
+        if invalid {
+            continue;
+        }
+
+        // by previous checks we can be sure in uniqueness and perform subtractions easily
+        let mut mds_matrix = vec![E::Fr::zero(); (t*t) as usize];
+        for (i, x) in x.into_iter().enumerate() {
+            for (j, y) in y.iter().enumerate() {
+                let place_into = i*(t as usize) + j;
+                let mut element = x;
+                element.sub_assign(y);
+                mds_matrix[place_into] = element;
+            }
+        }
+
+        // now we need to do the inverse
+        batch_inversion::<E>(&mut mds_matrix[..]);
+
+        return mds_matrix;
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use rand::{Rand, Rng, thread_rng};
+    use bellman::pairing::bn256::{Bn256, Fr};
+    use super::Bn256PoseidonParams;
+    use super::super::group_hash::BlakeHasher;
+
+    #[test]
+    fn test_generate_bn256_poseidon_params() {
+        let params = Bn256PoseidonParams::new::<BlakeHasher>();
+    }
 }
