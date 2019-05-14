@@ -118,9 +118,37 @@ pub fn poseidon_hash<E: PoseidonEngine>(
         output_len += 1;
     }
 
-    let expected_input_len = params.t() as usize;
-    assert!(input.len() == expected_input_len);
+    let t = params.t();
+    let absorbtion_len = (t as usize) - output_len;
 
+    let mut input = input.to_vec();
+    let mut absorbtion_cycles = input.len() / absorbtion_len;
+    if input.len() % absorbtion_len != 0 {
+        absorbtion_cycles += 1;
+    }
+    input.resize(absorbtion_cycles * absorbtion_len, E::Fr::one());
+
+
+
+    // follow the original implementation and form an initial permutation by permutting over full zeroes
+    // TODO: make static precompute if there is a good way to make it
+    let mut state: Vec<E::Fr> = poseidon_mimc::<E>(params, &vec![E::Fr::zero(); t as usize]);
+    for i in 0..absorbtion_cycles {
+        // Don't touch top words of the state, only the bottom ones
+        let absorbtion_slice = &input[(i * absorbtion_len)..((i+1)*absorbtion_len)];
+        for (w, abs) in state.iter_mut().zip(absorbtion_slice.iter()) {
+            w.add_assign(abs);
+        }
+        state = poseidon_mimc::<E>(params, &state);
+    }
+
+    state[..output_len].to_vec()
+}
+
+pub fn poseidon_mimc<E: PoseidonEngine>(
+    params: &E::Params,
+    input: &[E::Fr]
+) -> Vec<E::Fr> {
     let mut state = input.to_vec();
     let state_len = state.len();
 
@@ -204,8 +232,7 @@ pub fn poseidon_hash<E: PoseidonEngine>(
         E::SBox::apply(&mut state[..]);
     }
 
-
-    state[..output_len].to_vec()
+    state
 }
 
 fn scalar_product<E: Engine> (input: &[E::Fr], by: &[E::Fr]) -> E::Fr {
