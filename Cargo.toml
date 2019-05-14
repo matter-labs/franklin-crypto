@@ -6,7 +6,7 @@ homepage = "https://github.com/matter-labs/sapling-crypto"
 license = "MIT/Apache-2.0"
 name = "sapling-crypto_ce"
 repository = "https://github.com/matter-labs/sapling-crypto"
-version = "0.0.5"
+version = "0.0.6"
 
 [lib]
 crate-type = ["lib", "staticlib"]

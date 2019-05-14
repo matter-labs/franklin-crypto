@@ -126,9 +126,7 @@ pub fn poseidon_hash<E: PoseidonEngine>(
     if input.len() % absorbtion_len != 0 {
         absorbtion_cycles += 1;
     }
-    input.resize(absorbtion_cycles * absorbtion_len, E::Fr::one());
-
-
+    input.resize(absorbtion_cycles * absorbtion_len, E::Fr::zero());
 
     // follow the original implementation and form an initial permutation by permutting over full zeroes
     // TODO: make static precompute if there is a good way to make it

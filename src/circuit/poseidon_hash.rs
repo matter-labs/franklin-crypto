@@ -4,7 +4,7 @@ use bellman::{ConstraintSystem, SynthesisError};
 use super::boolean::{Boolean};
 use super::num::{Num, AllocatedNum};
 use super::Assignment;
-use crate::poseidon::*;
+use crate::poseidon::{PoseidonEngine, PoseidonHashParams, QuinticSBox, SBox};
 
 
 impl<E: PoseidonEngine> QuinticSBox<E> {
@@ -113,11 +113,150 @@ pub fn poseidon_hash<E: PoseidonEngine<SBox = QuinticSBox<E> >, CS>(
         output_len += 1;
     }
 
+    let t = params.t();
+    let absorbtion_len = (t as usize) - output_len;
+
+    let mut absorbtion_cycles = input.len() / absorbtion_len;
+    if input.len() % absorbtion_len != 0 {
+        absorbtion_cycles += 1;
+    }
+    
+    // convert input into Nums
+    let mut input: Vec<Num<E>> = input.iter().map(|el| Num::from(el.clone())).collect();
+    input.resize(absorbtion_cycles * absorbtion_len, Num::zero());
+
+
+    // make initial state: perform mimc round on an empty vector
+    // TODO: make static precomputation
+    let initial_state: Vec<E::Fr> = crate::poseidon::poseidon_mimc::<E>(params, &vec![E::Fr::zero(); t as usize]);
+    let mut state: Vec<Num<E>>  = initial_state.into_iter().map(|el| {
+        let mut lc = Num::zero();
+        lc = lc.add_bool_with_coeff(CS::one(), &Boolean::constant(true), el);
+
+        lc
+    }).collect();
+
+    for i in 0..absorbtion_cycles {
+        // Don't touch top words of the state, only the bottom ones
+        let absorbtion_slice = &input[(i * absorbtion_len)..((i+1)*absorbtion_len)];
+        for (w, abs) in state.iter_mut().zip(absorbtion_slice.iter()) {
+            w.add_assign(abs);
+        }
+        state = poseidon_mimc_round(
+            cs.namespace(|| format!("Poseidon mimc round {}", i)),
+            &state,
+            params
+        )?;
+    }
+
+    let mut result = vec![];
+
+    for (i, num) in state[..output_len].iter().enumerate() {
+        let allocated: AllocatedNum<E> = AllocatedNum::alloc(
+            cs.namespace(|| format!("allocate output word {}", i)), 
+            || {
+                let val = *num.get_value().get()?;
+
+                Ok(val)
+            }
+        )?;
+
+        cs.enforce(
+            || format!("enforce allocaiton for word {}", i),
+            |_| num.lc(E::Fr::one()),
+            |lc| lc + CS::one(),
+            |lc| lc + allocated.get_variable()
+        );
+
+        result.push(allocated);
+    }
+
+    Ok(result)
+}
+
+pub fn poseidon_mimc<E: PoseidonEngine<SBox = QuinticSBox<E> >, CS>(
+    mut cs: CS,
+    input: &[AllocatedNum<E>],
+    params: &E::Params
+) -> Result<Vec<AllocatedNum<E>>, SynthesisError>
+    where CS: ConstraintSystem<E>
+{
     let expected_input_len = params.t() as usize;
     assert!(input.len() == expected_input_len);
 
-    let state_len = input.len();
+    let state_len = params.t();
+    // we have to perform R_f -> R_p -> R_f
 
+    // no optimization will be done in the first version in terms of reordering of 
+    // linear transformations, round constants additions and S-Boxes
+
+    // let mut round = 0;
+
+    // let r_f = params.r_f();
+    // let r_p = params.r_p();
+    // let t = params.t();
+
+    // fn form_round_constants_linear_combinations<E: PoseidonEngine, CS>(
+    //     params: &E::Params,
+    //     words: &[AllocatedNum<E>], 
+    //     round: u32, 
+    //     full_round: bool) -> Vec<Num<E>>
+    // where CS: ConstraintSystem<E> {
+    //     let round_constants = if full_round {
+    //         params.full_round_key(round)
+    //     } else {
+    //         params.partial_round_key(round)
+    //     };
+    //     let mut linear_combinations = vec![];
+    //     for (el, c) in words.iter().zip(round_constants.iter()) {
+    //         let mut lc = Num::from(el.clone());
+    //         lc = lc.add_bool_with_coeff(CS::one(), &Boolean::constant(true), *c);
+    //         linear_combinations.push(lc);
+    //     }
+
+    //     linear_combinations
+    // }
+
+    let state: Vec<Num<E>> = input.iter().map(|el| Num::from(el.clone())).collect();
+
+    let round_result = poseidon_mimc_round(cs.namespace(|| "mimc round"), &state, params)?;
+
+    let mut result = vec![];
+
+    for (i, num) in round_result.iter().enumerate() {
+        let allocated: AllocatedNum<E> = AllocatedNum::alloc(
+            cs.namespace(|| format!("allocate output word {}", i)), 
+            || {
+                let val = *num.get_value().get()?;
+
+                Ok(val)
+            }
+        )?;
+
+        cs.enforce(
+            || format!("enforce allocaiton for word {}", i),
+            |_| num.lc(E::Fr::one()),
+            |lc| lc + CS::one(),
+            |lc| lc + allocated.get_variable()
+        );
+
+        result.push(allocated);
+    }
+
+    Ok(result)
+}
+
+fn poseidon_mimc_round<E: PoseidonEngine<SBox = QuinticSBox<E> >, CS>(
+    mut cs: CS,
+    input: &[Num<E>],
+    params: &E::Params
+) -> Result<Vec<Num<E>>, SynthesisError>
+    where CS: ConstraintSystem<E>
+{
+    let expected_input_len = params.t() as usize;
+    assert!(input.len() == expected_input_len);
+
+    let state_len = params.t();
     // we have to perform R_f -> R_p -> R_f
 
     // no optimization will be done in the first version in terms of reordering of 
@@ -128,27 +267,6 @@ pub fn poseidon_hash<E: PoseidonEngine<SBox = QuinticSBox<E> >, CS>(
     let r_f = params.r_f();
     let r_p = params.r_p();
     let t = params.t();
-
-    fn form_round_constants_linear_combinations<E: PoseidonEngine, CS>(
-        params: &E::Params,
-        words: &[AllocatedNum<E>], 
-        round: u32, 
-        full_round: bool) -> Vec<Num<E>>
-    where CS: ConstraintSystem<E> {
-        let round_constants = if full_round {
-            params.full_round_key(round)
-        } else {
-            params.partial_round_key(round)
-        };
-        let mut linear_combinations = vec![];
-        for (el, c) in words.iter().zip(round_constants.iter()) {
-            let mut lc = Num::from(el.clone());
-            lc = lc.add_bool_with_coeff(CS::one(), &Boolean::constant(true), *c);
-            linear_combinations.push(lc);
-        }
-
-        linear_combinations
-    }
 
     fn add_round_constants<E: PoseidonEngine, CS>(
         params: &E::Params,
@@ -168,9 +286,8 @@ pub fn poseidon_hash<E: PoseidonEngine<SBox = QuinticSBox<E> >, CS>(
 
     // before the first round form linear combinations manually
 
-    let mut state = form_round_constants_linear_combinations::<E, CS>(
-        params, &input, 0, true
-    );
+    let mut state = input.to_vec();
+    add_round_constants::<E, CS>(params, &mut state[..], 0, true);
 
     // do releated applications of MDS and then round constants and s-boxes
 
@@ -283,12 +400,12 @@ pub fn poseidon_hash<E: PoseidonEngine<SBox = QuinticSBox<E> >, CS>(
 
     // for a final round we only apply s-box
 
-    let state  = E::SBox::apply_sbox(
+    let state = E::SBox::apply_sbox(
             cs.namespace(|| format!("apply s-box for full round {}", 2*r_f - 1)),
             &state[..]
         )?;
 
-    Ok(state[..output_len].to_vec())
+    Ok(state.into_iter().map(|el| Num::from(el)).collect())
 }
 
 fn scalar_product<E: Engine> (input: &[AllocatedNum<E>], by: &[E::Fr]) -> Num<E> {
@@ -341,10 +458,41 @@ mod test {
     use crate::group_hash::BlakeHasher;
 
     #[test]
-    fn test_poseidon_hash_gadget() {
+    fn test_poseidon_mimc_gadget() {
         let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
         let params = Bn256PoseidonParams::new::<BlakeHasher>();
         let input: Vec<Fr> = (0..params.t()).map(|_| rng.gen()).collect();
+        let expected = poseidon::poseidon_hash::<Bn256>(&params, &input[..]);
+
+        {
+            let mut cs = TestConstraintSystem::<Bn256>::new();
+
+            let input_words: Vec<AllocatedNum<Bn256>> = input.iter().enumerate().map(|(i, b)| {
+                AllocatedNum::alloc(
+                    cs.namespace(|| format!("input {}", i)),
+                    || {
+                        Ok(*b)
+                    }).unwrap()
+            }).collect();
+
+            let res = poseidon_mimc(
+                cs.namespace(|| "poseidon mimc"),
+                &input_words,
+                &params
+            ).unwrap();
+
+            assert!(cs.is_satisfied());
+            assert!(res.len() == 1);
+
+            assert_eq!(res[0].get_value().unwrap(), expected[0]);
+        }
+    }
+
+    #[test]
+    fn test_poseidon_hash_gadget() {
+        let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+        let params = Bn256PoseidonParams::new::<BlakeHasher>();
+        let input: Vec<Fr> = (0..(params.t()-1)*2).map(|_| rng.gen()).collect();
         let expected = poseidon::poseidon_hash::<Bn256>(&params, &input[..]);
 
         {
@@ -366,6 +514,7 @@ mod test {
 
             assert!(cs.is_satisfied());
             assert!(res.len() == 1);
+            println!("Poseidon hash {} to {} taken {} constraints", input.len(), res.len(), cs.num_constraints());
 
             assert_eq!(res[0].get_value().unwrap(), expected[0]);
         }
