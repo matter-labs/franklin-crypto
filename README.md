@@ -1,4 +1,4 @@
-# sapling-crypto "Community edition"
+# franklin-crypto: "Community edition" of the sapling-crypto gadget library
 
 This repository contains an original implementation of Zcash's "Sapling" cryptography with extensions from us for Ethereum curves and some sugar functions.
 

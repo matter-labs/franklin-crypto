@@ -1,17 +1,17 @@
-extern crate sapling_crypto_ce as sapling_crypto;
+extern crate franklin_crypto;
 extern crate bellman_ce as bellman;
 extern crate rand;
 
 use std::time::{Duration, Instant};
-use sapling_crypto::jubjub::{
+use franklin_crypto::jubjub::{
     JubjubBls12,
     edwards,
     fs,
 };
-use sapling_crypto::circuit::sapling::{
+use franklin_crypto::circuit::sapling::{
     Spend
 };
-use sapling_crypto::primitives::{
+use franklin_crypto::primitives::{
     Diversifier,
     ProofGenerationKey,
     ValueCommitment

@@ -3,12 +3,12 @@
 extern crate rand;
 extern crate test;
 extern crate bellman_ce as bellman;
-extern crate sapling_crypto_ce as sapling_crypto;
+extern crate franklin_crypto;
 
 use rand::{Rand, thread_rng};
 use bellman::pairing::bn256::Bn256;
-use sapling_crypto::alt_babyjubjub::AltJubjubBn256;
-use sapling_crypto::pedersen_hash::{pedersen_hash, Personalization};
+use franklin_crypto::alt_babyjubjub::AltJubjubBn256;
+use franklin_crypto::pedersen_hash::{pedersen_hash, Personalization};
 
 #[bench]
 fn bench_baby_pedersen_hash(b: &mut test::Bencher) {
