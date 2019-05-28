@@ -613,17 +613,6 @@ impl<E: Engine> AllocatedNum<E> {
     }
 }
 
-pub struct Thanable();
-pub struct Elseable();
-
-pub fn ifeq<E: Engine, CS: ConstraintSystem<E>>(
-    mut cs: CS,
-    a: &AllocatedNum<E>,
-    b: &AllocatedNum<E>) -> Thanable 
-{
-    Thanable()
-}
-
 pub struct Num<E: Engine> {
     value: Option<E::Fr>,
     lc: LinearCombination<E>
