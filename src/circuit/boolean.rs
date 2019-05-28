@@ -106,6 +106,30 @@ impl AllocatedBit {
         })
     }
 
+    /// UNSAFE: Allocate a bit variable without constraints
+    /// Users must add constraints such that the variable can
+    /// only take values 0 or 1
+    pub(crate) fn alloc_unsafe<E, CS>(
+        mut cs: CS,
+        value: Option<bool>,
+    ) -> Result<Self, SynthesisError>
+        where E: Engine,
+              CS: ConstraintSystem<E>
+    {
+        let variable = cs.alloc(|| "boolean", || {
+            if *value.get()? {
+                Ok(E::Fr::one())
+            } else {
+                Ok(E::Fr::zero())
+            }
+        })?;
+
+        Ok(AllocatedBit {
+            variable,
+            value
+        })
+    }
+
     /// Performs an XOR operation over the two operands, returning
     /// an `AllocatedBit`.
     pub fn xor<E, CS>(
