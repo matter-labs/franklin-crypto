@@ -449,6 +449,123 @@ impl<E: Engine> AllocatedNum<E> {
         Ok(c)
     }
 
+    /// Takes two allocated numbers (a, b) and returns
+    /// allocated boolean variable with value `true`
+    /// if the `a` and `b` are equal, `false` otherwise.
+    pub fn equals<CS>(
+        mut cs: CS,
+        a: &Self,
+        b: &Self
+    ) -> Result<boolean::AllocatedBit, SynthesisError>
+        where E: Engine,
+            CS: ConstraintSystem<E>
+    {
+        // Allocate and constrain `r`: result boolean bit. 
+        // It equals `true` if `a` equals `b`, `false` otherwise
+
+        let r_value = match (a.value, b.value) {
+            (Some(a), Some(b))  => Some(a == b),
+            _                   => None,
+        };
+
+        let r = boolean::AllocatedBit::alloc(cs.namespace(|| "r"), r_value)?;
+
+        // Let `delta = a - b`
+
+        let delta_value = match (a.value, b.value) {
+            (Some(a), Some(b))  => {
+                // return (a - b)
+                let mut a = a;
+                a.sub_assign(&b);
+                Some(a)
+            },
+            _ => None,
+        };
+
+        let delta_inv_value = delta_value.as_ref().map(|delta_value| {
+            let tmp = delta_value.clone(); 
+            if tmp.is_zero() {
+                E::Fr::one() // we can return any number here, it doesn't matter
+            } else {
+                tmp.inverse().unwrap()
+            }
+        });
+
+        let delta_inv = Self::alloc(cs.namespace(|| "delta_inv"), || delta_inv_value.grab() )?;
+
+        // Allocate `t = delta * delta_inv`
+        // If `delta` is non-zero (a != b), `t` will equal 1
+        // If `delta` is zero (a == b), `t` cannot equal 1
+
+        let t_value = match (delta_value, delta_inv_value) {
+            (Some(a), Some(b))  => {
+                let mut t = a.clone();
+                t.mul_assign(&b);
+                Some(t)
+            },
+            _ => None,
+        };
+
+        let t = Self::alloc(cs.namespace(|| "t"), || t_value.grab() )?;
+
+        // Constrain allocation: 
+        // t = (a - b) * delta_inv
+        cs.enforce(
+            || "t = (a - b) * delta_inv",
+            |lc| lc + a.variable - b.variable,
+            |lc| lc + delta_inv.variable,
+            |lc| lc + t.variable,
+        );
+
+        // Constrain: 
+        // (a - b) * (t - 1) == 0
+        // This enforces that correct `delta_inv` was provided, 
+        // and thus `t` is 1 if `(a - b)` is non zero (a != b )
+        cs.enforce(
+            || "(a - b) * (t - 1) == 0",
+            |lc| lc + a.variable - b.variable,
+            |lc| lc + t.variable - CS::one(),
+            |lc| lc
+        );
+
+        // Constrain: 
+        // (a - b) * r == 0
+        // This enforces that `r` is zero if `(a - b)` is non-zero (a != b)
+        cs.enforce(
+            || "(a - b) * r == 0",
+            |lc| lc + a.variable - b.variable,
+            |lc| lc + r.get_variable(),
+            |lc| lc
+        );
+
+        // Constrain: 
+        // (t - 1) * (r - 1) == 0
+        // This enforces that `r` is one if `t` is not one (a == b)
+        cs.enforce(
+            || "(t - 1) * (r - 1) == 0",
+            |lc| lc + t.get_variable() - CS::one(),
+            |lc| lc + r.get_variable() - CS::one(),
+            |lc| lc
+        );
+
+        Ok(r)
+    }
+
+    /// Returns `a == b ? x : y`
+    pub fn select_ifeq<CS>(
+        mut cs: CS,
+        a: &Self,
+        b: &Self,
+        x: &Self,
+        y: &Self,
+    ) -> Result<Self, SynthesisError>
+        where E: Engine,
+            CS: ConstraintSystem<E>
+    {
+        let eq = Self::equals(cs.namespace(|| "eq"), a, b)?;
+        Self::conditionally_select(cs.namespace(|| "select"), x, y, &Boolean::from(eq))
+    }
+
     /// Limits number of bits. The easiest example when required
     /// is to add or subtract two "small" (with bit length smaller 
     /// than one of the field) numbers and check for overflow
@@ -696,6 +813,43 @@ mod test {
             assert_eq!(a.value.unwrap(), c.value.unwrap());
             assert_eq!(b.value.unwrap(), d.value.unwrap());
         }
+    }
+
+    #[test]
+    fn test_num_equals() {
+        let mut cs = TestConstraintSystem::<Bls12>::new();
+
+        let a = AllocatedNum::alloc(cs.namespace(|| "a"), || Ok(Fr::from_str("10").unwrap())).unwrap();
+        let b = AllocatedNum::alloc(cs.namespace(|| "b"), || Ok(Fr::from_str("12").unwrap())).unwrap();
+        let c = AllocatedNum::alloc(cs.namespace(|| "c"), || Ok(Fr::from_str("10").unwrap())).unwrap();
+
+        let not_eq = AllocatedNum::equals(cs.namespace(|| "not_eq"), &a, &b).unwrap();
+        let eq = AllocatedNum::equals(cs.namespace(|| "eq"), &a, &c).unwrap();
+
+        assert!(cs.is_satisfied());
+        assert_eq!(cs.num_constraints(), 2 * 4);
+
+        assert_eq!(not_eq.get_value().unwrap(), false);
+        assert_eq!(eq.get_value().unwrap(), true);
+    }
+
+    #[test]
+    fn select_if_equals() {
+        let mut cs = TestConstraintSystem::<Bls12>::new();
+
+        let a = AllocatedNum::alloc(cs.namespace(|| "a"), || Ok(Fr::from_str("0").unwrap())).unwrap();
+        let b = AllocatedNum::alloc(cs.namespace(|| "b"), || Ok(Fr::from_str("1").unwrap())).unwrap();
+        let c = AllocatedNum::alloc(cs.namespace(|| "c"), || Ok(Fr::from_str("0").unwrap())).unwrap();
+
+        let x = AllocatedNum::alloc(cs.namespace(|| "x"), || Ok(Fr::from_str("100").unwrap())).unwrap();
+        let y = AllocatedNum::alloc(cs.namespace(|| "y"), || Ok(Fr::from_str("200").unwrap())).unwrap();
+
+        let n_eq =     AllocatedNum::select_ifeq(cs.namespace(|| "ifeq"),  &a, &c, &x, &y).unwrap();
+        let n_not_eq = AllocatedNum::select_ifeq(cs.namespace(|| "ifneq"), &a, &b, &x, &y).unwrap();
+
+        assert!(cs.is_satisfied());
+        assert_eq!(n_eq.get_value().unwrap(), Fr::from_str("100").unwrap());
+        assert_eq!(n_not_eq.get_value().unwrap(), Fr::from_str("200").unwrap());
     }
 
     #[test]
