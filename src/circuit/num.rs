@@ -468,7 +468,7 @@ impl<E: Engine> AllocatedNum<E> {
             _                   => None,
         };
 
-        let r = boolean::AllocatedBit::alloc_unsafe(cs.namespace(|| "r"), r_value)?;
+        let r = boolean::AllocatedBit::alloc(cs.namespace(|| "r"), r_value)?;
 
         // Let `delta = a - b`
 
