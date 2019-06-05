@@ -18,21 +18,12 @@ pub fn generate_powers<E: Engine, CS>(
                 return Ok(E::Fr::one());
             }
         )?;
-
+        power.assert_number(cs.namespace(||"0-th power equals 1"), &E::Fr::one())?;
         result.push(power.clone());
 
         for i in 1..max_power {
-            power = num::AllocatedNum::alloc(
-                cs.namespace(|| format!("{}-th power", i)), 
-                || {
-                    let mut power = power.get_value().get()?.clone();
-                    let value = base.get_value().get()?.clone();
-                    power.mul_assign(&value);
-                    
-                    Ok(power)
-                }
-            )?;
-
+            power = power.mul(cs.namespace(||format!("{}-th power", i)), base)?;
+           
             result.push(power.clone());
         }
 
