@@ -363,6 +363,22 @@ impl<E: Engine> AllocatedNum<E> {
         Ok(())
     }
 
+    pub fn assert_number<CS>(
+        &self,
+        mut cs: CS,
+        number: &E::Fr
+    ) -> Result<(), SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        cs.enforce(
+            || "number assertion constraint",
+            |lc| lc + self.variable - (number.clone(), CS::one()),
+            |lc| lc + CS::one(),
+            |lc| lc
+        );
+
+        Ok(())
+    }
     /// Takes two allocated numbers (a, b) and returns
     /// (b, a) if the condition is true, and (a, b)
     /// otherwise.
