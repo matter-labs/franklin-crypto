@@ -1,10 +1,10 @@
 //! This is an implementation of EdDSA as refered in literature
 //! Generation of randomness is not specified
 
-use bellman::pairing::ff::{Field, PrimeField, PrimeFieldRepr};
+use bellman::pairing::ff::{Field, PrimeField, PrimeFieldRepr, BitIterator};
 use rand::{Rng};
 use std::io::{self, Read, Write};
-
+use crate::pedersen_hash::*;
 use jubjub::{
     FixedGenerators, 
     JubjubEngine, 
@@ -45,7 +45,22 @@ fn h_star_s<E: JubjubEngine>(a: &[u8], b: &[u8]) -> E::Fs {
 fn sha256_h_star<E: JubjubEngine>(a: &[u8], b: &[u8]) -> E::Fs {
     sha256_hash_to_scalar::<E>(&[], a, b)
 }
+fn pedersen_h_star<E: JubjubEngine>(bits: &[bool], params: &E::Params) -> E::Fs{
+    let result: E::Fr = baby_pedersen_hash::<E,_>(Personalization::NoteCommitment, bits.to_vec().into_iter(), params).into_xy().0;
+    let mut result_le_bits: Vec<bool> = BitIterator::new(result.into_repr()).collect();
+    result_le_bits.reverse();
+    let mut fe = E::Fs::zero();
+    let mut base = E::Fs::one();
 
+    for bit in result_le_bits {
+        if bit {
+            fe.add_assign(&base);
+        }
+        base.double();
+    }
+
+    fe
+}
 #[derive(Copy, Clone)]
 pub struct SerializedSignature {
     rbar: [u8; 32],
@@ -250,6 +265,72 @@ impl<E: JubjubEngine> PrivateKey<E> {
         Signature { r: as_unknown, s: s }
     }
 
+    // sign a message by following MuSig protocol, with public key being just a trivial key,
+    // not a multisignature one
+    pub fn musig_pedersen_sign<R: Rng>(
+        &self,
+        msg: &[u8],
+        rng: &mut R,
+        p_g: FixedGenerators,
+        params: &E::Params,
+    ) -> Signature<E> {
+        // T = (l_H + 128) bits of randomness
+        // For H*, l_H = 512 bits
+        let mut t = [0u8; 80];
+        rng.fill_bytes(&mut t[..]);
+
+        // Generate randomness using hash function based on some entropy and the message
+        // Generation of randommess is completely off-chain, so we use BLAKE2b!
+        // r = H*(T || M)
+        let r = h_star::<E>(&t[..], msg);
+
+        let pk = PublicKey::from_private(&self, p_g, params);
+        let order_check = pk.0.mul(E::Fs::char(), params);
+        assert!(order_check.eq(&Point::zero()));
+
+        let (pk_x, _) = pk.0.into_xy();
+        let mut pk_x_bits: Vec<bool> = BitIterator::new(pk_x.into_repr()).collect();
+        pk_x_bits.reverse();
+        pk_x_bits.resize(256, false);
+
+        // R = r . P_G
+        let r_g = params.generator(p_g).mul(r, params);
+
+        let (r_g_x, _) = r_g.into_xy();
+        let mut r_g_x_bits: Vec<bool> = BitIterator::new(r_g_x.into_repr()).collect();
+        r_g_x_bits.reverse();
+        r_g_x_bits.resize(256, false);
+
+
+        let mut concatenated_bits: Vec<bool> = pk_x_bits.clone();
+        concatenated_bits.extend(r_g_x_bits);
+        let phash_concatenated: E::Fr = baby_pedersen_hash::<E,_>(Personalization::NoteCommitment, concatenated_bits, &params).into_xy().0;
+        let mut phash_first_bits: Vec<bool> = BitIterator::new(phash_concatenated.into_repr()).collect();
+        phash_first_bits.reverse();
+        phash_first_bits.resize(256, false);
+        // we also pad message to 256 bits as LE
+        let mut msg_padded : Vec<u8> = msg.iter().cloned().collect();
+        msg_padded.resize(32, 0u8);
+        
+        //le_bits
+        let mut msg_bits = vec![];
+        for msg_byte in msg_padded{
+            for i in 0..8{
+                msg_bits.push(msg_byte & 1<<i != 0);
+            }  
+        }
+        let mut to_hash_bits = vec![];
+        to_hash_bits.extend(phash_first_bits);
+        to_hash_bits.extend(msg_bits);
+        // S = r + H*(PK_X || R_X || M) . sk
+        let mut s = pedersen_h_star::<E>(&to_hash_bits, params);
+        s.mul_assign(&self.0);
+        s.add_assign(&r);
+    
+        let as_unknown = Point::from(r_g);
+        Signature { r: as_unknown, s: s }
+    }
+
     pub fn sign<R: Rng>(
         &self,
         msg: &[u8],
@@ -303,7 +384,6 @@ impl<E: JubjubEngine> PrivateKey<E> {
         Signature { r: as_unknown, s: s }
     }
 }
-
 impl<E: JubjubEngine> PublicKey<E> {
     pub fn from_private(privkey: &PrivateKey<E>, p_g: FixedGenerators, params: &E::Params) -> Self {
         let res = params.generator(p_g).mul(privkey.0, params).into();
@@ -472,6 +552,74 @@ impl<E: JubjubEngine> PublicKey<E> {
 
     // verify MuSig. While we are on the Edwards curve with cofactor,
     // verification will be successful if and only if every element is in the main group
+    pub fn verify_musig_pedersen(
+        &self,
+        msg: &[u8],
+        sig: &Signature<E>,
+        p_g: FixedGenerators,
+        params: &E::Params,
+    ) -> bool {
+        let (pk_x, _) = self.0.into_xy();
+        let mut pk_x_bits: Vec<bool> = BitIterator::new(pk_x.into_repr()).collect();
+        pk_x_bits.reverse();
+        pk_x_bits.resize(256, false);
+
+        let (r_g_x, _) = sig.r.into_xy();
+        let mut r_g_x_bits: Vec<bool> = BitIterator::new(r_g_x.into_repr()).collect();
+        r_g_x_bits.reverse();
+        r_g_x_bits.resize(256, false);
+
+
+        let mut concatenated_bits: Vec<bool> = pk_x_bits.clone();
+        concatenated_bits.extend(r_g_x_bits);
+        let phash_concatenated = baby_pedersen_hash::<E,_>(Personalization::NoteCommitment, concatenated_bits, &params).into_xy().0;
+        let mut phash_first_bits: Vec<bool> = BitIterator::new(phash_concatenated.into_repr()).collect();
+        phash_first_bits.reverse();
+        phash_first_bits.resize(256, false);
+        // we also pad message to 256 bits as LE
+        let mut msg_padded : Vec<u8> = msg.iter().cloned().collect();
+        msg_padded.resize(32, 0u8);
+        
+        //le_bits
+        let mut msg_bits = vec![];
+        for msg_byte in msg_padded{
+            for i in 0..8{
+                msg_bits.push(msg_byte & 1<<i != 0);
+            }  
+        }
+        let mut to_hash_bits = vec![];
+        to_hash_bits.extend(phash_first_bits);
+        to_hash_bits.extend(msg_bits);
+        // S = r + H*(PK_X || R_X || M) . sk
+        let mut c = pedersen_h_star::<E>(&to_hash_bits, params);
+
+        // this one is for a simple sanity check. In application purposes the pk will always be in a right group 
+        let order_check_pk = self.0.mul(E::Fs::char(), params);
+        if !order_check_pk.eq(&Point::zero()) {
+            return false;
+        }
+
+        // r is input from user, so always check it!
+        let order_check_r = sig.r.mul(E::Fs::char(), params);
+        if !order_check_r.eq(&Point::zero()) {
+            return false;
+        }
+
+        // 0 = h_G(-S . P_G + R + c . vk)
+        // self.0.mul(c, params).add(&sig.r, params).add(
+        //     &params.generator(p_g).mul(sig.s, params).negate().into(),
+        //     params
+        // ).mul_by_cofactor(params).eq(&Point::zero());
+
+        // 0 = -S . P_G + R + c . vk that requires all points to be in the same group
+        self.0.mul(c, params).add(&sig.r, params).add(
+            &params.generator(p_g).mul(sig.s, params).negate().into(),
+            params
+        ).eq(&Point::zero())
+    }
+
+    // verify MuSig. While we are on the Edwards curve with cofactor,
+    // verification will be successful if and only if every element is in the main group
     pub fn verify_musig_sha256(
         &self,
         msg: &[u8],
@@ -520,6 +668,7 @@ impl<E: JubjubEngine> PublicKey<E> {
             params
         ).eq(&Point::zero())
     }
+
 
     pub fn verify_serialized(
         &self,
@@ -766,6 +915,43 @@ mod baby_tests {
             assert!(rvk.verify_musig_sha256(msg2, &sig2, p_g, params));
             assert!(!rvk.verify_musig_sha256(msg1, &sig2, p_g, params));
             assert!(!rvk.verify_musig_sha256(msg2, &sig1, p_g, params));
+        }
+    }
+
+    #[test]
+    fn random_signatures_for_pedersen_musig() {
+        let rng = &mut thread_rng();
+        let p_g = FixedGenerators::SpendingKeyGenerator;
+        let params = &AltJubjubBn256::new();
+
+        for _ in 0..1000 {
+            let sk = PrivateKey::<Bn256>(rng.gen());
+            let vk = PublicKey::from_private(&sk, p_g, params);
+
+            let msg1 = b"Foo bar";
+            let msg2 = b"Spam eggs";
+
+            let max_message_size: usize = 16;
+
+            let sig1 = sk.musig_pedersen_sign(msg1, rng, p_g, params);
+            let sig2 = sk.musig_pedersen_sign(msg2, rng, p_g, params);
+
+            assert!(vk.verify_musig_pedersen(msg1, &sig1, p_g, params));
+            assert!(vk.verify_musig_pedersen(msg2, &sig2, p_g, params));
+            assert!(!vk.verify_musig_pedersen(msg1, &sig2, p_g, params));
+            assert!(!vk.verify_musig_pedersen(msg2, &sig1, p_g, params));
+
+            let alpha = rng.gen();
+            let rsk = sk.randomize(alpha);
+            let rvk = vk.randomize(alpha, p_g, params);
+
+            let sig1 = rsk.musig_pedersen_sign(msg1, rng, p_g, params);
+            let sig2 = rsk.musig_pedersen_sign(msg2, rng, p_g, params);
+
+            assert!(rvk.verify_musig_pedersen(msg1, &sig1, p_g, params));
+            assert!(rvk.verify_musig_pedersen(msg2, &sig2, p_g, params));
+            assert!(!rvk.verify_musig_pedersen(msg1, &sig2, p_g, params));
+            assert!(!rvk.verify_musig_pedersen(msg2, &sig1, p_g, params));
         }
     }
 
