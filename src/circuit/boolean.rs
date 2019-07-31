@@ -372,6 +372,49 @@ pub fn field_into_allocated_bits_le<E: Engine, CS: ConstraintSystem<E>, F: Prime
     Ok(bits)
 }
 
+pub fn field_into_allocated_bits_le_fixed<E: Engine, CS: ConstraintSystem<E>, F: PrimeField>(
+    mut cs: CS,
+    value: Option<F>,
+    bit_length: usize,
+) -> Result<Vec<AllocatedBit>, SynthesisError> {
+    assert!(bit_length < F::NUM_BITS as usize);
+    // Deconstruct in big-endian bit order
+    let values = match value {
+        Some(ref value) => {
+            let mut field_char = BitIterator::new(F::char());
+
+            let mut tmp = Vec::with_capacity(F::NUM_BITS as usize);
+
+            let mut found_one = false;
+            for b in BitIterator::new(value.into_repr()) {
+                // Skip leading bits
+                found_one |= field_char.next().unwrap();
+                if !found_one {
+                    continue;
+                }
+
+                tmp.push(Some(b));
+            }
+
+            assert_eq!(tmp.len(), F::NUM_BITS as usize);
+
+            tmp
+        }
+        None => vec![None; F::NUM_BITS as usize],
+    };
+
+    // Allocate in little-endian order
+    let bits = values
+        .into_iter()
+        .rev()
+        .enumerate()
+        .take(bit_length)
+        .map(|(i, b)| AllocatedBit::alloc(cs.namespace(|| format!("bit {}", i)), b))
+        .collect::<Result<Vec<_>, SynthesisError>>()?;
+
+    Ok(bits)
+}
+
 /// This is a boolean value which may be either a constant or
 /// an interpretation of an `AllocatedBit`.
 #[derive(Clone)]

@@ -254,6 +254,58 @@ impl<E: Engine> AllocatedNum<E> {
 
         Ok(bits.into_iter().map(|b| Boolean::from(b)).collect())
     }
+    /// Return fixed amount of bits of the allocated number.
+    /// Should be used when there is a priori knowledge of bit length of the number
+    pub fn into_bits_le_fixed<CS>(
+        &self,
+        mut cs: CS,
+        bit_length: usize,
+    ) -> Result<Vec<Boolean>, SynthesisError>
+    where
+        CS: ConstraintSystem<E>,
+    {
+        let bits = boolean::field_into_allocated_bits_le_fixed(&mut cs, self.value, bit_length)?;
+
+        let mut lc = LinearCombination::zero();
+        let mut coeff = E::Fr::one();
+
+        for bit in bits.iter() {
+            lc = lc + (coeff, bit.get_variable());
+
+            coeff.double();
+        }
+
+        lc = lc - self.variable;
+
+        cs.enforce(|| "unpacking constraint", |lc| lc, |lc| lc, |_| lc);
+
+        Ok(bits.into_iter().map(|b| Boolean::from(b)).collect())
+    }
+    /// Return allocated number given its bit representation
+    pub fn pack_bits_to_element<CS: ConstraintSystem<E>>(
+        mut cs: CS,
+        bits: &[Boolean],
+    ) -> Result<Self, SynthesisError> {
+        let mut data_from_lc = Num::<E>::zero();
+        let mut coeff = E::Fr::one();
+        for bit in bits {
+            data_from_lc = data_from_lc.add_bool_with_coeff(CS::one(), &bit, coeff);
+            coeff.double();
+        }
+
+        let data_packed = AllocatedNum::alloc(cs.namespace(|| "allocate packed number"), || {
+            Ok(*data_from_lc.get_value().get()?)
+        })?;
+
+        cs.enforce(
+            || "pack bits to number",
+            |lc| lc + data_packed.get_variable(),
+            |lc| lc + CS::one(),
+            |_| data_from_lc.lc(E::Fr::one()),
+        );
+
+        Ok(data_packed)
+    }
 
     pub fn mul<CS>(
         &self,
@@ -705,6 +757,100 @@ impl<E: Engine> Num<E> {
             value: newval,
             lc: self.lc + &bit.lc(one, coeff)
         }
+    }
+    pub fn equals<CS>(
+        mut cs: CS,
+        a: &Self,
+        b: &Self
+    ) -> Result<boolean::AllocatedBit, SynthesisError>
+        where E: Engine,
+            CS: ConstraintSystem<E>
+    {
+        // Allocate and constrain `r`: result boolean bit. 
+        // It equals `true` if `a` equals `b`, `false` otherwise
+
+        let r_value = match (a.value, b.value) {
+            (Some(a), Some(b))  => Some(a == b),
+            _                   => None,
+        };
+
+        let r = boolean::AllocatedBit::alloc(cs.namespace(|| "r"), r_value)?;
+
+        // Let `delta = a - b`
+
+        let delta_value = match (a.value, b.value) {
+            (Some(a), Some(b))  => {
+                // return (a - b)
+                let mut a = a;
+                a.sub_assign(&b);
+                Some(a)
+            },
+            _ => None,
+        };
+
+        let x_value = match(delta_value, r_value){
+            (Some(delta), Some(r)) => {
+                let mut tmp = delta.clone();
+                if tmp.is_zero(){
+                    Some(E::Fr::one()) 
+                }else{
+                    let mut mult : E::Fr;
+                    if r{
+                        mult = E::Fr::one();
+                    } else{
+                        mult = E::Fr::zero();
+                    }
+                    mult.sub_assign(&E::Fr::one());
+                    tmp.inverse().unwrap().mul_assign(&mult);
+                    Some(tmp)
+                }
+            }
+            _ => None
+        };
+        
+
+        let x = AllocatedNum::alloc(cs.namespace(|| "x"), || x_value.grab() )?;
+
+        // Constrain allocation: 
+        // 0 = (a - b) * r
+        cs.enforce(
+            || "0 = (a - b) * r",
+            |lc| lc + &a.lc(E::Fr::one()) - &b.lc(E::Fr::one()),
+            |lc| lc + r.get_variable(),
+            |lc| lc ,
+        );
+
+        // Constrain: 
+        // (r - 1) == (a-b)*x
+        // and thus `r` is 1 if `(a - b)` is zero (a != b )
+        cs.enforce(
+            || "(a - b) * r == 0",
+            |lc| lc + &a.lc(E::Fr::one()) - &b.lc(E::Fr::one()),
+            |lc| lc + x.get_variable() ,
+            |lc| lc + r.get_variable() - CS::one()
+        );
+
+        // Constrain: 
+        // (a - b) * r == 0
+        // This enforces that `r` is zero if `(a - b)` is non-zero (a != b)
+        cs.enforce(
+            || "(a - b) * r == 0",
+            |lc| lc + a.variable - b.variable,
+            |lc| lc + r.get_variable(),
+            |lc| lc
+        );
+
+        // Constrain: 
+        // (t - 1) * (r - 1) == 0
+        // This enforces that `r` is one if `t` is not one (a == b)
+        cs.enforce(
+            || "(t - 1) * (r - 1) == 0",
+            |lc| lc + t.get_variable() - CS::one(),
+            |lc| lc + r.get_variable() - CS::one(),
+            |lc| lc
+        );
+
+        Ok(r)
     }
 }
 
