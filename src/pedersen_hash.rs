@@ -184,3 +184,48 @@ pub fn baby_pedersen_hash<E, I>(
 
     result
 }
+
+#[test]
+fn print_baby_pedersen_hash_test_values() {
+    fn buffer2bits(buff: Vec<u8>) -> Vec<bool> {
+        let mut res = vec![true; buff.len()*8];
+        for i in 0..buff.len() {
+            let b = buff[i];
+            res[i*8] = b & 0x01 != 0;
+            res[i*8+1] = b & 0x02 != 0;
+            res[i*8+2] = b & 0x04 != 0;
+            res[i*8+3] = b & 0x08 != 0;
+            res[i*8+4] = b & 0x10 != 0;
+            res[i*8+5] = b & 0x20 != 0;
+            res[i*8+6] = b & 0x40 != 0;
+            res[i*8+7] = b & 0x80 != 0;
+        }
+        res
+    }
+
+    use bellman::pairing::bn256::Bn256;
+
+    let params = AltJubjubBn256::new();
+    let bits = buffer2bits(vec![144u8; 115]);
+    let point = baby_pedersen_hash::<Bn256, _>(Personalization::NoteCommitment, bits, &params);
+    let (x,y) = point.into_xy();
+    println!("input: vec![144u8; 115]");
+    println!("{:?}, {:?}",x,y);
+    println!();
+
+    let point = baby_pedersen_hash::<Bn256, _>(Personalization::NoteCommitment, Vec::new().into_iter(), &params);
+    let (x,y) = point.into_xy();
+    println!("input: empty");
+    println!("{:?}, {:?}",x,y);
+    println!();
+
+    let mut input: Vec<u8> = Vec::new();
+    for i in 0..97u8 {
+        input.push(i.wrapping_mul(11u8).wrapping_add(7u8))
+    }
+    println!("input: {:?}",input);
+    let bits = buffer2bits(input);
+    let point = baby_pedersen_hash::<Bn256, _>(Personalization::NoteCommitment, bits, &params);
+    let (x,y) = point.into_xy();
+    println!("{:?}, {:?}",x,y);
+}
