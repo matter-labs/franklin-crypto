@@ -281,6 +281,7 @@ impl<E: Engine> AllocatedNum<E> {
 
         Ok(bits.into_iter().map(|b| Boolean::from(b)).collect())
     }
+
     /// Return allocated number given its bit representation
     pub fn pack_bits_to_element<CS: ConstraintSystem<E>>(
         mut cs: CS,
@@ -790,8 +791,7 @@ impl<E: Engine> Num<E> {
 
         let x_value = match(delta_value, r_value){
             (Some(delta), Some(r)) => {
-                let mut tmp = delta.clone();
-                if tmp.is_zero(){
+                if delta.is_zero(){
                     Some(E::Fr::one()) 
                 }else{
                     let mut mult : E::Fr;
@@ -801,8 +801,9 @@ impl<E: Engine> Num<E> {
                         mult = E::Fr::zero();
                     }
                     mult.sub_assign(&E::Fr::one());
-                    tmp.inverse().unwrap().mul_assign(&mult);
-                    Some(tmp)
+                    let mut temp = delta.inverse().unwrap();
+                    temp.mul_assign(&mult);
+                    Some(temp)
                 }
             }
             _ => None
@@ -824,33 +825,344 @@ impl<E: Engine> Num<E> {
         // (r - 1) == (a-b)*x
         // and thus `r` is 1 if `(a - b)` is zero (a != b )
         cs.enforce(
-            || "(a - b) * r == 0",
+            || "(a - b) * x == r - 1",
             |lc| lc + &a.lc(E::Fr::one()) - &b.lc(E::Fr::one()),
             |lc| lc + x.get_variable() ,
             |lc| lc + r.get_variable() - CS::one()
         );
 
-        // Constrain: 
-        // (a - b) * r == 0
-        // This enforces that `r` is zero if `(a - b)` is non-zero (a != b)
-        cs.enforce(
-            || "(a - b) * r == 0",
-            |lc| lc + a.variable - b.variable,
-            |lc| lc + r.get_variable(),
-            |lc| lc
-        );
-
-        // Constrain: 
-        // (t - 1) * (r - 1) == 0
-        // This enforces that `r` is one if `t` is not one (a == b)
-        cs.enforce(
-            || "(t - 1) * (r - 1) == 0",
-            |lc| lc + t.get_variable() - CS::one(),
-            |lc| lc + r.get_variable() - CS::one(),
-            |lc| lc
-        );
-
         Ok(r)
+    }
+
+    pub fn conditionally_reverse<CS>(
+        mut cs: CS,
+        a: &Self,
+        b: &Self,
+        condition: &Boolean
+    ) -> Result<(AllocatedNum<E>, AllocatedNum<E>), SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let c = AllocatedNum::alloc(
+            cs.namespace(|| "conditional reversal result 1"),
+            || {
+                if *condition.get_value().get()? {
+                    Ok(*b.value.get()?)
+                } else {
+                    Ok(*a.value.get()?)
+                }
+            }
+        )?;
+
+        cs.enforce(
+            || "first conditional reversal",
+            |lc| lc + &a.lc(E::Fr::one()) - &b.lc(E::Fr::one()),
+            |_| condition.lc(CS::one(), E::Fr::one()),
+            |lc| lc + &a.lc(E::Fr::one()) - c.get_variable()
+        );
+
+        let d = AllocatedNum::alloc(
+            cs.namespace(|| "conditional reversal result 2"),
+            || {
+                if *condition.get_value().get()? {
+                    Ok(*a.value.get()?)
+                } else {
+                    Ok(*b.value.get()?)
+                }
+            }
+        )?;
+
+        cs.enforce(
+            || "second conditional reversal",
+            |lc| lc + &b.lc(E::Fr::one()) - &a.lc(E::Fr::one()),
+            |_| condition.lc(CS::one(), E::Fr::one()),
+            |lc| lc + &b.lc(E::Fr::one()) - d.get_variable()
+        );
+
+        Ok((c, d))
+    }
+
+    /// Takes two allocated numbers (a, b) and returns
+    /// a if the condition is true, and b
+    /// otherwise.
+    /// Most often to be used with b = 0
+    pub fn conditionally_select<CS>(
+        mut cs: CS,
+        a: &Self,
+        b: &Self,
+        condition: &Boolean
+    ) -> Result<AllocatedNum<E>, SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let c = AllocatedNum::alloc(
+            cs.namespace(|| "conditional select result"),
+            || {
+                if *condition.get_value().get()? {
+                    Ok(*a.value.get()?)
+                } else {
+                    Ok(*b.value.get()?)
+                }
+            }
+        )?;
+
+        // a * condition + b*(1-condition) = c ->
+        // a * condition - b*condition = c - b
+
+        cs.enforce(
+            || "conditional select constraint",
+            |lc| lc + &a.lc(E::Fr::one()) - &b.lc(E::Fr::one()),
+            |_| condition.lc(CS::one(), E::Fr::one()),
+            |lc| lc + c.get_variable() - &b.lc(E::Fr::one())
+        );
+
+        Ok(c)
+    }
+
+    /// Returns `a == b ? x : y`
+    pub fn select_ifeq<CS>(
+        mut cs: CS,
+        a: &Self,
+        b: &Self,
+        x: &Self,
+        y: &Self,
+    ) -> Result<AllocatedNum<E>, SynthesisError>
+        where E: Engine,
+            CS: ConstraintSystem<E>
+    {
+        let eq = Self::equals(cs.namespace(|| "eq"), a, b)?;
+        Self::conditionally_select(cs.namespace(|| "select"), x, y, &Boolean::from(eq))
+    }
+
+        /// Deconstructs this allocated number into its
+    /// boolean representation in little-endian bit
+    /// order, requiring that the representation
+    /// strictly exists "in the field" (i.e., a
+    /// congruency is not allowed.)
+    pub fn into_bits_le_strict<CS>(
+        &self,
+        mut cs: CS
+    ) -> Result<Vec<Boolean>, SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        pub fn kary_and<E, CS>(
+            mut cs: CS,
+            v: &[AllocatedBit]
+        ) -> Result<AllocatedBit, SynthesisError>
+            where E: Engine,
+                  CS: ConstraintSystem<E>
+        {
+            assert!(v.len() > 0);
+
+            // Let's keep this simple for now and just AND them all
+            // manually
+            let mut cur = None;
+
+            for (i, v) in v.iter().enumerate() {
+                if cur.is_none() {
+                    cur = Some(v.clone());
+                } else {
+                    cur = Some(AllocatedBit::and(
+                        cs.namespace(|| format!("and {}", i)),
+                        cur.as_ref().unwrap(),
+                        v
+                    )?);
+                }
+            }
+
+            Ok(cur.expect("v.len() > 0"))
+        }
+
+        // We want to ensure that the bit representation of a is
+        // less than or equal to r - 1.
+        let mut a = self.value.map(|e| BitIterator::new(e.into_repr()));
+        let mut b = E::Fr::char();
+        b.sub_noborrow(&1.into());
+
+        let mut result = vec![];
+
+        // Runs of ones in r
+        let mut last_run = None;
+        let mut current_run = vec![];
+
+        let mut found_one = false;
+        let mut i = 0;
+        for b in BitIterator::new(b) {
+            let a_bit = a.as_mut().map(|e| e.next().unwrap());
+
+            // Skip over unset bits at the beginning
+            found_one |= b;
+            if !found_one {
+                // a_bit should also be false
+                a_bit.map(|e| assert!(!e));
+                continue;
+            }
+
+            if b {
+                // This is part of a run of ones. Let's just
+                // allocate the boolean with the expected value.
+                let a_bit = AllocatedBit::alloc(
+                    cs.namespace(|| format!("bit {}", i)),
+                    a_bit
+                )?;
+                // ... and add it to the current run of ones.
+                current_run.push(a_bit.clone());
+                result.push(a_bit);
+            } else {
+                if current_run.len() > 0 {
+                    // This is the start of a run of zeros, but we need
+                    // to k-ary AND against `last_run` first.
+
+                    if last_run.is_some() {
+                        current_run.push(last_run.clone().unwrap());
+                    }
+                    last_run = Some(kary_and(
+                        cs.namespace(|| format!("run ending at {}", i)),
+                        &current_run
+                    )?);
+                    current_run.truncate(0);
+                }
+
+                // If `last_run` is true, `a` must be false, or it would
+                // not be in the field.
+                //
+                // If `last_run` is false, `a` can be true or false.
+
+                let a_bit = AllocatedBit::alloc_conditionally(
+                    cs.namespace(|| format!("bit {}", i)),
+                    a_bit,
+                    &last_run.as_ref().expect("char always starts with a one")
+                )?;
+                result.push(a_bit);
+            }
+
+            i += 1;
+        }
+
+        // char is prime, so we'll always end on
+        // a run of zeros.
+        assert_eq!(current_run.len(), 0);
+
+        // Now, we have `result` in big-endian order.
+        // However, now we have to unpack self!
+
+        let mut lc = LinearCombination::zero();
+        let mut coeff = E::Fr::one();
+
+        for bit in result.iter().rev() {
+            lc = lc + (coeff, bit.get_variable());
+
+            coeff.double();
+        }
+
+        lc = lc - &self.lc(E::Fr::one());
+
+        cs.enforce(
+            || "unpacking constraint",
+            |lc| lc,
+            |lc| lc,
+            |_| lc
+        );
+
+        // Convert into booleans, and reverse for little-endian bit order
+        Ok(result.into_iter().map(|b| Boolean::from(b)).rev().collect())
+    }
+
+    /// Convert the allocated number into its little-endian representation.
+    /// Note that this does not strongly enforce that the commitment is
+    /// "in the field."
+    pub fn into_bits_le<CS>(
+        &self,
+        mut cs: CS
+    ) -> Result<Vec<Boolean>, SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let bits = boolean::field_into_allocated_bits_le(
+            &mut cs,
+            self.value
+        )?;
+
+        let mut lc = LinearCombination::zero();
+        let mut coeff = E::Fr::one();
+
+        for bit in bits.iter() {
+            lc = lc + (coeff, bit.get_variable());
+
+            coeff.double();
+        }
+
+        lc = lc - &self.lc(E::Fr::one());
+
+        cs.enforce(
+            || "unpacking constraint",
+            |lc| lc,
+            |lc| lc,
+            |_| lc
+        );
+
+        Ok(bits.into_iter().map(|b| Boolean::from(b)).collect())
+    }
+    /// Return fixed amount of bits of the allocated number.
+    /// Should be used when there is a priori knowledge of bit length of the number
+    pub fn into_bits_le_fixed<CS>(
+        &self,
+        mut cs: CS,
+        bit_length: usize,
+    ) -> Result<Vec<Boolean>, SynthesisError>
+    where
+        CS: ConstraintSystem<E>,
+    {
+        let bits = boolean::field_into_allocated_bits_le_fixed(&mut cs, self.value, bit_length)?;
+
+        let mut lc = LinearCombination::zero();
+        let mut coeff = E::Fr::one();
+
+        for bit in bits.iter() {
+            lc = lc + (coeff, bit.get_variable());
+
+            coeff.double();
+        }
+
+        lc = lc - &self.lc(E::Fr::one());
+
+        cs.enforce(|| "unpacking constraint", |lc| lc, |lc| lc, |_| lc);
+
+        Ok(bits.into_iter().map(|b| Boolean::from(b)).collect())
+    }
+    /// Limits number of bits. The easiest example when required
+    /// is to add or subtract two "small" (with bit length smaller 
+    /// than one of the field) numbers and check for overflow
+    pub fn limit_number_of_bits<CS>(
+        &self,
+        mut cs: CS,
+        number_of_bits: usize
+    ) -> Result<(), SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        // do the bit decomposition and check that higher bits are all zeros
+
+        let mut bits = self.into_bits_le(
+            cs.namespace(|| "unpack to limit number of bits")
+        )?;
+
+        bits.drain(0..number_of_bits);
+
+        // repack
+
+        let mut top_bits_lc = Num::<E>::zero();
+        let mut coeff = E::Fr::one();
+        for bit in bits.into_iter() {
+            top_bits_lc = top_bits_lc.add_bool_with_coeff(CS::one(), &bit, coeff);
+            coeff.double();
+        }
+
+        // enforce packing and zeroness
+        cs.enforce(
+            || "repack top bits",
+            |lc| lc,
+            |lc| lc + CS::one(),
+            |_| top_bits_lc.lc(E::Fr::one())
+        );
+
+        Ok(())
     }
 }
 
@@ -861,7 +1173,7 @@ mod test {
     use bellman::pairing::bls12_381::{Bls12, Fr};
     use bellman::pairing::ff::{Field, PrimeField, BitIterator};
     use ::circuit::test::*;
-    use super::{AllocatedNum, Boolean};
+    use super::{AllocatedNum, Boolean, Num};
 
     #[test]
     fn test_allocated_num() {
@@ -989,7 +1301,28 @@ mod test {
         let eq = AllocatedNum::equals(cs.namespace(|| "eq"), &a, &c).unwrap();
 
         assert!(cs.is_satisfied());
-        assert_eq!(cs.num_constraints(), 2 * 4);
+        assert_eq!(cs.num_constraints(), 2 * 5);
+
+        assert_eq!(not_eq.get_value().unwrap(), false);
+        assert_eq!(eq.get_value().unwrap(), true);
+    }
+
+    #[test]
+    fn test_lc_equals() {
+        let mut cs = TestConstraintSystem::<Bls12>::new();
+
+        let a = AllocatedNum::alloc(cs.namespace(|| "a"), || Ok(Fr::from_str("10").unwrap())).unwrap();
+        let b = AllocatedNum::alloc(cs.namespace(|| "b"), || Ok(Fr::from_str("12").unwrap())).unwrap();
+        let c = AllocatedNum::alloc(cs.namespace(|| "c"), || Ok(Fr::from_str("10").unwrap())).unwrap();
+        
+        let not_eq = Num::equals(cs.namespace(|| "not_eq"), &Num::from(a.clone()), &Num::from(b)).unwrap();
+        let eq = Num::equals(cs.namespace(|| "eq"), &Num::from(a), &Num::from(c)).unwrap();
+        let err = cs.which_is_unsatisfied();
+        if err.is_some() {
+            panic!("ERROR satisfying in {}", err.unwrap());
+        }        
+        assert!(cs.is_satisfied());
+        assert_eq!(cs.num_constraints(), 2 * 3);
 
         assert_eq!(not_eq.get_value().unwrap(), false);
         assert_eq!(eq.get_value().unwrap(), true);

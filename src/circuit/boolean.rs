@@ -105,6 +105,29 @@ impl AllocatedBit {
             value: value
         })
     }
+    pub fn inputize<E, CS>(&self, mut cs: CS, witness: &AllocatedBit) -> Result<(), SynthesisError>
+        where
+            E: Engine,
+            CS: ConstraintSystem<E>,
+    {
+        let input = cs.alloc_input(
+            || "input variable",
+            || {
+                if self.get_value().grab()? {
+                    Ok(E::Fr::one())
+                } else {
+                    Ok(E::Fr::zero())
+                }
+            },
+        )?;
+        cs.enforce(
+            || "enforce input is correct",
+            |lc| lc + input,
+            |lc| lc + CS::one(),
+            |lc| lc + self.get_variable(),
+        );
+        Ok(())
+    }
 
     /// Performs an XOR operation over the two operands, returning
     /// an `AllocatedBit`.

@@ -141,7 +141,7 @@ mod test {
         ).unwrap();
 
         assert!(cs.is_satisfied());
-        assert_eq!(cs.num_constraints(), 1376);
+        assert_eq!(cs.num_constraints(), 1374);
     }
 
     #[test]
@@ -149,7 +149,7 @@ mod test {
         let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
         let params = &JubjubBn256::new();
 
-        for length in 0..751 {
+        for length in 0..739 {
             for _ in 0..5 {
                 let mut input: Vec<bool> = (0..length).map(|_| rng.gen()).collect();
 
