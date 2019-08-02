@@ -1044,22 +1044,23 @@ impl<E: Engine> Num<E> {
         // Now, we have `result` in big-endian order.
         // However, now we have to unpack self!
 
-        let mut lc = LinearCombination::zero();
+        let mut supposed_diff_lc = LinearCombination::zero();
         let mut coeff = E::Fr::one();
 
         for bit in result.iter().rev() {
-            lc = lc + (coeff, bit.get_variable());
+            supposed_diff_lc = supposed_diff_lc + (coeff, bit.get_variable());
 
             coeff.double();
         }
 
-        lc = lc - &self.lc(E::Fr::one());
-
+        supposed_diff_lc = supposed_diff_lc - &self.lc(E::Fr::one());
+        
+        // Enforce that difference is equal to zero thus correctly packed
         cs.enforce(
             || "unpacking constraint",
             |lc| lc,
             |lc| lc,
-            |_| lc
+            |_| supposed_diff_lc
         );
 
         // Convert into booleans, and reverse for little-endian bit order

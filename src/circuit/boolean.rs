@@ -400,7 +400,7 @@ pub fn field_into_allocated_bits_le_fixed<E: Engine, CS: ConstraintSystem<E>, F:
     value: Option<F>,
     bit_length: usize,
 ) -> Result<Vec<AllocatedBit>, SynthesisError> {
-    assert!(bit_length < F::NUM_BITS as usize);
+    assert!(bit_length <= F::NUM_BITS as usize);
     // Deconstruct in big-endian bit order
     let values = match value {
         Some(ref value) => {
