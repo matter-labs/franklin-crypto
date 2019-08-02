@@ -17,6 +17,7 @@ pub mod baby_eddsa;
 pub mod float_point;
 pub mod polynomial_lookup;
 pub mod as_waksman;
+pub mod linear_combination;
 // pub mod shark_mimc;
 
 pub mod sapling;
