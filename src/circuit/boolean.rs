@@ -14,7 +14,7 @@ use bellman::{
     LinearCombination,
     Variable
 };
-
+use circuit::expression::Expression;
 use super::{
     Assignment
 };
@@ -32,6 +32,20 @@ impl AllocatedBit {
         self.value
     }
 
+    pub fn get_value_field<E:Engine>(&self) -> Option<E::Fr> {
+       let value = self.get_value();
+       match value{
+           None => None,
+           Some(value) =>{
+               if value{
+                   Some(E::Fr::one())
+               }else{
+                    Some(E::Fr::zero()) 
+               }
+           }
+       }
+    }
+    
     pub fn get_variable(&self) -> Variable {
         self.variable
     }
@@ -521,6 +535,20 @@ impl Boolean {
             &Boolean::Is(ref v) => v.get_value(),
             &Boolean::Not(ref v) => v.get_value().map(|b| !b)
         }
+    }
+
+    pub fn get_value_field<E:Engine>(&self) -> Option<E::Fr> {
+       let value = self.get_value();
+       match value{
+           None => None,
+           Some(value) =>{
+               if value{
+                   Some(E::Fr::one())
+               }else{
+                    Some(E::Fr::zero()) 
+               }
+           }
+       }
     }
 
     pub fn lc<E: Engine>(
