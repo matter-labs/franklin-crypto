@@ -8,7 +8,9 @@ use bellman::{LinearCombination, ConstraintSystem, SynthesisError, Namespace};
 use bellman::pairing::ff::PrimeFieldRepr;
 use circuit::boolean;
 use circuit::Assignment;
+use std::ops::{Add, Sub};
 
+#[derive(Clone)]
 pub struct Expression<E: Engine>{
     value: Option<E::Fr>,
     lc: LinearCombination<E>,
@@ -28,6 +30,13 @@ impl<E:Engine> Expression<E>{
         }
     }
 
+    pub fn u64<CS: ConstraintSystem<E>>(number: u64) ->Expression<E>{
+        let value = E::Fr::from_str(&number.to_string()).unwrap();
+        Expression{
+            value: Some(value),
+            lc: LinearCombination::<E>::zero() + (value, CS::one())
+        }
+    }
     pub fn boolean<CS: ConstraintSystem<E>>(boolean_var: Boolean) -> Expression<E>{
         Expression{
            value: boolean_var.get_value_field::<E>(), 
@@ -499,6 +508,51 @@ impl<E: Engine> From<&AllocatedBit> for Expression<E>{
         }
     }
 }
+
+impl<E: Engine, EX: Into<Expression<E>>> Add<EX> for Expression<E> {
+    type Output = Expression<E>;
+
+    fn add(self, other: EX) -> Expression<E> {
+        let other : Expression<E> = other.into();
+        let newval = match (self.value, other.value) {
+            (Some(mut curval), Some(val)) => {
+                let mut tmp = val;
+                curval.add_assign(&tmp);
+
+                Some(curval)
+            },
+            _ => None
+        };
+
+        Expression {
+            value: newval,
+            lc: self.lc + &other.lc
+        }
+    }
+}
+
+impl<E: Engine, EX: Into<Expression<E>>> Sub<EX> for Expression<E> {
+    type Output = Expression<E>;
+
+    fn sub(self, other: EX) -> Expression<E> {
+        let other : Expression<E> = other.into();
+        let newval = match (self.value, other.value) {
+            (Some(mut curval), Some(val)) => {
+                let mut tmp = val;
+                curval.sub_assign(&tmp);
+
+                Some(curval)
+            },
+            _ => None
+        };
+
+        Expression {
+            value: newval,
+            lc: self.lc - &other.lc
+        }
+    }
+}
+
 
 #[cfg(test)]
 mod test {
