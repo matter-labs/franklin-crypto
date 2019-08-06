@@ -62,6 +62,8 @@ impl<E: Engine> Expression<E> {
     pub fn lc(&self) -> LinearCombination<E> {
         LinearCombination::zero() + (E::Fr::one(), &self.lc)
     }
+
+    // returns a==b
     pub fn equals<CS, EX1, EX2>(
         mut cs: CS,
         a: EX1,
@@ -123,24 +125,27 @@ impl<E: Engine> Expression<E> {
         // thus if (a-b) != 0 then r == 0
         cs.enforce(
             || "0 = (a - b) * r",
-            |lc| lc + &a.lc() - &b.lc(),
-            |lc| lc + r.get_variable(),
-            |lc| lc,
+            |zero| zero + &a.lc() - &b.lc(),
+            |zero| zero + r.get_variable(),
+            |zero| zero,
         );
 
         // Constrain:
-        // (r - 1) == (a-b)*x
+        // (a-b) * x == r - 1
         // and thus `r` is 1 if `(a - b)` is zero (a != b )
         cs.enforce(
             || "(a - b) * x == r - 1",
-            |lc| lc + &a.lc() - &b.lc(),
-            |lc| lc + x.get_variable(),
-            |lc| lc + r.get_variable() - CS::one(),
+            |zero| zero + &a.lc() - &b.lc(),
+            |zero| zero + x.get_variable(),
+            |zero| zero + r.get_variable() - CS::one(),
         );
 
         Ok(r)
     }
 
+    /// Takes two expressions (a, b) and returns corresponding allocated numbers 
+    /// (b_allocated, a_allocated) if the condition is true, and (a_allocated, b_allocated)
+    /// otherwise.
     pub fn conditionally_reverse<CS, EX1, EX2>(
         mut cs: CS,
         a: EX1,
@@ -165,9 +170,9 @@ impl<E: Engine> Expression<E> {
 
         cs.enforce(
             || "first conditional reversal",
-            |lc| lc + &a.lc() - &b.lc(),
+            |zero| zero + &a.lc() - &b.lc(),
             |_| condition.lc(CS::one(), E::Fr::one()),
-            |lc| lc + &a.lc() - c.get_variable(),
+            |zero| zero + &a.lc() - c.get_variable(),
         );
 
         let d = AllocatedNum::alloc(cs.namespace(|| "conditional reversal result 2"), || {
@@ -180,9 +185,9 @@ impl<E: Engine> Expression<E> {
 
         cs.enforce(
             || "second conditional reversal",
-            |lc| lc + &b.lc() - &a.lc(),
+            |zero| zero + &b.lc() - &a.lc(),
             |_| condition.lc(CS::one(), E::Fr::one()),
-            |lc| lc + &b.lc() - d.get_variable(),
+            |zero| zero + &b.lc() - d.get_variable(),
         );
 
         Ok((c, d))
@@ -219,9 +224,9 @@ impl<E: Engine> Expression<E> {
 
         cs.enforce(
             || "conditional select constraint",
-            |lc| lc + &a.lc() - &b.lc(),
+            |zero| zero + &a.lc() - &b.lc(),
             |_| condition.lc(CS::one(), E::Fr::one()),
-            |lc| lc + c.get_variable() - &b.lc(),
+            |zero| zero + c.get_variable() - &b.lc(),
         );
 
         Ok(c)
@@ -355,22 +360,22 @@ impl<E: Engine> Expression<E> {
         // Now, we have `result` in big-endian order.
         // However, now we have to unpack self!
 
-        let mut supposed_diff_lc = LinearCombination::zero();
+        let mut packed_lc = LinearCombination::zero();
         let mut coeff = E::Fr::one();
 
         for bit in result.iter().rev() {
-            supposed_diff_lc = supposed_diff_lc + (coeff, bit.get_variable());
+            packed_lc = packed_lc + (coeff, bit.get_variable());
 
             coeff.double();
         }
-
-        supposed_diff_lc = supposed_diff_lc - &self.lc();
-        // Enforce that difference is equal to zero thus correctly packed
+        
+        // ensure packed bits equal to given lc
+        // packed_lc * 1 == self.lc
         cs.enforce(
             || "unpacking constraint",
-            |lc| lc,
-            |lc| lc,
-            |_| supposed_diff_lc,
+            |_| packed_lc,
+            |zero| zero + CS::one(),
+            |zero| zero + &self.lc,
         );
 
         // Convert into booleans, and reverse for little-endian bit order
@@ -386,19 +391,18 @@ impl<E: Engine> Expression<E> {
     {
         let bits = boolean::field_into_allocated_bits_le(&mut cs, self.value)?;
 
-        let mut supposed_zero_diff_lc = LinearCombination::zero();
+        let mut packed_lc = LinearCombination::zero();
         let mut coeff = E::Fr::one();
 
         for bit in bits.iter() {
-            supposed_zero_diff_lc = supposed_zero_diff_lc + (coeff, bit.get_variable());
+            packed_lc = packed_lc + (coeff, bit.get_variable());
 
             coeff.double();
         }
 
-        supposed_zero_diff_lc = supposed_zero_diff_lc - &self.lc();
-
-        // ensure diff is zero
-        cs.enforce(|| "unpacking constraint", |lc| lc, |lc| lc, |_| supposed_zero_diff_lc);
+        // ensure packed bits equal to given lc
+        // packed_lc * 1 == self.lc
+        cs.enforce(|| "unpacking constraint", |_| packed_lc, |zero| zero + CS::one(), |zero| zero + &self.lc);
 
         Ok(bits.into_iter().map(|b| Boolean::from(b)).collect())
     }
@@ -414,19 +418,18 @@ impl<E: Engine> Expression<E> {
     {
         let bits = boolean::field_into_allocated_bits_le_fixed(&mut cs, self.value, bit_length)?;
 
-        let mut supposed_zero_diff_lc = LinearCombination::zero();
+        let mut packed_lc = LinearCombination::zero();
         let mut coeff = E::Fr::one();
 
         for bit in bits.iter() {
-            supposed_zero_diff_lc = supposed_zero_diff_lc + (coeff, bit.get_variable());
+            packed_lc = packed_lc + (coeff, bit.get_variable());
 
             coeff.double();
         }
 
-        supposed_zero_diff_lc = supposed_zero_diff_lc - &self.lc();
-
-        // ensure diff is zero
-        cs.enforce(|| "unpacking constraint", |lc| lc, |lc| lc, |_| supposed_zero_diff_lc);
+        // ensure packed bits equal to given lc
+        // packed_lc * 1 == self.lc
+        cs.enforce(|| "unpacking constraint", |_| packed_lc, |zero| zero + CS::one(), |zero| zero + &self.lc);
 
         Ok(bits.into_iter().map(|b| Boolean::from(b)).collect())
     }
@@ -459,8 +462,8 @@ impl<E: Engine> Expression<E> {
         // enforce packing and zeroness
         cs.enforce(
             || "repack top bits",
-            |lc| lc,
-            |lc| lc + CS::one(),
+            |zero| zero,
+            |zero| zero + CS::one(),
             |_| top_bits_lc.lc(E::Fr::one()),
         );
 
@@ -502,7 +505,7 @@ impl<E: Engine, EX: Into<Expression<E>>> Add<EX> for Expression<E> {
         let other: Expression<E> = other.into();
         let newval = match (self.value, other.value) {
             (Some(mut curval), Some(val)) => {
-                let mut tmp = val;
+                let tmp = val;
                 curval.add_assign(&tmp);
 
                 Some(curval)
@@ -524,7 +527,7 @@ impl<E: Engine, EX: Into<Expression<E>>> Sub<EX> for Expression<E> {
         let other: Expression<E> = other.into();
         let newval = match (self.value, other.value) {
             (Some(mut curval), Some(val)) => {
-                let mut tmp = val;
+                let tmp = val;
                 curval.sub_assign(&tmp);
 
                 Some(curval)
