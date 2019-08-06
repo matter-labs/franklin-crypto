@@ -162,9 +162,9 @@ impl<E: Engine> Expression<E> {
 
         let c = AllocatedNum::alloc(cs.namespace(|| "conditional reversal result 1"), || {
             if *condition.get_value().get()? {
-                Ok(*b.value.get()?)
+                Ok(*b.get_value().get()?)
             } else {
-                Ok(*a.value.get()?)
+                Ok(*a.get_value().get()?)
             }
         })?;
 
@@ -177,9 +177,9 @@ impl<E: Engine> Expression<E> {
 
         let d = AllocatedNum::alloc(cs.namespace(|| "conditional reversal result 2"), || {
             if *condition.get_value().get()? {
-                Ok(*a.value.get()?)
+                Ok(*a.get_value().get()?)
             } else {
-                Ok(*b.value.get()?)
+                Ok(*b.get_value().get()?)
             }
         })?;
 
@@ -292,7 +292,7 @@ impl<E: Engine> Expression<E> {
 
         // We want to ensure that the bit representation of a is
         // less than or equal to r - 1.
-        let mut a = self.value.map(|e| BitIterator::new(e.into_repr()));
+        let mut a = self.get_value().map(|e| BitIterator::new(e.into_repr()));
         let mut b = E::Fr::char();
         b.sub_noborrow(&1.into());
 
@@ -368,7 +368,7 @@ impl<E: Engine> Expression<E> {
 
             coeff.double();
         }
-        
+
         // ensure packed bits equal to given lc
         // packed_lc * 1 == self.lc
         cs.enforce(
@@ -594,5 +594,166 @@ mod test {
         assert_eq!(eq2.get_value().unwrap(), true);
         assert_eq!(eq3.get_value().unwrap(), true);
         assert_eq!(eq4.get_value().unwrap(), true);
+    }
+
+    #[test]
+    fn test_expr_conditional_reversal() {
+        let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+        {
+            let mut cs = TestConstraintSystem::<Bls12>::new();
+
+            let a = AllocatedNum::alloc(cs.namespace(|| "a"), || Ok(rng.gen())).unwrap();
+            let b = AllocatedNum::alloc(cs.namespace(|| "b"), || Ok(rng.gen())).unwrap();
+            let condition = Boolean::constant(false);
+            let (c, d) = Expression::conditionally_reverse(cs.namespace(||"reverse1"), &a, &b, &condition).unwrap();
+
+
+            assert_eq!(a.get_value().unwrap(), c.get_value().unwrap());
+            assert_eq!(b.get_value().unwrap(), d.get_value().unwrap());
+
+            let a = Expression::u64::<TestConstraintSystem::<Bls12>>(19);
+            let b = Expression::u64::<TestConstraintSystem::<Bls12>>(15);
+            let condition = Boolean::constant(false);
+            let (c, d) = Expression::conditionally_reverse(cs.namespace(||"reverse2"), a.clone(), b.clone(), &condition).unwrap();
+
+            assert_eq!(a.get_value().unwrap(), c.get_value().unwrap());
+            assert_eq!(b.get_value().unwrap(), d.get_value().unwrap());
+
+            assert!(cs.is_satisfied());
+
+        }
+
+        {
+            let mut cs = TestConstraintSystem::<Bls12>::new();
+
+            let a = AllocatedNum::alloc(cs.namespace(|| "a"), || Ok(rng.gen())).unwrap();
+            let b = AllocatedNum::alloc(cs.namespace(|| "b"), || Ok(rng.gen())).unwrap();
+            let condition = Boolean::constant(true);
+            let (c, d) = Expression::conditionally_reverse(&mut cs, &a, &b, &condition).unwrap();
+
+            assert!(cs.is_satisfied());
+
+            assert_eq!(a.get_value().unwrap(), d.get_value().unwrap());
+            assert_eq!(b.get_value().unwrap(), c.get_value().unwrap());
+        }
+    }
+
+    #[test]
+    fn test_expr_conditional_select() {
+        let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+        {
+            let mut cs = TestConstraintSystem::<Bls12>::new();
+
+            let a = AllocatedNum::alloc(cs.namespace(|| "a"), || Ok(rng.gen())).unwrap();
+            let b = AllocatedNum::alloc(cs.namespace(|| "b"), || Ok(rng.gen())).unwrap();
+
+            let condition_true = Boolean::constant(true);
+            let c = Expression::conditionally_select(cs.namespace(|| "c"), &a, &b, &condition_true).unwrap();
+
+            let condition_false = Boolean::constant(false);
+            let d = Expression::conditionally_select(cs.namespace(|| "d"), &a, &b, &condition_false).unwrap();
+
+            assert!(cs.is_satisfied());
+            assert!(cs.num_constraints() == 2);
+
+            assert_eq!(a.get_value().unwrap(), c.get_value().unwrap());
+            assert_eq!(b.get_value().unwrap(), d.get_value().unwrap());
+        }
+    }
+
+    #[test]
+    fn select_if_equals() {
+        let mut cs = TestConstraintSystem::<Bls12>::new();
+
+        let a = AllocatedNum::alloc(cs.namespace(|| "a"), || Ok(Fr::from_str("0").unwrap())).unwrap();
+        let b = AllocatedNum::alloc(cs.namespace(|| "b"), || Ok(Fr::from_str("1").unwrap())).unwrap();
+        let c = AllocatedNum::alloc(cs.namespace(|| "c"), || Ok(Fr::from_str("0").unwrap())).unwrap();
+
+        let x = AllocatedNum::alloc(cs.namespace(|| "x"), || Ok(Fr::from_str("100").unwrap())).unwrap();
+        let y = AllocatedNum::alloc(cs.namespace(|| "y"), || Ok(Fr::from_str("200").unwrap())).unwrap();
+
+        let n_eq =     Expression::select_ifeq(cs.namespace(|| "ifeq"),  &a, &c, &x, &y).unwrap();
+        let n_not_eq = Expression::select_ifeq(cs.namespace(|| "ifneq"), &a, &b, &x, &y).unwrap();
+
+        assert!(cs.is_satisfied());
+        assert_eq!(n_eq.get_value().unwrap(), Fr::from_str("100").unwrap());
+        assert_eq!(n_not_eq.get_value().unwrap(), Fr::from_str("200").unwrap());
+    }
+
+    #[test]
+    fn test_into_bits_strict() {
+        let mut negone = Fr::one();
+        negone.negate();
+
+        let mut cs = TestConstraintSystem::<Bls12>::new();
+
+        let n = AllocatedNum::alloc(&mut cs, || Ok(negone)).unwrap();
+        let n = Expression::from(&n);
+        n.into_bits_le_strict(&mut cs).unwrap();
+
+        assert!(cs.is_satisfied());
+
+        // make the bit representation the characteristic
+        cs.set("bit 254/boolean", Fr::one());
+
+        // this makes the conditional boolean constraint fail
+        assert_eq!(cs.which_is_unsatisfied().unwrap(), "bit 254/boolean constraint");
+    }
+
+    #[test]
+    fn test_into_bits() {
+        let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        for i in 0..200 {
+            let r = Fr::rand(&mut rng);
+            let mut cs = TestConstraintSystem::<Bls12>::new();
+
+            let n = AllocatedNum::alloc(&mut cs, || Ok(r)).unwrap();
+            let n = Expression::from(&n);
+
+            let bits = if i % 2 == 0 {
+                n.into_bits_le(&mut cs).unwrap()
+            } else {
+                n.into_bits_le_strict(&mut cs).unwrap()
+            };
+
+            assert!(cs.is_satisfied());
+
+            for (b, a) in BitIterator::new(r.into_repr()).skip(1).zip(bits.iter().rev()) {
+                if let &Boolean::Is(ref a) = a {
+                    assert_eq!(b, a.get_value().unwrap());
+                } else {
+                    unreachable!()
+                }
+            }
+
+            cs.set("num", Fr::rand(&mut rng));
+            assert!(!cs.is_satisfied());
+            cs.set("num", r);
+            assert!(cs.is_satisfied());
+
+            for i in 0..Fr::NUM_BITS {
+                let name = format!("bit {}/boolean", i);
+                let cur = cs.get(&name);
+                let mut tmp = Fr::one();
+                tmp.sub_assign(&cur);
+                cs.set(&name, tmp);
+                assert!(!cs.is_satisfied());
+                cs.set(&name, cur);
+                assert!(cs.is_satisfied());
+            }
+        }
+    }
+    #[test]
+    fn test_into_bits_fixed(){
+        let mut cs = TestConstraintSystem::<Bls12>::new();
+        let a = Expression::u64::<TestConstraintSystem::<Bls12>>(0b1011);
+        let bits = a.into_bits_le_fixed(&mut cs, 4).unwrap();
+        assert!(cs.is_satisfied());
+        assert_eq!(bits[0].get_value().unwrap(), true);
+        assert_eq!(bits[1].get_value().unwrap(), true);
+        assert_eq!(bits[2].get_value().unwrap(), false);
+        assert_eq!(bits[3].get_value().unwrap(), true);
+
     }
 }

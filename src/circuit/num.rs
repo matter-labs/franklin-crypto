@@ -80,9 +80,9 @@ impl<E: Engine> AllocatedNum<E> {
 
         cs.enforce(
             || "enforce input is correct",
-            |lc| lc + input,
-            |lc| lc + CS::one(),
-            |lc| lc + self.variable
+            |zero| zero + input,
+            |zero| zero + CS::one(),
+            |zero| zero + self.variable
         );
 
         Ok(())
@@ -200,22 +200,20 @@ impl<E: Engine> AllocatedNum<E> {
         // Now, we have `result` in big-endian order.
         // However, now we have to unpack self!
 
-        let mut lc = LinearCombination::zero();
+        let mut packed_lc = LinearCombination::zero();
         let mut coeff = E::Fr::one();
 
         for bit in result.iter().rev() {
-            lc = lc + (coeff, bit.get_variable());
+            packed_lc = packed_lc + (coeff, bit.get_variable());
 
             coeff.double();
         }
 
-        lc = lc - self.variable;
-
         cs.enforce(
             || "unpacking constraint",
-            |lc| lc,
-            |lc| lc,
-            |_| lc
+            |_| packed_lc,
+            |zero| zero + CS::one(),
+            |zero| zero + self.get_variable(),
         );
 
         // Convert into booleans, and reverse for little-endian bit order
@@ -236,23 +234,22 @@ impl<E: Engine> AllocatedNum<E> {
             self.value
         )?;
 
-        let mut lc = LinearCombination::zero();
+        let mut packed_lc = LinearCombination::zero();
         let mut coeff = E::Fr::one();
 
         for bit in bits.iter() {
-            lc = lc + (coeff, bit.get_variable());
+            packed_lc = packed_lc + (coeff, bit.get_variable());
 
             coeff.double();
         }
 
-        lc = lc - self.variable;
-
         cs.enforce(
             || "unpacking constraint",
-            |lc| lc,
-            |lc| lc,
-            |_| lc
+            |_| packed_lc,
+            |zero| zero + CS::one(),
+            |zero| zero + self.get_variable(),
         );
+
 
         Ok(bits.into_iter().map(|b| Boolean::from(b)).collect())
     }
@@ -268,18 +265,21 @@ impl<E: Engine> AllocatedNum<E> {
     {
         let bits = boolean::field_into_allocated_bits_le_fixed(&mut cs, self.value, bit_length)?;
 
-        let mut lc = LinearCombination::zero();
+        let mut packed_lc = LinearCombination::zero();
         let mut coeff = E::Fr::one();
 
         for bit in bits.iter() {
-            lc = lc + (coeff, bit.get_variable());
+            packed_lc = packed_lc + (coeff, bit.get_variable());
 
             coeff.double();
         }
 
-        lc = lc - self.variable;
-
-        cs.enforce(|| "unpacking constraint", |lc| lc, |lc| lc, |_| lc);
+        cs.enforce(
+            || "unpacking constraint",
+            |_| packed_lc,
+            |zero| zero + CS::one(),
+            |zero| zero + self.get_variable(),
+        );
 
         Ok(bits.into_iter().map(|b| Boolean::from(b)).collect())
     }
@@ -302,8 +302,8 @@ impl<E: Engine> AllocatedNum<E> {
 
         cs.enforce(
             || "pack bits to number",
-            |lc| lc + data_packed.get_variable(),
-            |lc| lc + CS::one(),
+            |zero| zero + data_packed.get_variable(),
+            |zero| zero + CS::one(),
             |_| data_from_lc.lc(E::Fr::one()),
         );
 
@@ -331,9 +331,9 @@ impl<E: Engine> AllocatedNum<E> {
         // Constrain: a * b = ab
         cs.enforce(
             || "multiplication constraint",
-            |lc| lc + self.variable,
-            |lc| lc + other.variable,
-            |lc| lc + var
+            |zero| zero + self.variable,
+            |zero| zero + other.variable,
+            |zero| zero + var
         );
 
         Ok(AllocatedNum {
@@ -362,9 +362,9 @@ impl<E: Engine> AllocatedNum<E> {
         // Constrain: a * a = aa
         cs.enforce(
             || "squaring constraint",
-            |lc| lc + self.variable,
-            |lc| lc + self.variable,
-            |lc| lc + var
+            |zero| zero + self.variable,
+            |zero| zero + self.variable,
+            |zero| zero + var
         );
 
         Ok(AllocatedNum {
@@ -394,9 +394,9 @@ impl<E: Engine> AllocatedNum<E> {
         // for zero.
         cs.enforce(
             || "nonzero assertion constraint",
-            |lc| lc + self.variable,
-            |lc| lc + inv,
-            |lc| lc + CS::one()
+            |zero| zero + self.variable,
+            |zero| zero + inv,
+            |zero| zero + CS::one()
         );
 
         Ok(())
@@ -410,9 +410,9 @@ impl<E: Engine> AllocatedNum<E> {
     {
         cs.enforce(
             || "zero assertion constraint",
-            |lc| lc + self.variable,
-            |lc| lc + CS::one(),
-            |lc| lc
+            |zero| zero + self.variable,
+            |zero| zero + CS::one(),
+            |zero| zero
         );
 
         Ok(())
@@ -427,9 +427,9 @@ impl<E: Engine> AllocatedNum<E> {
     {
         cs.enforce(
             || "number assertion constraint",
-            |lc| lc + self.variable - (number.clone(), CS::one()),
-            |lc| lc + CS::one(),
-            |lc| lc
+            |zero| zero + self.variable - (number.clone(), CS::one()),
+            |zero| zero + CS::one(),
+            |zero| zero
         );
 
         Ok(())
@@ -458,9 +458,9 @@ impl<E: Engine> AllocatedNum<E> {
 
         cs.enforce(
             || "first conditional reversal",
-            |lc| lc + a.variable - b.variable,
+            |zero| zero + a.variable - b.variable,
             |_| condition.lc(CS::one(), E::Fr::one()),
-            |lc| lc + a.variable - c.variable
+            |zero| zero + a.variable - c.variable
         );
 
         let d = Self::alloc(
@@ -476,9 +476,9 @@ impl<E: Engine> AllocatedNum<E> {
 
         cs.enforce(
             || "second conditional reversal",
-            |lc| lc + b.variable - a.variable,
+            |zero| zero + b.variable - a.variable,
             |_| condition.lc(CS::one(), E::Fr::one()),
-            |lc| lc + b.variable - d.variable
+            |zero| zero + b.variable - d.variable
         );
 
         Ok((c, d))
@@ -512,9 +512,9 @@ impl<E: Engine> AllocatedNum<E> {
 
         cs.enforce(
             || "conditional select constraint",
-            |lc| lc + a.variable - b.variable,
+            |zero| zero + a.variable - b.variable,
             |_| condition.lc(CS::one(), E::Fr::one()),
-            |lc| lc + c.variable - b.variable
+            |zero| zero + c.variable - b.variable
         );
 
         Ok(c)
@@ -583,9 +583,9 @@ impl<E: Engine> AllocatedNum<E> {
         // t = (a - b) * delta_inv
         cs.enforce(
             || "t = (a - b) * delta_inv",
-            |lc| lc + a.variable - b.variable,
-            |lc| lc + delta_inv.variable,
-            |lc| lc + t.variable,
+            |zero| zero + a.variable - b.variable,
+            |zero| zero + delta_inv.variable,
+            |zero| zero + t.variable,
         );
 
         // Constrain: 
@@ -594,9 +594,9 @@ impl<E: Engine> AllocatedNum<E> {
         // and thus `t` is 1 if `(a - b)` is non zero (a != b )
         cs.enforce(
             || "(a - b) * (t - 1) == 0",
-            |lc| lc + a.variable - b.variable,
-            |lc| lc + t.variable - CS::one(),
-            |lc| lc
+            |zero| zero + a.variable - b.variable,
+            |zero| zero + t.variable - CS::one(),
+            |zero| zero
         );
 
         // Constrain: 
@@ -604,9 +604,9 @@ impl<E: Engine> AllocatedNum<E> {
         // This enforces that `r` is zero if `(a - b)` is non-zero (a != b)
         cs.enforce(
             || "(a - b) * r == 0",
-            |lc| lc + a.variable - b.variable,
-            |lc| lc + r.get_variable(),
-            |lc| lc
+            |zero| zero + a.variable - b.variable,
+            |zero| zero + r.get_variable(),
+            |zero| zero
         );
 
         // Constrain: 
@@ -614,9 +614,9 @@ impl<E: Engine> AllocatedNum<E> {
         // This enforces that `r` is one if `t` is not one (a == b)
         cs.enforce(
             || "(t - 1) * (r - 1) == 0",
-            |lc| lc + t.get_variable() - CS::one(),
-            |lc| lc + r.get_variable() - CS::one(),
-            |lc| lc
+            |zero| zero + t.get_variable() - CS::one(),
+            |zero| zero + r.get_variable() - CS::one(),
+            |zero| zero
         );
 
         Ok(r)
@@ -667,8 +667,8 @@ impl<E: Engine> AllocatedNum<E> {
         // enforce packing and zeroness
         cs.enforce(
             || "repack top bits",
-            |lc| lc,
-            |lc| lc + CS::one(),
+            |zero| zero,
+            |zero| zero + CS::one(),
             |_| top_bits_lc.lc(E::Fr::one())
         );
 
