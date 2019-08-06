@@ -120,6 +120,7 @@ impl<E: Engine> Expression<E> {
 
         // Constrain allocation:
         // 0 = (a - b) * r
+        // thus if (a-b) != 0 then r == 0
         cs.enforce(
             || "0 = (a - b) * r",
             |lc| lc + &a.lc() - &b.lc(),
@@ -187,7 +188,7 @@ impl<E: Engine> Expression<E> {
         Ok((c, d))
     }
 
-    /// Takes two allocated numbers (a, b) and returns
+    /// Takes two expressions (a, b) and returns allocated result for 
     /// a if the condition is true, and b
     /// otherwise.
     /// Most often to be used with b = 0
@@ -376,7 +377,7 @@ impl<E: Engine> Expression<E> {
         Ok(result.into_iter().map(|b| Boolean::from(b)).rev().collect())
     }
 
-    /// Convert the allocated number into its little-endian representation.
+    /// Convert the expression into its little-endian representation.
     /// Note that this does not strongly enforce that the commitment is
     /// "in the field."
     pub fn into_bits_le<CS>(&self, mut cs: CS) -> Result<Vec<Boolean>, SynthesisError>
@@ -385,22 +386,23 @@ impl<E: Engine> Expression<E> {
     {
         let bits = boolean::field_into_allocated_bits_le(&mut cs, self.value)?;
 
-        let mut lc = LinearCombination::zero();
+        let mut supposed_zero_diff_lc = LinearCombination::zero();
         let mut coeff = E::Fr::one();
 
         for bit in bits.iter() {
-            lc = lc + (coeff, bit.get_variable());
+            supposed_zero_diff_lc = supposed_zero_diff_lc + (coeff, bit.get_variable());
 
             coeff.double();
         }
 
-        lc = lc - &self.lc();
+        supposed_zero_diff_lc = supposed_zero_diff_lc - &self.lc();
 
-        cs.enforce(|| "unpacking constraint", |lc| lc, |lc| lc, |_| lc);
+        // ensure diff is zero
+        cs.enforce(|| "unpacking constraint", |lc| lc, |lc| lc, |_| supposed_zero_diff_lc);
 
         Ok(bits.into_iter().map(|b| Boolean::from(b)).collect())
     }
-    /// Return fixed amount of bits of the allocated number.
+    /// Return fixed amount of bits of the expression.
     /// Should be used when there is a priori knowledge of bit length of the number
     pub fn into_bits_le_fixed<CS>(
         &self,
@@ -412,18 +414,19 @@ impl<E: Engine> Expression<E> {
     {
         let bits = boolean::field_into_allocated_bits_le_fixed(&mut cs, self.value, bit_length)?;
 
-        let mut lc = LinearCombination::zero();
+        let mut supposed_zero_diff_lc = LinearCombination::zero();
         let mut coeff = E::Fr::one();
 
         for bit in bits.iter() {
-            lc = lc + (coeff, bit.get_variable());
+            supposed_zero_diff_lc = supposed_zero_diff_lc + (coeff, bit.get_variable());
 
             coeff.double();
         }
 
-        lc = lc - &self.lc();
+        supposed_zero_diff_lc = supposed_zero_diff_lc - &self.lc();
 
-        cs.enforce(|| "unpacking constraint", |lc| lc, |lc| lc, |_| lc);
+        // ensure diff is zero
+        cs.enforce(|| "unpacking constraint", |lc| lc, |lc| lc, |_| supposed_zero_diff_lc);
 
         Ok(bits.into_iter().map(|b| Boolean::from(b)).collect())
     }
