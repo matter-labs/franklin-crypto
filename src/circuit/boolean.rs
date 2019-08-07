@@ -14,7 +14,7 @@ use bellman::{
     LinearCombination,
     Variable
 };
-
+use circuit::expression::Expression;
 use super::{
     Assignment
 };
@@ -32,6 +32,20 @@ impl AllocatedBit {
         self.value
     }
 
+    pub fn get_value_field<E:Engine>(&self) -> Option<E::Fr> {
+       let value = self.get_value();
+       match value{
+           None => None,
+           Some(value) =>{
+               if value{
+                   Some(E::Fr::one())
+               }else{
+                    Some(E::Fr::zero()) 
+               }
+           }
+       }
+    }
+    
     pub fn get_variable(&self) -> Variable {
         self.variable
     }
@@ -104,6 +118,29 @@ impl AllocatedBit {
             variable: var,
             value: value
         })
+    }
+    pub fn inputize<E, CS>(&self, mut cs: CS, witness: &AllocatedBit) -> Result<(), SynthesisError>
+        where
+            E: Engine,
+            CS: ConstraintSystem<E>,
+    {
+        let input = cs.alloc_input(
+            || "input variable",
+            || {
+                if self.get_value().grab()? {
+                    Ok(E::Fr::one())
+                } else {
+                    Ok(E::Fr::zero())
+                }
+            },
+        )?;
+        cs.enforce(
+            || "enforce input is correct",
+            |lc| lc + input,
+            |lc| lc + CS::one(),
+            |lc| lc + self.get_variable(),
+        );
+        Ok(())
     }
 
     /// Performs an XOR operation over the two operands, returning
@@ -372,6 +409,49 @@ pub fn field_into_allocated_bits_le<E: Engine, CS: ConstraintSystem<E>, F: Prime
     Ok(bits)
 }
 
+pub fn field_into_allocated_bits_le_fixed<E: Engine, CS: ConstraintSystem<E>, F: PrimeField>(
+    mut cs: CS,
+    value: Option<F>,
+    bit_length: usize,
+) -> Result<Vec<AllocatedBit>, SynthesisError> {
+    assert!(bit_length <= F::NUM_BITS as usize);
+    // Deconstruct in big-endian bit order
+    let values = match value {
+        Some(ref value) => {
+            let mut field_char = BitIterator::new(F::char());
+
+            let mut tmp = Vec::with_capacity(F::NUM_BITS as usize);
+
+            let mut found_one = false;
+            for b in BitIterator::new(value.into_repr()) {
+                // Skip leading bits
+                found_one |= field_char.next().unwrap();
+                if !found_one {
+                    continue;
+                }
+
+                tmp.push(Some(b));
+            }
+
+            assert_eq!(tmp.len(), F::NUM_BITS as usize);
+
+            tmp
+        }
+        None => vec![None; F::NUM_BITS as usize],
+    };
+
+    // Allocate in little-endian order
+    let bits = values
+        .into_iter()
+        .rev()
+        .enumerate()
+        .take(bit_length)
+        .map(|(i, b)| AllocatedBit::alloc(cs.namespace(|| format!("bit {}", i)), b))
+        .collect::<Result<Vec<_>, SynthesisError>>()?;
+
+    Ok(bits)
+}
+
 /// This is a boolean value which may be either a constant or
 /// an interpretation of an `AllocatedBit`.
 #[derive(Clone)]
@@ -455,6 +535,20 @@ impl Boolean {
             &Boolean::Is(ref v) => v.get_value(),
             &Boolean::Not(ref v) => v.get_value().map(|b| !b)
         }
+    }
+
+    pub fn get_value_field<E:Engine>(&self) -> Option<E::Fr> {
+       let value = self.get_value();
+       match value{
+           None => None,
+           Some(value) =>{
+               if value{
+                   Some(E::Fr::one())
+               }else{
+                    Some(E::Fr::zero()) 
+               }
+           }
+       }
     }
 
     pub fn lc<E: Engine>(
