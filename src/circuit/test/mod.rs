@@ -26,6 +26,12 @@ use std::collections::HashSet;
 
 use blake2_rfc::blake2s::Blake2s;
 
+pub mod counting;
+pub mod find_unconstrained;
+pub mod density_counting;
+pub mod all_zeroes_catcher;
+pub mod duplicate_lc_finder;
+
 #[derive(Debug)]
 enum NamedObject {
     Constraint(usize),
@@ -37,14 +43,14 @@ enum NamedObject {
 pub struct TestConstraintSystem<E: Engine> {
     named_objects: HashMap<String, NamedObject>,
     current_namespace: Vec<String>,
-    constraints: Vec<(
+    pub constraints: Vec<(
         LinearCombination<E>,
         LinearCombination<E>,
         LinearCombination<E>,
         String
     )>,
-    inputs: Vec<(E::Fr, String)>,
-    aux: Vec<(E::Fr, String)>
+    pub inputs: Vec<(E::Fr, String)>,
+    pub aux: Vec<(E::Fr, String)>
 }
 
 #[derive(Clone, Copy)]
@@ -383,6 +389,13 @@ impl<E: Engine> TestConstraintSystem<E> {
             Some(e) => panic!("tried to get value of path `{}`, but `{:?}` exists there (not a variable)", path, e),
             _ => panic!("no variable exists at path: {}", path)
         }
+    }
+
+    pub fn get_aux_name_by_index(&mut self, idx: usize) -> String
+    {
+        let (_, name) = &self.aux[idx];
+
+        name.clone()
     }
 
     fn set_named_obj(&mut self, path: String, to: NamedObject) {
