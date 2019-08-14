@@ -211,6 +211,9 @@ impl<E: Engine> Expression<E> {
         let a: Expression<E> = a.into();
         let b: Expression<E> = b.into();
 
+        let a = a.into_number(cs.namespace(|| "pack A"))?;
+        let b = b.into_number(cs.namespace(|| "pack B"))?;
+
         let c = AllocatedNum::alloc(cs.namespace(|| "conditional select result"), || {
             if *condition.get_value().get()? {
                 Ok(*a.get_value().get()?)
@@ -224,9 +227,9 @@ impl<E: Engine> Expression<E> {
 
         cs.enforce(
             || "conditional select constraint",
-            |zero| zero + &a.lc() - &b.lc(),
+            |zero| zero + a.get_variable() - b.get_variable(),
             |_| condition.lc(CS::one(), E::Fr::one()),
-            |zero| zero + c.get_variable() - &b.lc(),
+            |zero| zero + c.get_variable() - b.get_variable(),
         );
 
         Ok(c)
@@ -406,6 +409,30 @@ impl<E: Engine> Expression<E> {
 
         Ok(bits.into_iter().map(|b| Boolean::from(b)).collect())
     }
+
+    pub fn into_number<CS>(&self, mut cs: CS) -> Result<AllocatedNum<E>, SynthesisError>
+    where
+        CS: ConstraintSystem<E>,
+    {
+        let value = AllocatedNum::alloc(
+            cs.namespace(|| "allocate number"), 
+            || {
+                self.value.grab()
+            }
+        )?;
+
+        // ensure packed bits equal to given lc
+        // packed_lc * 1 == self.lc
+        cs.enforce(
+            || "packing constraint", 
+            |zero| zero + value.get_variable(), 
+            |zero| zero + CS::one(), 
+            |zero| zero + &self.lc
+        );
+
+        Ok(value)
+    }
+
     /// Return fixed amount of bits of the expression.
     /// Should be used when there is a priori knowledge of bit length of the number
     pub fn into_bits_le_fixed<CS>(
