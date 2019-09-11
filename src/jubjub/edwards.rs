@@ -158,6 +158,20 @@ impl<E: JubjubEngine> Point<E, Unknown> {
         })
     }
 
+    pub fn from_xy_unchecked(x: E::Fr, y: E::Fr, params: &E::Params) -> Option<Self>
+    {
+        let mut t = x;
+        t.mul_assign(&y);
+
+        Some(Point {
+            x: x,
+            y: y,
+            t: t,
+            z: E::Fr::one(),
+            _marker: PhantomData
+        })
+    }
+
     pub fn get_for_y(y: E::Fr, sign: bool, params: &E::Params) -> Option<Self>
     {
         // Given a y on the curve, x^2 = (y^2 - 1) / (dy^2 + 1)

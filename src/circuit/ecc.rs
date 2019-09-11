@@ -331,6 +331,20 @@ impl<E: JubjubEngine> EdwardsPoint<E> {
             y: y.clone()
         })
     }
+    
+    pub fn from_x_y_unchecked<CS>(
+        mut cs: CS,
+        x: &AllocatedNum<E>,
+        y: &AllocatedNum<E>,
+        params: &E::Params
+    ) -> Result<Self, SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        Ok(EdwardsPoint {
+            x: x.clone(),
+            y: y.clone()
+        })
+    }
 
     pub fn double<CS>(
         &self,
