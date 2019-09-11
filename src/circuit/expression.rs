@@ -63,6 +63,7 @@ impl<E: Engine> Expression<E> {
         LinearCombination::zero() + (E::Fr::one(), &self.lc)
     }
 
+
     // returns a==b
     pub fn equals<CS, EX1, EX2>(
         mut cs: CS,
