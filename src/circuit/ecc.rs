@@ -30,6 +30,7 @@ use super::lookup::{
 };
 
 use super::boolean::Boolean;
+use super::expression::*;
 
 #[derive(Clone)]
 pub struct EdwardsPoint<E: Engine> {
@@ -337,13 +338,27 @@ impl<E: JubjubEngine> EdwardsPoint<E> {
         x: &AllocatedNum<E>,
         y: &AllocatedNum<E>,
         params: &E::Params
-    ) -> Result<Self, SynthesisError>
+    ) -> Result<(Self, Boolean), SynthesisError>
         where CS: ConstraintSystem<E>
     {
-        Ok(EdwardsPoint {
+
+        let x2 = x.square(cs.namespace(|| "x^2"))?;
+        let y2 = y.square(cs.namespace(|| "y^2"))?;
+        let x2y2 = x2.mul(cs.namespace(|| "x^2 y^2"), &y2)?;
+
+        let one = CS::one();
+        let num = Num::zero();
+        let num = num.add_number_with_coeff(&x2y2, *params.edwards_d());
+
+        let equals = Boolean::from(Expression::equals(
+            cs.namespace(||"is_on_curve"), 
+            Expression::from(&y2) - Expression::from(&x2), 
+            Expression::constant::<CS>(E::Fr::one()) + Expression::from(&num))?);
+        
+        Ok((EdwardsPoint {
             x: x.clone(),
             y: y.clone()
-        })
+        }, equals))
     }
 
     pub fn double<CS>(
