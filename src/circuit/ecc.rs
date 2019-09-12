@@ -1527,40 +1527,13 @@ mod baby_test {
             let y_cord: Fr = rng.gen();
             let point = edwards::Point::<Bn256, _>::get_for_y(y_cord, true, params);
             if point == None{
-                println!("{}", y_cord);
                 let q_y = AllocatedNum::alloc(cs.namespace(||format!("corrupted_y : {}", i)), ||{
                 Ok(y_cord)
-            }).unwrap();
-            let (point, sucess) = EdwardsPoint::recover_from_y_unchecked(cs.namespace(||format!("recover :{}",i )), &Boolean::constant(true), &q_y, &params).unwrap();
-            println!("unsatisfied: {:?}", cs.which_is_unsatisfied());
-            assert!(cs.is_satisfied());
-            assert_eq!(sucess.get_value().unwrap(), false, "iteration: i: {}", i);
-
+                 }).unwrap();
+                let (point, sucess) = EdwardsPoint::recover_from_y_unchecked(cs.namespace(||format!("recover :{}",i )), &Boolean::constant(true), &q_y, &params).unwrap();
+                assert!(cs.is_satisfied());
+                assert_eq!(sucess.get_value().unwrap(), false, "iteration: i: {}", i);
             }
-            // let q = EdwardsPoint::witness(
-            //     &mut cs,
-            //     Some(p.clone()),
-            //     &params
-            // ).unwrap();
-            // let q_x = q.get_x();
-            
-            // let q_x_bits = q_x.into_bits_le(cs.namespace(||format!("q_x : {}", i))).unwrap();
-
-            // let p = p.into_xy();
-            // assert!(cs.is_satisfied());
-            // assert_eq!(q.x.get_value().unwrap(), p.0);
-            // assert_eq!(q.y.get_value().unwrap(), p.1);
-            
-            // let q_y = q.get_y();
-            // let q_y = AllocatedNum::alloc(cs.namespace(||format!("corrupted_y : {}", i)), ||{
-            //     let mut val = q_y.get_value().unwrap();
-            //     val.add_assign(&Fr::one());
-            //     Ok(val)
-            // }).unwrap();
-            // let (point, sucess) = EdwardsPoint::recover_from_y_unchecked(cs.namespace(||format!("recover :{}",i )), &q_x_bits[0], &q_y, &params).unwrap();
-            // println!("unsatisfied: {:?}", cs.which_is_unsatisfied());
-            // assert!(cs.is_satisfied());
-            // assert_eq!(sucess.get_value().unwrap(), false, "iteration: i: {}", i);
         }
 
         for i in 0..100 {
@@ -1583,30 +1556,11 @@ mod baby_test {
             assert_eq!(q.y.get_value().unwrap(), p.1);
             
             let (point, sucess) = EdwardsPoint::recover_from_y_unchecked(cs.namespace(||format!("recover :{}",i )), &q_x_bits[0], q.get_y(), &params).unwrap();
-            println!("unsatisfied: {:?}", cs.which_is_unsatisfied());
             assert!(cs.is_satisfied());
             assert_eq!(point.y.get_value().unwrap(), p.1);
             assert_eq!(point.x.get_value().unwrap(), p.0);
             assert_eq!(sucess.get_value().unwrap(), true);
         }
-
-        // // Random (x, y) are unlikely to be on the curve.
-        // for _ in 0..100 {
-        //     let x = rng.gen();
-        //     let y = rng.gen();
-
-        //     let mut cs = TestConstraintSystem::<Bn256>::new();
-        //     let numx = AllocatedNum::alloc(cs.namespace(|| "x"), || {
-        //         Ok(x)
-        //     }).unwrap();
-        //     let numy = AllocatedNum::alloc(cs.namespace(|| "y"), || {
-        //         Ok(y)
-        //     }).unwrap();
-
-        //     EdwardsPoint::interpret(&mut cs, &numx, &numy, &params).unwrap();
-
-        //     assert_eq!(cs.which_is_unsatisfied().unwrap(), "on curve check");
-        // }
     }
 
 
