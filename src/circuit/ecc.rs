@@ -2,8 +2,7 @@ use bellman::pairing::{
     Engine,
 };
 
-use bellman::pairing::ff::{Field};
-
+use bellman::pairing::ff::{Field, PrimeField, SqrtField};
 use bellman::{
     SynthesisError,
     ConstraintSystem
@@ -29,9 +28,8 @@ use super::lookup::{
     lookup3_xy
 };
 
-use super::boolean::Boolean;
+use super::boolean::{Boolean, AllocatedBit};
 use super::expression::*;
-
 #[derive(Clone)]
 pub struct EdwardsPoint<E: Engine> {
     x: AllocatedNum<E>,
@@ -331,6 +329,156 @@ impl<E: JubjubEngine> EdwardsPoint<E> {
             x: x.clone(),
             y: y.clone()
         })
+    }
+    pub fn recover_from_y_unchecked<CS>(
+        mut cs: CS,
+        x: &Boolean,
+        y: &AllocatedNum<E>,
+        params: &E::Params
+    ) -> Result<(Self, Boolean), SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let mut t1_value = y.get_value().grab()?;
+        t1_value.square();
+        t1_value.sub_assign(&E::Fr::one());
+        let t1 = AllocatedNum::alloc(cs.namespace(||"t1"), ||Ok(t1_value))?;
+        let mut t2_value = y.get_value().grab()?;
+        t2_value.square();
+        t2_value.mul_assign(&params.edwards_d());
+        t2_value.add_assign(&E::Fr::one());
+
+        let t2 = AllocatedNum::alloc(cs.namespace(||"t2"), ||Ok(t2_value))?;
+
+        cs.enforce(|| " y * y = t1 + 1 ", 
+            |zero| zero + y.get_variable(), 
+            |zero| zero + y.get_variable(), 
+            |zero| zero + t1.get_variable() + ( E::Fr::one(), CS::one()) 
+        );
+
+        cs.enforce(|| " d*y * y = t2 - 1 ", 
+            |zero| zero + (*params.edwards_d(), y.get_variable()), 
+            |zero| zero + y.get_variable(), 
+            |zero| zero + t2.get_variable() - ( E::Fr::one(), CS::one()) 
+        );
+
+        let t2_inv_value = {
+            if t2_value.is_zero(){
+                E::Fr::one() // return any number it doesn't matter
+            }else{
+                t2_value.inverse().unwrap()
+            }
+        };
+
+        let t2_inv = AllocatedNum::alloc(cs.namespace(||"t2_inv"), ||Ok(t2_inv_value))?;
+
+        // next three enforces result in a conditional inverse
+        let is_t2_inversed = AllocatedBit::alloc(cs.namespace(||"is_t2_inversed"), Some(!t2_value.is_zero()))?;
+
+        cs.enforce(|| " t2_inv * t2 = is_t2_inversed ", 
+            |zero| zero + t2_inv.get_variable(), 
+            |zero| zero + t2.get_variable(), 
+            |zero| zero + is_t2_inversed.get_variable() 
+        );
+
+        cs.enforce(|| " t2 * (is_t2_inversed - 1) = 0", 
+            |zero| zero + t2.get_variable(), 
+            |zero| zero + is_t2_inversed.get_variable() - ( E::Fr::one(), CS::one()) , 
+            |zero| zero 
+        );
+
+        // t1 * t2_inv = f
+        let mut f_value = t1_value.clone();
+        f_value.mul_assign(&t2_inv_value);
+        let f = AllocatedNum::alloc(cs.namespace(||"f"), ||Ok(f_value))?;
+
+        cs.enforce(||" t1 * t2_inv = f",  
+            |zero| zero + t1.get_variable(), 
+            |zero| zero + t2_inv.get_variable(), 
+            |zero| zero + f.get_variable(),
+        );
+
+        // now we need to conditionally check if f is a quadratic residue
+        let mut one_half = E::Fr::from_str("2").unwrap();
+        one_half = one_half.inverse().unwrap();
+
+        let mut power = E::Fr::zero();
+        power.sub_assign(&E::Fr::one());
+        power.mul_assign(&one_half); // now power=(p-1)/2 wher p is a characteristic of field
+
+        let f_legendre_symbol = f.pow(cs.namespace(||"f to the power of (p-1) divide by 2"), &power)?; //Euler's criteria
+        // let is_f_quadratic_residue_value = {
+        //     let val = f_legendre_symbol.get_value().grab()?;
+        //     val.add_assign(&E::Fr::one());
+        //     val.mul_assign(&one_half) // since f_legendre_symbol is 1 or -1 we apply (x+1)/2 function on them to move to 1 0 boolean state
+        // };
+
+        let is_f_quadratic_residue_value = {
+            let val = f_legendre_symbol.get_value().grab()?;
+            if val == E::Fr::one(){
+                true
+            }else{
+                false
+            }
+        };
+
+        let is_f_quadratic_residue = AllocatedBit::alloc(cs.namespace(||"is_f_quadratic_residue"), Some(is_f_quadratic_residue_value))?;
+        
+        let f_square_root_value = {
+            if is_f_quadratic_residue_value{
+                f_value.sqrt().unwrap()
+            }else{
+                E::Fr::zero() // so zero or root
+            }
+        };
+        
+        let f_square_root = AllocatedNum::alloc(cs.namespace(||"f_square_root"), ||Ok(f_square_root_value))?;
+        let e_value = {
+            if is_f_quadratic_residue_value{
+                E::Fr::zero()
+            }else{
+                f_value.clone()
+            }
+        };
+        let e = AllocatedNum::alloc(cs.namespace(||"e"), ||Ok(e_value))?;
+
+        cs.enforce(||" f_square_root * f_square_root = f - e",  
+            |zero| zero + f_square_root.get_variable(), 
+            |zero| zero + f_square_root.get_variable(), 
+            |zero| zero + f.get_variable() - e.get_variable(),
+        );
+        cs.enforce(||" e * is_f_quadratic_residue = 0",  
+            |zero| zero + e.get_variable(), 
+            |zero| zero + is_f_quadratic_residue.get_variable(), 
+            |zero| zero ,
+        ); // so if is_f_quadratic_residue is true => e==0 = > f_square_root * f_square_root = f
+        // if is_f_quadratic_residue is false, then it's trash, but we already know that the point is not on the curve
+        
+        let f_square_root_bits = f_square_root.into_bits_le(cs.namespace(||"f_square_root bits"))?;
+
+        // f_square_root_bits[0] == x
+        let should_x_negate = Boolean::xor(cs.namespace(||"f_square_root_bits[0] == x"), &f_square_root_bits[0], &x)?;
+
+        let x_negated_value = {
+            let mut val = E::Fr::zero();
+            val.sub_assign(&f_square_root_value);
+            val
+        };
+        let x_negated = AllocatedNum::alloc(cs.namespace(||"x_negated"), ||Ok(x_negated_value))?;
+        
+        cs.enforce(||"x_negated + f_square_root = 0",  
+            |zero| zero + x_negated.get_variable() + f_square_root.get_variable(), 
+            |zero| zero + (E::Fr::one(), CS::one()), 
+            |zero| zero,
+        );
+
+        let x_coord = AllocatedNum::conditionally_select(cs.namespace(||"determine pairity"), &x_negated, &f_square_root, &should_x_negate)?;
+
+        let is_succesfully_recovered = Boolean::and(cs.namespace(||"is_sucesfully_recovered"), &Boolean::from(is_f_quadratic_residue), &Boolean::from(is_t2_inversed))?;
+
+        Ok((EdwardsPoint {
+            x: x_coord.clone(),
+            y: y.clone()
+        }, is_succesfully_recovered))
     }
     
     pub fn from_x_y_unchecked<CS>(
@@ -1367,6 +1515,100 @@ mod baby_test {
             assert_eq!(cs.which_is_unsatisfied().unwrap(), "on curve check");
         }
     }
+
+    #[test]
+    fn test_recover_from_y() {
+        let params = &AltJubjubBn256::new();
+        let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        for i in 0..100 {
+            let mut cs = TestConstraintSystem::<Bn256>::new();
+
+            let y_cord: Fr = rng.gen();
+            let point = edwards::Point::<Bn256, _>::get_for_y(y_cord, true, params);
+            if point == None{
+                println!("{}", y_cord);
+                let q_y = AllocatedNum::alloc(cs.namespace(||format!("corrupted_y : {}", i)), ||{
+                Ok(y_cord)
+            }).unwrap();
+            let (point, sucess) = EdwardsPoint::recover_from_y_unchecked(cs.namespace(||format!("recover :{}",i )), &Boolean::constant(true), &q_y, &params).unwrap();
+            println!("unsatisfied: {:?}", cs.which_is_unsatisfied());
+            assert!(cs.is_satisfied());
+            assert_eq!(sucess.get_value().unwrap(), false, "iteration: i: {}", i);
+
+            }
+            // let q = EdwardsPoint::witness(
+            //     &mut cs,
+            //     Some(p.clone()),
+            //     &params
+            // ).unwrap();
+            // let q_x = q.get_x();
+            
+            // let q_x_bits = q_x.into_bits_le(cs.namespace(||format!("q_x : {}", i))).unwrap();
+
+            // let p = p.into_xy();
+            // assert!(cs.is_satisfied());
+            // assert_eq!(q.x.get_value().unwrap(), p.0);
+            // assert_eq!(q.y.get_value().unwrap(), p.1);
+            
+            // let q_y = q.get_y();
+            // let q_y = AllocatedNum::alloc(cs.namespace(||format!("corrupted_y : {}", i)), ||{
+            //     let mut val = q_y.get_value().unwrap();
+            //     val.add_assign(&Fr::one());
+            //     Ok(val)
+            // }).unwrap();
+            // let (point, sucess) = EdwardsPoint::recover_from_y_unchecked(cs.namespace(||format!("recover :{}",i )), &q_x_bits[0], &q_y, &params).unwrap();
+            // println!("unsatisfied: {:?}", cs.which_is_unsatisfied());
+            // assert!(cs.is_satisfied());
+            // assert_eq!(sucess.get_value().unwrap(), false, "iteration: i: {}", i);
+        }
+
+        for i in 0..100 {
+            let p = edwards::Point::<Bn256, _>::rand(rng, &params);
+
+            let mut cs = TestConstraintSystem::<Bn256>::new();
+            let q = EdwardsPoint::witness(
+                &mut cs,
+                Some(p.clone()),
+                &params
+            ).unwrap();
+
+            let q_x = q.get_x();
+            let q_x_bits = q_x.into_bits_le(cs.namespace(||format!("q_x : {}", i))).unwrap();
+
+            let p = p.into_xy();
+
+            assert!(cs.is_satisfied());
+            assert_eq!(q.x.get_value().unwrap(), p.0);
+            assert_eq!(q.y.get_value().unwrap(), p.1);
+            
+            let (point, sucess) = EdwardsPoint::recover_from_y_unchecked(cs.namespace(||format!("recover :{}",i )), &q_x_bits[0], q.get_y(), &params).unwrap();
+            println!("unsatisfied: {:?}", cs.which_is_unsatisfied());
+            assert!(cs.is_satisfied());
+            assert_eq!(point.y.get_value().unwrap(), p.1);
+            assert_eq!(point.x.get_value().unwrap(), p.0);
+            assert_eq!(sucess.get_value().unwrap(), true);
+        }
+
+        // // Random (x, y) are unlikely to be on the curve.
+        // for _ in 0..100 {
+        //     let x = rng.gen();
+        //     let y = rng.gen();
+
+        //     let mut cs = TestConstraintSystem::<Bn256>::new();
+        //     let numx = AllocatedNum::alloc(cs.namespace(|| "x"), || {
+        //         Ok(x)
+        //     }).unwrap();
+        //     let numy = AllocatedNum::alloc(cs.namespace(|| "y"), || {
+        //         Ok(y)
+        //     }).unwrap();
+
+        //     EdwardsPoint::interpret(&mut cs, &numx, &numy, &params).unwrap();
+
+        //     assert_eq!(cs.which_is_unsatisfied().unwrap(), "on curve check");
+        // }
+    }
+
 
     #[test]
     fn test_edwards_fixed_base_multiplication()  {

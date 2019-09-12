@@ -344,7 +344,7 @@ impl<E: Engine> AllocatedNum<E> {
 
     pub fn square<CS>(
         &self,
-        mut cs: CS
+        mut cs: CS,
     ) -> Result<Self, SynthesisError>
         where CS: ConstraintSystem<E>
     {
@@ -371,6 +371,27 @@ impl<E: Engine> AllocatedNum<E> {
             value: value,
             variable: var
         })
+    }
+    
+    pub fn pow<CS>(
+        &self,
+        mut cs: CS,
+        power: &E::Fr
+    )-> Result<Self, SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let mut power_bits: Vec<bool> = BitIterator::new(power.into_repr()).collect();
+        let mut temp = AllocatedNum::alloc(cs.namespace(||"one"), ||Ok(E::Fr::one()))?;
+        temp.assert_number(cs.namespace(||"assert_one"), &E::Fr::one())?;
+        
+        for (i, bit) in power_bits.iter().enumerate(){
+            temp = temp.square(cs.namespace(||format!("square on step: {}", i)))?;
+            if *bit{
+                temp = temp.mul(cs.namespace(||format!("mul step: {}", i)), &self)?;
+            }
+        };
+
+        Ok(temp)
     }
 
     pub fn assert_nonzero<CS>(
