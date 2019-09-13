@@ -380,7 +380,7 @@ impl<E: Engine> AllocatedNum<E> {
     )-> Result<Self, SynthesisError>
         where CS: ConstraintSystem<E>
     {
-        let mut power_bits: Vec<bool> = BitIterator::new(power.into_repr()).collect();
+        let power_bits: Vec<bool> = BitIterator::new(power.into_repr()).collect();
         let mut temp = AllocatedNum::alloc(cs.namespace(||"one"), ||Ok(E::Fr::one()))?;
         temp.assert_number(cs.namespace(||"assert_one"), &E::Fr::one())?;
         
