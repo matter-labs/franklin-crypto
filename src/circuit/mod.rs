@@ -20,6 +20,7 @@ pub mod as_waksman;
 // pub mod linear_combination;
 pub mod expression;
 // pub mod shark_mimc;
+pub mod array;
 
 pub mod sapling;
 pub mod sprout;
