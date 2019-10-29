@@ -15,6 +15,9 @@ use circuit::expression::Expression;
 
 const WIDTH: usize = 32;
 
+/// Represents an array of `u32` elements that
+/// can be indexed with constant or variable index
+/// and validated using sha256.
 pub struct Array<E: Engine> {
     values: Vec<Option<E::Fr>>,
 }
