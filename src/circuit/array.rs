@@ -99,18 +99,38 @@ impl<E: Engine> Array<E> {
         self.values[index]
     }
 
-    pub fn get_commitment<CS: ConstraintSystem<E>>(&self, mut cs: CS)
+    /// Returns `bits` bits of commitment (sha256).
+    ///
+    /// Array is encoded into little endian representation.
+    ///
+    /// Note that you will have to reverse bits in bytes
+    /// if you want to calculate hash outside of this method.
+    ///
+    /// For example, 160 bits commitment of array with hash:
+    ///
+    ///     f05e166cf4ba4d102ad6454fe9775813ebc51213efbc515a082a1d2807f5bf14
+    ///
+    /// would yield next result:
+    ///
+    ///     Fr('0x00000000000000000000000000000000ebc51213efbc515a082a1d2807f5bf14')
+    pub fn get_commitment<CS: ConstraintSystem<E>>(&self, mut cs: CS, bits: usize)
         -> Result<Option<E::Fr>, SynthesisError> {
 
         let mut array_bits: Vec<Boolean> = Vec::new();
-        for value in self.values.iter() {
-            let num = AllocatedNum::alloc(cs.namespace(|| "array element"), || Ok(value.unwrap()))?;
-            let mut bits = num.into_bits_le_fixed(cs.namespace(|| "element bits"), WIDTH)?;
+        for (i, value) in self.values.iter().enumerate() {
+            let num = AllocatedNum::alloc(
+                cs.namespace(|| format!("array element {}", i)),
+                || Ok(value.unwrap()))?;
+
+            let mut bits = num.into_bits_le_fixed(
+                cs.namespace(|| format!("element bits {}", i)), WIDTH)?;
+
             array_bits.append(bits.as_mut());
         }
 
-        let hash = sha256(cs.namespace(|| "array hash"), array_bits.as_slice())?;
-        let commitment = Expression::le_bits::<CS>(hash.as_slice());
+        let mut hash = sha256(cs.namespace(|| "array hash"), array_bits.as_slice())?;
+        hash.reverse();
+        let commitment = Expression::le_bits::<CS>(&hash[0..bits]);
 
         Ok(commitment.get_value())
     }
@@ -127,7 +147,7 @@ mod test {
     fn test_constant_index() {
         let mut cs = TestConstraintSystem::<Bn256>::new();
 
-        let values: Vec<Option<Fr>> = [0, 1, 4, 9, 16, 25, 36]
+        let values: Vec<Option<Fr>> = [0, 1, 4, 9, 16, 25, 36, 49]
             .iter()
             .map(|x| Fr::from_str(&x.to_string()))
             .collect();
@@ -144,7 +164,7 @@ mod test {
     fn test_variable_index() {
         let mut cs = TestConstraintSystem::<Bn256>::new();
 
-        let values: Vec<Option<Fr>> = [0, 1, 4, 9, 16, 25, 36]
+        let values: Vec<Option<Fr>> = [0, 1, 4, 9, 16, 25, 36, 49]
             .iter()
             .map(|x| Fr::from_str(&x.to_string()))
             .collect();
@@ -161,6 +181,23 @@ mod test {
 
             assert_eq!(value.unwrap(), values[i], "failed to get element by variable index {}", i);
         }
+    }
+
+    #[test]
+    fn test_commitment() {
+        let mut cs = TestConstraintSystem::<Bn256>::new();
+
+        let values: Vec<Option<Fr>> = [0, 1, 4, 9, 16, 25, 36, 49]
+            .iter()
+            .map(|x| Fr::from_str(&x.to_string()))
+            .collect();
+
+        let array = Array::<Bn256>::new(values.as_slice());
+
+        let expected = Fr::from_hex("0xe9775813ebc51213efbc515a082a1d2807f5bf14").unwrap();
+        let actual = array.get_commitment(cs, 160);
+        assert!(actual.is_ok(), "commitment must be Ok");
+        assert_eq!(actual.unwrap(), Some(expected), "hash doesn't match");
     }
 
     #[test]
