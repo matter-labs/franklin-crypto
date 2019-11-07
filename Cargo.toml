@@ -9,7 +9,7 @@ name = "franklin-crypto"
 version = "0.0.5"
 
 [lib]
-crate-type = ["lib", "staticlib"]
+crate-type = ["cdylib", "lib", "staticlib"]
 
 [features]
 default = ["multicore"]
@@ -22,7 +22,8 @@ byteorder = "1"
 serde = "1.0.80"
 serde_derive = "1.0.80"
 tiny-keccak = "1.4.2"
-rust-crypto = "0.2"
+rust-crypto-wasm = "0.3.1"
+wasm-bindgen = "0.2"
 bit-vec = "0.6"
 
 #bellman_ce = { path = "../bellman"}
