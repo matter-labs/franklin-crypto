@@ -696,6 +696,48 @@ impl<E: Engine> AllocatedNum<E> {
         Ok(())
     }
 
+    /// Takes two allocated numbers (a, b) and returns
+    /// allocated boolean variable with value `true`
+    /// if the `a` smaller than `b`, `false` otherwise.
+    pub fn smaller<CS>(
+        mut cs: CS,
+        a: &Self,
+        b: &Self
+    ) -> Result<boolean::AllocatedBit, SynthesisError>
+        where E: Engine,
+            CS: ConstraintSystem<E>
+    {
+        // Let `delta = a - b`
+
+        let delta_value = match (a.value, b.value) {
+            (Some(a), Some(b))  => {
+                // return (a - b)
+                let mut a = a;
+                a.sub_assign(&b);
+                Some(a)
+            },
+            _ => None,
+        };
+
+        let delta = Self::alloc(cs.namespace(|| "delta"), || delta_value.grab())?;
+
+        /// delta equal to a - b
+        cs.enforce(
+            || "delta equality",
+            |lc| lc + delta.get_variable(),
+            |lc| lc + CS::one(),
+            |lc| lc + a.get_variable() - b.get_variable()
+        );
+
+        /// Let 'bits' - 255 bits representation of delta
+        let bits = delta.into_bits_le(&mut cs)?;
+
+        match bits[254].get_variable() {
+            Some(bit) => Ok(bit.clone()),
+            None => Err(SynthesisError::UnconstrainedVariable),
+        }
+    }
+
     pub fn get_value(&self) -> Option<E::Fr> {
         self.value
     }
@@ -758,7 +800,7 @@ impl<E: Engine> Num<E> {
             lc: self.lc + (coeff, variable.get_variable())
         }
     }
-   
+
     pub fn add_bool_with_coeff(
         self,
         one: Variable,
@@ -966,7 +1008,60 @@ mod test {
         assert_eq!(eq.get_value().unwrap(), true);
     }
 
-  
+    #[test]
+    fn test_num_smaller() {
+        let mut cs = TestConstraintSystem::<Bls12>::new();
+
+        let a = AllocatedNum::alloc(cs.namespace(|| "a"), || Ok(Fr::from_str("10").unwrap())).unwrap();
+        let b = AllocatedNum::alloc(cs.namespace(|| "b"), || Ok(Fr::from_str("12").unwrap())).unwrap();
+        let c = AllocatedNum::alloc(cs.namespace(|| "c"), || Ok(Fr::from_str("11").unwrap())).unwrap();
+
+        /// some negative numbers
+        let d = AllocatedNum::alloc(cs.namespace(|| "d"), || Ok({
+                                                                let mut cur=Fr::zero();
+                                                                cur.sub_assign(&Fr::from_str("1").unwrap());
+                                                                cur
+                                                            }
+                                                            )).unwrap();
+        let e = AllocatedNum::alloc(cs.namespace(|| "e"), || Ok({
+                                                                let mut cur=Fr::zero();
+                                                                cur.sub_assign(&Fr::from_str("1232141").unwrap());
+                                                                cur
+                                                            }
+                                                            )).unwrap();
+
+        let res_ab = AllocatedNum::smaller(cs.namespace(|| "res_ab"), &a, &b).unwrap();
+        let res_ac = AllocatedNum::smaller(cs.namespace(|| "res_ac"), &a, &c).unwrap();
+        let res_ba = AllocatedNum::smaller(cs.namespace(|| "res_ba"), &b, &a).unwrap();
+        let res_bc = AllocatedNum::smaller(cs.namespace(|| "res_bc"), &b, &c).unwrap();
+        let res_ca = AllocatedNum::smaller(cs.namespace(|| "res_ca"), &c, &a).unwrap();
+        let res_cb = AllocatedNum::smaller(cs.namespace(|| "res_cb"), &c, &b).unwrap();
+
+        let res_ae = AllocatedNum::smaller(cs.namespace(|| "res_ae"), &a, &e).unwrap();
+        let res_ea = AllocatedNum::smaller(cs.namespace(|| "res_ea"), &e, &a).unwrap();
+        let res_ad = AllocatedNum::smaller(cs.namespace(|| "res_ad"), &a, &d).unwrap();
+        let res_da = AllocatedNum::smaller(cs.namespace(|| "res_da"), &d, &a).unwrap();
+
+        let res_de= AllocatedNum::smaller(cs.namespace(|| "res_de"), &d, &e).unwrap();
+        let res_ed= AllocatedNum::smaller(cs.namespace(|| "res_ed"), &e, &d).unwrap();
+
+        assert!(cs.is_satisfied());
+
+        assert_eq!(res_ab.get_value().unwrap(), true);
+        assert_eq!(res_ac.get_value().unwrap(), true);
+        assert_eq!(res_ba.get_value().unwrap(), false);
+        assert_eq!(res_bc.get_value().unwrap(), false);
+        assert_eq!(res_ca.get_value().unwrap(), false);
+        assert_eq!(res_cb.get_value().unwrap(), true);
+
+        assert_eq!(res_ae.get_value().unwrap(), false);
+        assert_eq!(res_ea.get_value().unwrap(), true);
+        assert_eq!(res_ad.get_value().unwrap(), false);
+        assert_eq!(res_da.get_value().unwrap(), true);
+        assert_eq!(res_de.get_value().unwrap(), false);
+        assert_eq!(res_ed.get_value().unwrap(), true);
+    }
+
 
     #[test]
     fn select_if_equals() {
@@ -1070,3 +1165,4 @@ mod test {
         }
     }
 }
+
