@@ -698,8 +698,8 @@ impl<E: Engine> AllocatedNum<E> {
 
     /// Takes two allocated numbers (a, b) and returns
     /// allocated boolean variable with value `true`
-    /// if the `a` smaller than `b`, `false` otherwise.
-    pub fn smaller<CS>(
+    /// if the `a` less than `b`, `false` otherwise.
+    pub fn less_than<CS>(
         mut cs: CS,
         a: &Self,
         b: &Self
@@ -729,10 +729,12 @@ impl<E: Engine> AllocatedNum<E> {
             |lc| lc + a.get_variable() - b.get_variable()
         );
 
-        /// Let 'bits' - 255 bits representation of delta
+        /// Let 'bits' - E::Fr::NUM_BITS bits representation of delta
         let bits = delta.into_bits_le(&mut cs)?;
 
-        match bits[254].get_variable() {
+        assert_eq!(bits.len() as u32, E::Fr::NUM_BITS);
+
+        match bits[(E::Fr::NUM_BITS as usize) - 1].get_variable() {
             Some(bit) => Ok(bit.clone()),
             None => Err(SynthesisError::UnconstrainedVariable),
         }
@@ -1009,7 +1011,7 @@ mod test {
     }
 
     #[test]
-    fn test_num_smaller() {
+    fn test_num_less_than_1() {
         let mut cs = TestConstraintSystem::<Bls12>::new();
 
         let a = AllocatedNum::alloc(cs.namespace(|| "a"), || Ok(Fr::from_str("10").unwrap())).unwrap();
@@ -1030,20 +1032,20 @@ mod test {
                                                             }
                                                             )).unwrap();
 
-        let res_ab = AllocatedNum::smaller(cs.namespace(|| "res_ab"), &a, &b).unwrap();
-        let res_ac = AllocatedNum::smaller(cs.namespace(|| "res_ac"), &a, &c).unwrap();
-        let res_ba = AllocatedNum::smaller(cs.namespace(|| "res_ba"), &b, &a).unwrap();
-        let res_bc = AllocatedNum::smaller(cs.namespace(|| "res_bc"), &b, &c).unwrap();
-        let res_ca = AllocatedNum::smaller(cs.namespace(|| "res_ca"), &c, &a).unwrap();
-        let res_cb = AllocatedNum::smaller(cs.namespace(|| "res_cb"), &c, &b).unwrap();
+        let res_ab = AllocatedNum::less_than(cs.namespace(|| "res_ab"), &a, &b).unwrap();
+        let res_ac = AllocatedNum::less_than(cs.namespace(|| "res_ac"), &a, &c).unwrap();
+        let res_ba = AllocatedNum::less_than(cs.namespace(|| "res_ba"), &b, &a).unwrap();
+        let res_bc = AllocatedNum::less_than(cs.namespace(|| "res_bc"), &b, &c).unwrap();
+        let res_ca = AllocatedNum::less_than(cs.namespace(|| "res_ca"), &c, &a).unwrap();
+        let res_cb = AllocatedNum::less_than(cs.namespace(|| "res_cb"), &c, &b).unwrap();
 
-        let res_ae = AllocatedNum::smaller(cs.namespace(|| "res_ae"), &a, &e).unwrap();
-        let res_ea = AllocatedNum::smaller(cs.namespace(|| "res_ea"), &e, &a).unwrap();
-        let res_ad = AllocatedNum::smaller(cs.namespace(|| "res_ad"), &a, &d).unwrap();
-        let res_da = AllocatedNum::smaller(cs.namespace(|| "res_da"), &d, &a).unwrap();
+        let res_ae = AllocatedNum::less_than(cs.namespace(|| "res_ae"), &a, &e).unwrap();
+        let res_ea = AllocatedNum::less_than(cs.namespace(|| "res_ea"), &e, &a).unwrap();
+        let res_ad = AllocatedNum::less_than(cs.namespace(|| "res_ad"), &a, &d).unwrap();
+        let res_da = AllocatedNum::less_than(cs.namespace(|| "res_da"), &d, &a).unwrap();
 
-        let res_de= AllocatedNum::smaller(cs.namespace(|| "res_de"), &d, &e).unwrap();
-        let res_ed= AllocatedNum::smaller(cs.namespace(|| "res_ed"), &e, &d).unwrap();
+        let res_de= AllocatedNum::less_than(cs.namespace(|| "res_de"), &d, &e).unwrap();
+        let res_ed= AllocatedNum::less_than(cs.namespace(|| "res_ed"), &e, &d).unwrap();
 
         assert!(cs.is_satisfied());
 
@@ -1062,6 +1064,18 @@ mod test {
         assert_eq!(res_ed.get_value().unwrap(), true);
     }
 
+    #[test]
+    fn test_num_less_than_2() {
+        use bellman::pairing::bn256::{Bn256, Fr};
+
+        let mut cs = TestConstraintSystem::<Bn256>::new();
+
+        let a = AllocatedNum::alloc(cs.namespace(|| "a"), || Ok(Fr::from_str("10").unwrap())).unwrap();
+        let b = AllocatedNum::alloc(cs.namespace(|| "b"), || Ok(Fr::from_str("12").unwrap())).unwrap();
+
+        let num = AllocatedNum::less_than(cs.namespace(|| "a < b"), &a, &b).unwrap();
+        assert_eq!(num.get_value(), Some(true));
+    }
 
     #[test]
     fn select_if_equals() {
