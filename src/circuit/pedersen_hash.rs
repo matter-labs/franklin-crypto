@@ -116,8 +116,51 @@ mod test {
     use super::*;
     use ::circuit::test::*;
     use ::circuit::boolean::{Boolean, AllocatedBit};
+    use ::circuit::num::AllocatedNum;
     use bellman::pairing::bls12_381::{Bls12, Fr};
     use bellman::pairing::ff::PrimeField;
+
+    #[test]
+    fn my_test_pedersen_hash() {
+        let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+        let params = &JubjubBls12::new();
+        let mut cs = TestConstraintSystem::<Bls12>::new();
+
+        let input: Vec<bool> = (0..(Fr::NUM_BITS * 2)).map(|_| rng.gen()).collect();
+
+        let input_bools: Vec<Boolean> = input.iter().enumerate().map(|(i, b)| {
+            Boolean::from(
+                AllocatedBit::alloc(cs.namespace(|| format!("input {}", i)), Some(*b)).unwrap()
+            )
+        }).collect();
+
+        let result = pedersen_hash(
+            cs.namespace(|| "pedersen hash"),
+            Personalization::NoteCommitment,
+            &input_bools,
+            params
+        ).unwrap();
+
+        let res_x=AllocatedNum::alloc(cs.namespace(|| "res_x"), || Ok(result.get_x().get_value().unwrap())).unwrap();
+        let res_y=AllocatedNum::alloc(cs.namespace(|| "res_y"), || Ok(result.get_y().get_value().unwrap())).unwrap();
+
+        cs.enforce(
+            || "res_x enforce",
+            |lc| lc + res_x.get_variable(),
+            |lc| lc + TestConstraintSystem::<Bls12>::one(),
+            |lc| lc + result.get_x().get_variable()
+        );
+
+        cs.enforce(
+            || "res_y enforce",
+            |lc| lc + res_y.get_variable(),
+            |lc| lc + TestConstraintSystem::<Bls12>::one(),
+            |lc| lc + result.get_y().get_variable()
+        );
+
+        dbg!(cs.find_unconstrained());
+        assert!(cs.is_satisfied());
+    }
 
     #[test]
     fn test_pedersen_hash_constraints() {
