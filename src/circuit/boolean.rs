@@ -28,6 +28,17 @@ pub struct AllocatedBit {
 }
 
 impl AllocatedBit {
+    pub fn interpret_unchecked(
+        var: Variable,
+        value: Option<bool>,
+    ) -> Result<Self, SynthesisError>
+    {
+        Ok(AllocatedBit {
+            variable: var.clone(),
+            value: value.clone()
+        })
+    }
+
     pub fn get_value(&self) -> Option<bool> {
         self.value
     }

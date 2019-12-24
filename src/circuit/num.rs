@@ -700,9 +700,7 @@ impl<E: Engine> AllocatedNum<E> {
         self.value
     }
 
-    pub fn get_variable(&self) -> Variable {
-        self.variable
-    }
+    pub fn get_variable(&self) -> Variable { self.variable }
 }
 
 pub struct Num<E: Engine> {

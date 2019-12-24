@@ -262,6 +262,17 @@ impl<E: JubjubEngine> EdwardsPoint<E> {
         Ok(result.get()?.clone())
     }
 
+    pub fn interpret_unchecked(
+        x: &AllocatedNum<E>,
+        y: &AllocatedNum<E>,
+    ) -> Self
+    {
+        EdwardsPoint {
+            x: x.clone(),
+            y: y.clone(),
+        }
+    }
+
     pub fn interpret<CS>(
         mut cs: CS,
         x: &AllocatedNum<E>,

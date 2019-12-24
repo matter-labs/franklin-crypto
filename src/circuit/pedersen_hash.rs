@@ -3,10 +3,12 @@ use super::ecc::{
     MontgomeryPoint,
     EdwardsPoint
 };
-use super::boolean::Boolean;
+use super::boolean::{Boolean,AllocatedBit};
 use ::jubjub::*;
 use bellman::{
-    ConstraintSystem
+    ConstraintSystem,
+    Variable,
+    Index
 };
 use super::lookup::*;
 pub use pedersen_hash::Personalization;
@@ -19,6 +21,23 @@ impl Personalization {
         .collect()
     }
 }
+
+extern crate tokio;
+
+use self::tokio::runtime::Runtime;
+
+extern crate futures;
+
+use self::futures::sync::oneshot;
+
+use self::futures::*;
+use std::sync::mpsc::channel;
+use self::futures::Future;
+use self::futures::future::lazy;
+use self::tokio::prelude::*;
+use std::thread;
+use self::futures::future::ok;
+use std::error::Error;
 
 pub fn pedersen_hash<E: JubjubEngine, CS>(
     mut cs: CS,
@@ -108,6 +127,143 @@ pub fn pedersen_hash<E: JubjubEngine, CS>(
     }
 
     Ok(edwards_result.unwrap())
+}
+
+pub fn my_pedersen_hash<E: JubjubEngine, CS>(
+    mut cs: CS,
+    personalization: Personalization,
+    bits: &[Boolean],
+    params: &E::Params
+) -> Result<EdwardsPoint<E>, SynthesisError>
+    where CS: ConstraintSystem<E>
+{
+    let input: Vec<bool> = bits.into_iter().map(|bit| bit.get_value().unwrap()).collect();
+    let expected = ::pedersen_hash::pedersen_hash::<E, _>(
+        personalization,
+        input.clone().into_iter(),
+        params
+    ).into_xy();
+
+    use super::num::AllocatedNum;
+
+    let res_x = AllocatedNum::alloc(cs.namespace(|| "res_x of pedershen hash"), || Ok(expected.0)).unwrap();
+    let res_y = AllocatedNum::alloc(cs.namespace(|| "res_x of pedershen hash"), || Ok(expected.1)).unwrap();
+
+    let mut threadCS = cs.add_new_ThreadCS(|| "pedershen_hash thread",
+                                         match res_y.get_variable().get_unchecked() {
+                                             Index::Input(i) => {
+                                                 i
+                                             },
+                                             Index::Aux(i) => {
+                                                 i
+                                             }
+                                         });
+
+    let mut new_bits: Vec<Boolean> = vec![];
+
+    for (index,i) in bits.iter().enumerate(){
+        if (i.is_constant()){
+            new_bits.push(i.clone());
+        }
+        else {
+            // TODO unwrap in Option<bool> - when None ???
+            let local_var = threadCS.alloc(|| format!("alloc {}-th bit",index), || Ok(i.get_value_field::<E>().unwrap())).unwrap();
+            let local_copy = Boolean::Is(AllocatedBit::interpret_unchecked(local_var,i.get_value())?);
+            threadCS.add_outside_variable(local_var,i.get_variable().unwrap().get_variable()); // checked - not a constant
+            new_bits.push(local_copy);
+        }
+    }
+
+    let bits = &new_bits;
+
+//    tokio::spawn(future::poll_fn(move || {
+        let personalization = personalization.get_constant_bools();
+        assert_eq!(personalization.len(), 6);
+
+        let mut edwards_result = None;
+        let mut bits = personalization.iter().chain(bits.iter());
+        let mut segment_generators = params.pedersen_circuit_generators().iter();
+        let boolean_false = Boolean::constant(false);
+
+        let mut segment_i = 0;
+        loop {
+            let mut segment_result = None;
+            let mut segment_windows = &segment_generators.next()
+                .expect("enough segments")[..];
+
+            let mut window_i = 0;
+            while let Some(a) = bits.next() {
+                let b = bits.next().unwrap_or(&boolean_false);
+                let c = bits.next().unwrap_or(&boolean_false);
+
+                let tmp = lookup3_xy_with_conditional_negation(
+                    threadCS.namespace(|| format!("segment {}, window {}", segment_i, window_i)),
+                    &[a.clone(), b.clone(), c.clone()],
+                    &segment_windows[0]
+                ).unwrap();
+
+                let tmp = MontgomeryPoint::interpret_unchecked(tmp.0, tmp.1);
+
+                match segment_result {
+                    None => {
+                        segment_result = Some(tmp);
+                    },
+                    Some(ref mut segment_result) => {
+                        *segment_result = tmp.add(
+                            threadCS.namespace(|| format!("addition of segment {}, window {}", segment_i, window_i)),
+                            segment_result,
+                            params
+                        ).unwrap();
+                    }
+                }
+
+                segment_windows = &segment_windows[1..];
+
+                if segment_windows.len() == 0 {
+                    break;
+                }
+
+                window_i += 1;
+            }
+
+            match segment_result {
+                Some(segment_result) => {
+                    // Convert this segment into twisted Edwards form.
+                    let segment_result = segment_result.into_edwards(
+                        threadCS.namespace(|| format!("conversion of segment {} into edwards", segment_i)),
+                        params
+                    ).unwrap();
+
+                    match edwards_result {
+                        Some(ref mut edwards_result) => {
+                            *edwards_result = segment_result.add(
+                                threadCS.namespace(|| format!("addition of segment {} to accumulator", segment_i)),
+                                edwards_result,
+                                params
+                            ).unwrap();
+                        },
+                        None => {
+                            edwards_result = Some(segment_result);
+                        }
+                    }
+                },
+                None => {
+                    // We didn't process any new bits.
+                    break;
+                }
+            }
+
+            segment_i += 1;
+        }
+
+        let edwards_result = edwards_result.unwrap();
+
+        threadCS.add_outside_variable(edwards_result.get_x().get_variable(),res_x.get_variable());
+        threadCS.add_outside_variable(edwards_result.get_y().get_variable(),res_y.get_variable());
+//        Ok(Async::Ready(()))
+//    }));
+
+    Ok(EdwardsPoint::interpret_unchecked(&res_x, &res_y))
 }
 
 #[cfg(test)]
