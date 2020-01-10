@@ -7,6 +7,8 @@ use super::boolean::{Boolean,AllocatedBit};
 use ::jubjub::*;
 use bellman::{
     ConstraintSystem,
+    LinearCombination,
+    ThreadConstraintSystem,
     Variable,
     Index
 };
@@ -38,6 +40,12 @@ use self::tokio::prelude::*;
 use std::thread;
 use self::futures::future::ok;
 use std::error::Error;
+
+use ::alt_babyjubjub::AltJubjubBn256;
+
+lazy_static!{
+    static ref jubjub_params: AltJubjubBn256 = AltJubjubBn256::new();
+}
 
 pub fn pedersen_hash<E: JubjubEngine, CS>(
     mut cs: CS,
@@ -129,11 +137,14 @@ pub fn pedersen_hash<E: JubjubEngine, CS>(
     Ok(edwards_result.unwrap())
 }
 
+use bellman::pairing::ff::Field;
+use super::num::AllocatedNum;
+
 pub fn my_pedersen_hash<E: JubjubEngine, CS>(
     mut cs: CS,
     personalization: Personalization,
     bits: &[Boolean],
-    params: &E::Params
+    params: &'static E::Params
 ) -> Result<EdwardsPoint<E>, SynthesisError>
     where CS: ConstraintSystem<E>
 {
@@ -144,39 +155,42 @@ pub fn my_pedersen_hash<E: JubjubEngine, CS>(
         params
     ).into_xy();
 
-    use super::num::AllocatedNum;
+    let res_x = AllocatedNum::alloc_thread_output(cs.namespace(|| "res_x of pedershen hash"), || Ok(expected.0)).unwrap();
+    let res_y = AllocatedNum::alloc_thread_output(cs.namespace(|| "res_y of pedershen hash"), || Ok(expected.1)).unwrap();
 
-    let res_x = AllocatedNum::alloc(cs.namespace(|| "res_x of pedershen hash"), || Ok(expected.0)).unwrap();
-    let res_y = AllocatedNum::alloc(cs.namespace(|| "res_x of pedershen hash"), || Ok(expected.1)).unwrap();
+    let res_x_variable = res_x.get_variable();
+    let res_y_variable = res_y.get_variable();
 
-    let mut threadCS = cs.add_new_ThreadCS(|| "pedershen_hash thread",
-                                         match res_y.get_variable().get_unchecked() {
-                                             Index::Input(i) => {
-                                                 i
-                                             },
-                                             Index::Aux(i) => {
-                                                 i
-                                             }
-                                         });
+    let mut bits: Vec<Boolean> = bits.iter().map(|a| a.clone()).collect();
 
-    let mut new_bits: Vec<Boolean> = vec![];
+    use std::sync::{Arc};
+    let params_arc= Arc::new(params);
 
-    for (index,i) in bits.iter().enumerate(){
-        if (i.is_constant()){
-            new_bits.push(i.clone());
+    let sender = cs.reserve_memory_for_thread_info();
+
+    tokio::spawn(future::poll_fn(move || {
+        println!("start of spawn");
+        let mut threadCS = ThreadConstraintSystem::<E, CS>::new();
+
+        let mut new_bits = vec![];
+
+        for (index,i) in bits.iter().enumerate(){
+            if (i.is_constant()){
+                new_bits.push(i.clone());
+            }
+            else {
+                // TODO unwrap in Option<bool> - when None ???
+                let local_var = threadCS.alloc(|| format!("alloc {}-th bit", index), || Ok(i.get_value_field::<E>().unwrap())).unwrap();
+                let local_copy = Boolean::Is(AllocatedBit::interpret_unchecked(local_var,i.get_value()));
+                threadCS.add_outside_variable(local_var,i.get_variable().unwrap().get_variable()); // checked - not a constant
+                new_bits.push(local_copy);
+            }
         }
-        else {
-            // TODO unwrap in Option<bool> - when None ???
-            let local_var = threadCS.alloc(|| format!("alloc {}-th bit",index), || Ok(i.get_value_field::<E>().unwrap())).unwrap();
-            let local_copy = Boolean::Is(AllocatedBit::interpret_unchecked(local_var,i.get_value())?);
-            threadCS.add_outside_variable(local_var,i.get_variable().unwrap().get_variable()); // checked - not a constant
-            new_bits.push(local_copy);
-        }
-    }
 
-    let bits = &new_bits;
+        bits = new_bits;
 
-//    tokio::spawn(future::poll_fn(move || {
+        let params= &Arc::clone(&params_arc);
+
         let personalization = personalization.get_constant_bools();
         assert_eq!(personalization.len(), 6);
 
@@ -258,12 +272,20 @@ pub fn my_pedersen_hash<E: JubjubEngine, CS>(
 
         let edwards_result = edwards_result.unwrap();
 
-        threadCS.add_outside_variable(edwards_result.get_x().get_variable(),res_x.get_variable());
-        threadCS.add_outside_variable(edwards_result.get_y().get_variable(),res_y.get_variable());
-//        Ok(Async::Ready(()))
-//    }));
+        threadCS.add_thread_output(edwards_result.get_x().get_variable(),res_x_variable);
+        threadCS.add_thread_output(edwards_result.get_y().get_variable(),res_y_variable);
+        sender.send(threadCS.get_rem_info());
+        println!("finished spawn");
+        Ok(Async::Ready(()))
+    }));
 
     Ok(EdwardsPoint::interpret_unchecked(&res_x, &res_y))
+}
+
+use bellman::pairing::bn256::{Bn256};
+
+lazy_static!{
+    static ref hash_params: AltJubjubBn256 = AltJubjubBn256::new();
 }
 
 #[cfg(test)]
@@ -275,47 +297,196 @@ mod test {
     use ::circuit::num::AllocatedNum;
     use bellman::pairing::bls12_381::{Bls12, Fr};
     use bellman::pairing::ff::PrimeField;
+    use bellman::groth16::*;
+    use bellman::pairing::ff::Field;
 
     #[test]
-    fn my_test_pedersen_hash() {
-        let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-        let params = &JubjubBls12::new();
-        let mut cs = TestConstraintSystem::<Bls12>::new();
+    fn test_barik1() {
+        use std::time::{Duration, Instant};
+        let start=Instant::now();
 
-        let input: Vec<bool> = (0..(Fr::NUM_BITS * 2)).map(|_| rng.gen()).collect();
+        tokio::run(future::poll_fn(move || {
+            let SSS = 1500;
 
-        let input_bools: Vec<Boolean> = input.iter().enumerate().map(|(i, b)| {
-            Boolean::from(
-                AllocatedBit::alloc(cs.namespace(|| format!("input {}", i)), Some(*b)).unwrap()
-            )
-        }).collect();
+            let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
-        let result = pedersen_hash(
-            cs.namespace(|| "pedersen hash"),
-            Personalization::NoteCommitment,
-            &input_bools,
-            params
-        ).unwrap();
+            let mut inputs: Vec<Vec<bool>> = vec![];
+            for _ in 0..10{
+                inputs.push((0..500).map(|_| rng.gen()).collect());
+            }
 
-        let res_x=AllocatedNum::alloc(cs.namespace(|| "res_x"), || Ok(result.get_x().get_value().unwrap())).unwrap();
-        let res_y=AllocatedNum::alloc(cs.namespace(|| "res_y"), || Ok(result.get_y().get_value().unwrap())).unwrap();
+            let point1 = Instant::now();
 
-        cs.enforce(
-            || "res_x enforce",
-            |lc| lc + res_x.get_variable(),
-            |lc| lc + TestConstraintSystem::<Bls12>::one(),
-            |lc| lc + result.get_x().get_variable()
-        );
+            let mut cs = ThreadProvingAssignment::<Bn256>::new();
 
-        cs.enforce(
-            || "res_y enforce",
-            |lc| lc + res_y.get_variable(),
-            |lc| lc + TestConstraintSystem::<Bls12>::one(),
-            |lc| lc + result.get_y().get_variable()
-        );
+            cs.alloc_input(|| "", || Ok(bellman::pairing::bn256::Fr::one())).unwrap();
 
-        dbg!(cs.find_unconstrained());
-        assert!(cs.is_satisfied());
+            let mut input_bools: Vec<Boolean> = inputs[0].iter().enumerate().map(|(i, b)| {
+                Boolean::from(
+                    AllocatedBit::alloc(cs.namespace(|| format!("input {}", i)), Some(*b)).unwrap()
+                )
+            }).collect();
+
+            for iteration in 0..SSS{
+                if (iteration>0&&iteration<10){
+                    input_bools = inputs[iteration].iter().enumerate().map(|(i, b)| {
+                        Boolean::from(
+                            AllocatedBit::alloc(cs.namespace(|| format!("input {}", i)), Some(*b)).unwrap()
+                        )
+                    }).collect();
+                }
+                my_pedersen_hash(
+                    cs.namespace(|| "pedersen hash"),
+                    Personalization::NoteCommitment,
+                    &input_bools,
+                    &hash_params
+                ).unwrap();
+                let mut array = vec![];
+                for j in 0..iteration{
+                    array.push(cs.alloc(|| "this guy", || Ok(
+                        if (j%2==0){
+                            bellman::pairing::bn256::Fr::one()
+                        }
+                        else{
+                            bellman::pairing::bn256::Fr::zero()
+                        }
+                    )).unwrap());
+                    if (j%4==3){
+                        // 1 0 1 0
+                        cs.enforce(
+                            || "one more enforce",
+                            |lc| lc + array[j-3] + array[j-2],
+                            |lc| lc + ThreadProvingAssignment::<Bn256>::one(),
+                            |lc| lc + array[j-1],
+                        );
+                        cs.enforce(
+                            || "one more enforce",
+                            |lc| lc + array[j-3],
+                            |lc| lc + array[j-2],
+                            |lc| lc + array[j],
+                        );
+                    }
+                }
+            }
+
+            let point2 = Instant::now();
+
+            let res1=cs.make_proving_assignment().unwrap();
+
+            let point3 = Instant::now();
+
+            println!("start standart hash calculating");
+            println!("start standart hash calculating");
+            println!("start standart hash calculating");
+            println!("start standart hash calculating");
+            println!("start standart hash calculating");
+            println!("start standart hash calculating");
+            println!("start standart hash calculating");
+            println!("start standart hash calculating");
+
+            let mut cs = ProvingAssignment::<Bn256>::new();
+
+            cs.alloc_input(|| "", || Ok(bellman::pairing::bn256::Fr::one())).unwrap();
+
+            let mut input_bools: Vec<Boolean> = inputs[0].iter().enumerate().map(|(i, b)| {
+                Boolean::from(
+                    AllocatedBit::alloc(cs.namespace(|| format!("input {}", i)), Some(*b)).unwrap()
+                )
+            }).collect();
+
+            for iteration in 0..SSS{
+                if (iteration>0&&iteration<10){
+                    input_bools = inputs[iteration].iter().enumerate().map(|(i, b)| {
+                        Boolean::from(
+                            AllocatedBit::alloc(cs.namespace(|| format!("input {}", i)), Some(*b)).unwrap()
+                        )
+                    }).collect();
+                }
+                pedersen_hash(
+                    cs.namespace(|| "pedersen hash"),
+                    Personalization::NoteCommitment,
+                    &input_bools,
+                    &hash_params
+                ).unwrap();
+                let mut array = vec![];
+                for j in 0..iteration{
+                    array.push(cs.alloc(|| "this guy", || Ok(
+                        if (j%2==0){
+                            bellman::pairing::bn256::Fr::one()
+                        }
+                        else{
+                            bellman::pairing::bn256::Fr::zero()
+                        }
+                    )).unwrap());
+                    if (j%4==3){
+                        // 1 0 1 0
+                        cs.enforce(
+                            || "one more enforce",
+                            |lc| lc + array[j-3] + array[j-2],
+                            |lc| lc + ProvingAssignment::<Bn256>::one(),
+                            |lc| lc + array[j-1],
+                        );
+                        cs.enforce(
+                            || "one more enforce",
+                            |lc| lc + array[j-3],
+                            |lc| lc + array[j-2],
+                            |lc| lc + array[j],
+                        );
+                    }
+                }
+            }
+
+            let res2=cs;
+
+            assert!(res1==res2);
+            assert!(res1.eq(&res2));
+
+            let point4 = Instant::now();
+
+            println!("time for paralel calculating :: {:?}",point3.duration_since(point1));
+            println!("time for merge paralel calculating :: {:?}",point3.duration_since(point2));
+            println!("time for linear calculating :: {:?}",point4.duration_since(point3));
+
+            Ok(Async::Ready(()))
+        }));
+
+        println!("time for all :: {:?}",Instant::now().duration_since(start));
+    }
+
+    #[test]
+    fn test_my_pedersen_hash() {
+        use std::time::{Duration, Instant};
+        let start=Instant::now();
+
+        tokio::run(future::poll_fn(move || {
+
+            for _ in 0..30000 {
+                println!("at start of iteration");
+                let mut cs = ThreadProvingAssignment::<Bn256>::new();
+
+                cs.alloc_input(|| "", || Ok(bellman::pairing::bn256::Fr::one())).unwrap();
+
+                let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+//                let params=&AltJubjubBn256::new();
+
+                let input: Vec<bool> = (0..500).map(|_| rng.gen()).collect();
+
+                let input_bools: Vec<Boolean> = input.iter().enumerate().map(|(i, b)| {
+                    Boolean::from(
+                        AllocatedBit::alloc(cs.namespace(|| format!("input {}", i)), Some(*b)).unwrap()
+                    )
+                }).collect();
+
+                my_pedersen_hash(
+                    cs.namespace(|| "pedersen hash"),
+                    Personalization::NoteCommitment,
+                    &input_bools,
+                    &hash_params
+                ).unwrap();
+            }
+            Ok(Async::Ready(()))
+        }));
+        println!("time for all :: {:?}",Instant::now().duration_since(start));
     }
 
     #[test]

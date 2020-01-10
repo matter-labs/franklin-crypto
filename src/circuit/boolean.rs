@@ -31,12 +31,12 @@ impl AllocatedBit {
     pub fn interpret_unchecked(
         var: Variable,
         value: Option<bool>,
-    ) -> Result<Self, SynthesisError>
+    ) -> Self
     {
-        Ok(AllocatedBit {
+        AllocatedBit {
             variable: var.clone(),
             value: value.clone()
-        })
+        }
     }
 
     pub fn get_value(&self) -> Option<bool> {

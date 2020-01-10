@@ -105,7 +105,7 @@ pub trait JubjubEngine: Engine {
 
 /// The pre-computed parameters for Jubjub, including curve
 /// constants and various limits and window tables.
-pub trait JubjubParams<E: JubjubEngine>: Sized {
+pub trait JubjubParams<E: JubjubEngine>: Sized + Send + Sync + 'static {
     /// The `d` constant of the twisted Edwards curve.
     fn edwards_d(&self) -> &E::Fr;
     /// The `A` constant of the birationally equivalent Montgomery curve.

@@ -25,6 +25,8 @@ tiny-keccak = "1.4.2"
 rust-crypto = "0.2"
 bit-vec = "0.6"
 
+lazy_static = "1.4.0"
+
 tokio = "0.1.22"
 tokio-process = "0.3.0-alpha.2"
 futures = "0.1.29"

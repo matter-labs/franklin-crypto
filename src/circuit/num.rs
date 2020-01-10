@@ -64,6 +64,27 @@ impl<E: Engine> AllocatedNum<E> {
             variable: var
         })
     }
+    pub fn alloc_thread_output<CS, F>(
+        mut cs: CS,
+        value: F,
+    ) -> Result<Self, SynthesisError>
+        where CS: ConstraintSystem<E>,
+              F: FnOnce() -> Result<E::Fr, SynthesisError>
+    {
+        let mut new_value = None;
+        let var = cs.alloc_thread_output(|| "num", || {
+            let tmp = value()?;
+
+            new_value = Some(tmp);
+
+            Ok(tmp)
+        })?;
+
+        Ok(AllocatedNum {
+            value: new_value,
+            variable: var
+        })
+    }
 
     pub fn inputize<CS>(
         &self,
