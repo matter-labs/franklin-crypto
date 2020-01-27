@@ -734,19 +734,19 @@ mod baby_tests {
     fn deterministic_seed() {
         let rng = &mut thread_rng();
         let msg = b"Foo bar";
-        let seed1 = Seed::<Bn256>::random_seed(rng, msg);
-        let seed2 = Seed::<Bn256>::random_seed(rng, msg);
-        assert_ne!(seed1.0, seed2.0);
+        let sk = PrivateKey::<Bn256>(rng.gen());
+        let seed1 = Seed::deterministic_seed(&sk, msg);
+        let seed2 = Seed::deterministic_seed(&sk, msg);
+        assert_eq!(seed1.0, seed2.0);
     }
 
     #[test]
     fn random_seed() {
         let rng = &mut thread_rng();
         let msg = b"Foo bar";
-        let sk = PrivateKey::<Bn256>(rng.gen());
-        let seed1 = Seed::deterministic_seed(&sk, msg);
-        let seed2 = Seed::deterministic_seed(&sk, msg);
-        assert_eq!(seed1.0, seed2.0);
+        let seed1 = Seed::<Bn256>::random_seed(rng, msg);
+        let seed2 = Seed::<Bn256>::random_seed(rng, msg);
+        assert_ne!(seed1.0, seed2.0);
     }
 
     #[test]
