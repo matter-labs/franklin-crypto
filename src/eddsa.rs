@@ -103,13 +103,16 @@ impl<E: JubjubEngine> Seed<E> {
 
         let mut hasher = Sha256::new();
         hasher.input(msg);
+        let h1 = hasher.result(); // h1 = sha256(msg)
 
         let zero = [0x00];
-        let mut v = [1u8; 32];
-        let mut key = [0u8; 32];
+        let one = [0x01];
+        let mut v = [1u8; 32];  // v = 0x01 0x01 0x01 ... 0x01
+        let mut key = [0u8; 32]; //  key = 0x00 0x00 0x00 ... 0x00
 
         let mut mac = HmacSha256::new_varkey(&key).expect("HMAC can take key of any size");
         
+        // concatenated = v || 0x00 || priv_key || h1
         let mut concatenated: Vec<u8> = v.as_ref().to_vec();
         concatenated.extend(zero.as_ref().to_vec().into_iter());
         let priv_key = unsafe {
@@ -120,32 +123,57 @@ impl<E: JubjubEngine> Seed<E> {
             )
         };
         concatenated.extend(priv_key.to_vec().into_iter());
-        concatenated.extend(hasher.result().as_slice().to_vec().into_iter());
+        concatenated.extend(h1.as_slice().to_vec().into_iter());
 
         mac.input(&concatenated[..]);
-        key.copy_from_slice(mac.clone().result().code().as_mut_slice());
+        key.copy_from_slice(mac.clone().result().code().as_mut_slice()); // key = HMAC(key, concatenated)
 
+        mac = HmacSha256::new_varkey(&key).expect("HMAC can take key of any size");
         mac.input(&v);
-        v.copy_from_slice(mac.clone().result().code().as_mut_slice());
+        v.copy_from_slice(mac.clone().result().code().as_mut_slice()); // v = HMAC(key, v)
 
-        let mut k = [0u8; 32];
+        // concatenated = v || 0x01 || priv_key || h1
+        concatenated = v.as_ref().to_vec();
+        concatenated.extend(one.as_ref().to_vec().into_iter());
+        let priv_key = unsafe {
+            slice::from_raw_parts(
+                pk.0.into_repr()
+                .as_ref()
+                .to_vec().as_ptr() as *const u8, 32
+            )
+        };
+        concatenated.extend(priv_key.to_vec().into_iter());
+        concatenated.extend(h1.as_slice().to_vec().into_iter());
+        
+        mac = HmacSha256::new_varkey(&key).expect("HMAC can take key of any size");
+        mac.input(&concatenated[..]);
+        key.copy_from_slice(mac.clone().result().code().as_mut_slice()); // key = HMAC(key, concatenated)
 
+        mac = HmacSha256::new_varkey(&key).expect("HMAC can take key of any size");
+        mac.input(&v);
+        v.copy_from_slice(mac.clone().result().code().as_mut_slice()); // v = HMAC(key, v)
+
+        let mut k_slice = [0u8; 32];
+        let mut k: E::Fs;
         loop {
-            let mut mac = HmacSha256::new_varkey(&key).expect("HMAC can take key of any size");
+            mac = HmacSha256::new_varkey(&key).expect("HMAC can take key of any size");
             mac.input(&v);
-            k.copy_from_slice(mac.clone().result().code().as_mut_slice());
+            k_slice.copy_from_slice(mac.clone().result().code().as_mut_slice()); // k = HMAC(key, v)
+            k = E::Fs::to_uniform_32(&k_slice);
+            println!("{:?}", &k);
 
-            if E::Fs::to_uniform_32(&k).is_zero() {
-                let mut concatenated: Vec<u8> = v.as_ref().to_vec();
+            if k.is_zero() || k.into_repr().cmp(&E::Fs::char()) != ::std::cmp::Ordering::Less { // k E [1; MODULUS-1]
+                // concatenated = v || 0x00
+                concatenated = v.as_ref().to_vec();
                 concatenated.extend(zero.as_ref().to_vec().into_iter());
                 mac.input(&concatenated[..]);
-                key.copy_from_slice(mac.clone().result().code().as_mut_slice());
+                key.copy_from_slice(mac.clone().result().code().as_mut_slice()); // key = HMAC(key, concatenated)
             } else {
                 break;
             }
         }
 
-        Seed(E::Fs::to_uniform_32(&k))
+        Seed(k)
     }
 }
 
