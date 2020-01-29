@@ -115,14 +115,14 @@ impl<E: JubjubEngine> Seed<E> {
         // concatenated = v || 0x00 || priv_key || h1
         let mut concatenated: Vec<u8> = v.as_ref().to_vec();
         concatenated.extend(zero.as_ref().to_vec().into_iter());
-        let priv_key = unsafe {
-            slice::from_raw_parts(
-                pk.0.into_repr()
-                .as_ref()
-                .to_vec().as_ptr() as *const u8, 32
-            )
-        };
-        concatenated.extend(priv_key.to_vec().into_iter());
+        let priv_key: Vec<[u8; 8]> = pk.0
+            .into_repr()
+            .as_ref()
+            .to_vec()
+            .into_iter()
+            .map(|x| x.to_be_bytes())
+            .collect();
+        concatenated.extend(priv_key.as_slice().join(&0).into_iter());
         concatenated.extend(h1.as_slice().to_vec().into_iter());
 
         mac.input(&concatenated[..]);
