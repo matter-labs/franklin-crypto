@@ -406,7 +406,11 @@ impl<E: Engine> Expression<E> {
 
         // ensure packed bits equal to given lc
         // packed_lc * 1 == self.lc
-        cs.enforce(|| "unpacking constraint", |_| packed_lc, |zero| zero + CS::one(), |zero| zero + &self.lc);
+        cs.enforce(|| "unpacking constraint", 
+            |_| packed_lc, 
+            |zero| zero + CS::one(), 
+            |zero| zero + &self.lc
+        );
 
         Ok(bits.into_iter().map(|b| Boolean::from(b)).collect())
     }
@@ -457,7 +461,11 @@ impl<E: Engine> Expression<E> {
 
         // ensure packed bits equal to given lc
         // packed_lc * 1 == self.lc
-        cs.enforce(|| "unpacking constraint", |_| packed_lc, |zero| zero + CS::one(), |zero| zero + &self.lc);
+        cs.enforce(|| "unpacking constraint", 
+            |_| packed_lc, 
+            |zero| zero + CS::one(), 
+            |zero| zero + &self.lc
+        );
 
         Ok(bits.into_iter().map(|b| Boolean::from(b)).collect())
     }

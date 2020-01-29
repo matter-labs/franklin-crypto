@@ -302,11 +302,25 @@ impl PrimeField for Fs {
         }
     }
 
+    fn from_raw_repr(r: FsRepr) -> Result<Fs, PrimeFieldDecodingError> {
+        let r = Fs(r);
+        if r.is_valid() {
+            Ok(r)
+        } else {
+            Err(PrimeFieldDecodingError::NotInField(format!("{}", r.0)))
+        }
+    }
+
     fn into_repr(&self) -> FsRepr {
         let mut r = *self;
         r.mont_reduce((self.0).0[0], (self.0).0[1],
                       (self.0).0[2], (self.0).0[3],
                       0, 0, 0, 0);
+        r.0
+    }
+
+    fn into_raw_repr(&self) -> FsRepr {
+        let r = *self;
         r.0
     }
 
