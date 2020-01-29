@@ -1,5 +1,5 @@
 extern crate franklin_crypto;
-extern crate bellman_ce as bellman;
+extern crate bellman;
 extern crate rand;
 
 use std::time::{Duration, Instant};

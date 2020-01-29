@@ -2,7 +2,7 @@
 
 extern crate rand;
 extern crate test;
-extern crate bellman_ce as bellman;
+extern crate bellman;
 extern crate sapling_crypto_ce as franklin_crypto;
 
 use rand::{Rand, thread_rng};

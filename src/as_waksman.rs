@@ -547,7 +547,7 @@ impl AsWaksmanRoute {
         for column_idx in 0..num_columns {
             let mut next_perm = IntegerPermutation::new(size);
             for packet_idx in 0..size {
-                let mut routed_index;
+                let routed_index;
                 if topology.topology[column_idx][packet_idx].0 == topology.topology[column_idx][packet_idx].1 {
                     // straight switch
                     routed_index = topology.topology[column_idx][packet_idx].0;
@@ -637,7 +637,7 @@ impl AsWaksmanRoute {
         for column_idx in 0..num_columns {
             let mut permutation_by_this_column = IntegerPermutation::new(self.size);
             for packet_idx in 0..self.size {
-                let mut routed_into;
+                let routed_into;
                 if topology.topology[column_idx][packet_idx].0 == topology.topology[column_idx][packet_idx].1 {
                     // straight switch
                     routed_into = topology.topology[column_idx][packet_idx].0;

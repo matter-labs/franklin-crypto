@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-pub extern crate bellman_ce as bellman;
+pub extern crate bellman;
 extern crate blake2_rfc_bellman_edition as blake2_rfc;
 extern crate digest;
 extern crate rand;

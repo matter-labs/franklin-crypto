@@ -514,7 +514,7 @@ impl<E: Engine> AllocatedNum<E> {
         a: &Self,
         b: &Self,
         condition: &Boolean
-    ) -> Result<(Self), SynthesisError>
+    ) -> Result<Self, SynthesisError>
         where CS: ConstraintSystem<E>
     {
         let c = Self::alloc(
@@ -789,7 +789,7 @@ impl<E: Engine> Add<&Num<E>> for Num<E> {
     fn add(self, other: &Num<E>) -> Num<E> {
         let newval = match (self.value, other.value) {
             (Some(mut curval), Some(val)) => {
-                let mut tmp = val;
+                let tmp = val;
                 curval.add_assign(&tmp);
 
                 Some(curval)
@@ -810,7 +810,7 @@ impl<E: Engine> Sub<&Num<E>> for Num<E> {
     fn sub(self, other: &Num<E>) -> Num<E> {
         let newval = match (self.value, other.value) {
             (Some(mut curval), Some(val)) => {
-                let mut tmp = val;
+                let tmp = val;
                 curval.sub_assign(&tmp);
 
                 Some(curval)

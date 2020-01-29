@@ -363,7 +363,7 @@ impl JubjubBn256 {
             let mut pedersen_circuit_generators = vec![];
 
             // Process each segment
-            for mut gen in tmp_params.pedersen_hash_generators.iter().cloned() {
+            for gen in tmp_params.pedersen_hash_generators.iter().cloned() {
                 let mut gen = montgomery::Point::from_edwards(&gen, &tmp_params);
                 let mut windows = vec![];
                 for _ in 0..tmp_params.pedersen_hash_chunks_per_generator() {
