@@ -161,7 +161,7 @@ impl<E: JubjubEngine> Seed<E> {
             k_slice.copy_from_slice(mac.clone().result().code().as_mut_slice()); // k = HMAC(key, v)
             k = E::Fs::to_uniform_32(&k_slice);
 
-            if k.is_zero() || k.into_repr().cmp(&E::Fs::char()) != ::std::cmp::Ordering::Less { // k E [1; MODULUS-1]
+            if k.is_zero() || k.into_repr() >= E::Fs::char() { // k E [1; MODULUS-1]
                 // concatenated = v || 0x00
                 concatenated = v.as_ref().to_vec();
                 concatenated.extend(zero.as_ref().to_vec().into_iter());
@@ -171,7 +171,6 @@ impl<E: JubjubEngine> Seed<E> {
                 break;
             }
         }
-
         Seed(k)
     }
 }
