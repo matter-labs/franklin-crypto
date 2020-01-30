@@ -5,12 +5,13 @@ use sha2::{Sha256, Digest};
 use bellman::pairing::ff::{Field, PrimeField, PrimeFieldRepr, BitIterator};
 use rand::{Rng};
 use std::io::{self, Read, Write};
+use std::convert::{TryInto, TryFrom};
 use crate::pedersen_hash::*;
 use jubjub::{
     FixedGenerators, 
     JubjubEngine, 
     JubjubParams, 
-    Unknown, 
+    Unknown,
     edwards::Point,
     ToUniform};
 use hmac::{Hmac, Mac};
@@ -112,18 +113,14 @@ impl<E: JubjubEngine> Seed<E> {
 
         let mut mac = HmacSha256::new_varkey(&key).expect("HMAC can take key of any size");
         
+        let mut priv_key = [0u8; 32];
+        pk.0.into_repr().write_be(&mut priv_key[..]).expect("PK must be representable as bytes slice");
+
         // concatenated = v || 0x00 || priv_key || h1
         let mut concatenated: Vec<u8> = v.as_ref().to_vec();
-        concatenated.extend(zero.as_ref().to_vec().into_iter());
-        let priv_key: Vec<[u8; 8]> = pk.0
-            .into_repr()
-            .as_ref()
-            .to_vec()
-            .into_iter()
-            .map(|x| x.to_be_bytes())
-            .collect();
-        concatenated.extend(priv_key.as_slice().join(&0).into_iter());
-        concatenated.extend(h1.as_slice().to_vec().into_iter());
+        concatenated.extend_from_slice(&zero[..]);
+        concatenated.extend_from_slice(&priv_key[..]);
+        concatenated.extend_from_slice(h1.as_slice());
 
         mac.input(&concatenated[..]);
         key.copy_from_slice(mac.clone().result().code().as_mut_slice()); // key = HMAC(key, concatenated)
@@ -134,16 +131,9 @@ impl<E: JubjubEngine> Seed<E> {
 
         // concatenated = v || 0x01 || priv_key || h1
         concatenated = v.as_ref().to_vec();
-        concatenated.extend(one.as_ref().to_vec().into_iter());
-        let priv_key = unsafe {
-            slice::from_raw_parts(
-                pk.0.into_repr()
-                .as_ref()
-                .to_vec().as_ptr() as *const u8, 32
-            )
-        };
-        concatenated.extend(priv_key.to_vec().into_iter());
-        concatenated.extend(h1.as_slice().to_vec().into_iter());
+        concatenated.extend_from_slice(&one[..]);
+        concatenated.extend_from_slice(&priv_key[..]);
+        concatenated.extend_from_slice(h1.as_slice());
         
         mac = HmacSha256::new_varkey(&key).expect("HMAC can take key of any size");
         mac.input(&concatenated[..]);
@@ -153,25 +143,25 @@ impl<E: JubjubEngine> Seed<E> {
         mac.input(&v);
         v.copy_from_slice(mac.clone().result().code().as_mut_slice()); // v = HMAC(key, v)
 
-        let mut k_slice = [0u8; 32];
-        let mut k: E::Fs;
         loop {
+            let mut k_slice = [0u8; 32];
             mac = HmacSha256::new_varkey(&key).expect("HMAC can take key of any size");
             mac.input(&v);
             k_slice.copy_from_slice(mac.clone().result().code().as_mut_slice()); // k = HMAC(key, v)
-            k = E::Fs::to_uniform_32(&k_slice);
 
-            if k.is_zero() || k.into_repr() >= E::Fs::char() { // k E [1; MODULUS-1]
+            // k E [1; MODULUS-1]
+            let mut s_repr = <E::Fs as PrimeField>::Repr::default();
+            s_repr.read_be(&k_slice[..]).expect("Should be a valid scalar");
+            if let Ok(k) = E::Fs::from_repr(s_repr) {
+                return Seed(k)
+            } else {
                 // concatenated = v || 0x00
                 concatenated = v.as_ref().to_vec();
-                concatenated.extend(zero.as_ref().to_vec().into_iter());
+                concatenated.extend_from_slice(&zero[..]);
                 mac.input(&concatenated[..]);
                 key.copy_from_slice(mac.clone().result().code().as_mut_slice()); // key = HMAC(key, concatenated)
-            } else {
-                break;
             }
         }
-        Seed(k)
     }
 }
 
