@@ -28,6 +28,7 @@ use super::boolean::{
 
 use std::ops::{Add, Sub};
 
+#[derive(Debug)]
 pub struct AllocatedNum<E: Engine> {
     value: Option<E::Fr>,
     variable: Variable
