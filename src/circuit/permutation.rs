@@ -18,90 +18,33 @@ use super::boolean::{
     Boolean
 };
 
-fn switch_2x2<E, CS>(
-    mut cs: CS,
-    a: &Vec<AllocatedNum<E>>,
-    b: &Vec<AllocatedNum<E>>,
-    switched_on: bool
-) -> Result<(Vec<AllocatedNum<E>>, Vec<AllocatedNum<E>>), SynthesisError>
-    where CS: ConstraintSystem<E>,
-          E: Engine
-{
-    assert_eq!(a.len(), b.len());
-
-    let mut c = vec![];
-    let mut d = vec![];
-
-    if (a.len() == 1){
-        let c_value = match (a[0].get_value(), b[0].get_value(), switched_on){
-            (Some(a), Some(b), false) => Some(a),
-            (Some(a), Some(b), true) => Some(b),
-            (_, _, _) => None
-        };
-        c.push(AllocatedNum::alloc(
-            cs.namespace(|| "c"),
-            || c_value.grab()
-        )?);
-
-        let d_value = match (a[0].get_value(), b[0].get_value(), switched_on){
-            (Some(a), Some(b), false) => Some(b),
-            (Some(a), Some(b), true) => Some(a),
-            (_, _, _) => None
-        };
-        d.push(AllocatedNum::alloc(
-            cs.namespace(|| "d"),
-            || d_value.grab()
-        )?);
-
-        cs.enforce(
-            || "(a == c) || (a == d)",
-            |lc| lc + a[0].get_variable() - c[0].get_variable(),
-            |lc| lc + a[0].get_variable() - d[0].get_variable(),
-            |lc| lc
-        );
-        cs.enforce(
-            || "a + b == c + d",
-            |lc| lc + a[0].get_variable() + b[0].get_variable(),
-            |lc| lc + CS::one(),
-            |lc| lc + c[0].get_variable() + d[0].get_variable(),
-        );
-    }
-    else {
-        let switch = Boolean::from(AllocatedBit::alloc(
-            cs.namespace(|| "switch variable"),
-            Some(switched_on)
-        )?);
-
-        for (i, (a, b)) in a.iter().zip(b).enumerate() {
-            c.push(AllocatedNum::conditionally_select(
-                cs.namespace(|| format!("c[{}]", i)), a, b, &switch.not())?
-            );
-
-            d.push(AllocatedNum::conditionally_select(
-                cs.namespace(|| format!("d[{}]", i)), a, b, &switch)?
-            );
-        }
-    }
-
-    Ok((c, d))
+pub trait PermutationField<E: Engine>: Sized + Clone {
+    fn switch_2x2<CS>(
+        cs: CS,
+        a: &Self,
+        b: &Self,
+        switched_on: bool
+    ) -> Result<(Self, Self), SynthesisError>
+        where CS: ConstraintSystem<E>;
 }
 
 /// AS-Waksman permutation network
 /// Caller be responsible for validity of permutation
-pub fn enforce_permutation<E, CS>(
+pub fn enforce_permutation<E, CS, PF>(
     mut cs: CS,
-    original: &[Vec<AllocatedNum<E>>],
+    original: &[PF],
     permutation: &[usize]
-) -> Result<(Vec<Vec<AllocatedNum<E>>>), SynthesisError>
+) -> Result<(Vec<PF>), SynthesisError>
     where CS: ConstraintSystem<E>,
-          E: Engine
+          E: Engine,
+          PF: PermutationField<E>
 {
     assert_eq!(original.len(), permutation.len());
 
     match permutation.len(){
         1 => Ok(vec![original[0].clone()]),
         2 => {
-            let (c, d) = switch_2x2(
+            let (c, d) = PF::switch_2x2(
                 cs.namespace(|| "switch_2x2"),
                 &original[0],
                 &original[1],
@@ -142,7 +85,7 @@ mod test {
                     ).unwrap()
                 ).collect::<Vec<_>>();
 
-                let (c, d) = switch_2x2(
+                let (c, d) = <Vec<AllocatedNum<Bn256>> as PermutationField<Bn256>>::switch_2x2(
                     cs.namespace(|| "switch_2x2"),
                     &a,
                     &b,
