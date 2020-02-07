@@ -43,7 +43,7 @@ impl<E: Engine> Expression<E> {
             lc: boolean_var.lc(CS::one(), E::Fr::one()),
         }
     }
-    pub fn le_bits<CS: ConstraintSystem<E>>(le_bits: &[Boolean]) -> Expression<E> {
+    pub fn from_le_bits<CS: ConstraintSystem<E>>(le_bits: &[Boolean]) -> Expression<E> {
         let mut data_from_lc = Num::<E>::zero();
         let mut coeff = E::Fr::one();
         for bit in le_bits {

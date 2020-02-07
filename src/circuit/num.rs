@@ -263,6 +263,7 @@ impl<E: Engine> AllocatedNum<E> {
     where
         CS: ConstraintSystem<E>,
     {
+        assert!(bit_length <= E::Fr::NUM_BITS as usize);
         let bits = boolean::field_into_allocated_bits_le_fixed(&mut cs, self.value, bit_length)?;
 
         let mut packed_lc = LinearCombination::zero();
@@ -289,6 +290,8 @@ impl<E: Engine> AllocatedNum<E> {
         mut cs: CS,
         bits: &[Boolean],
     ) -> Result<Self, SynthesisError> {
+        assert!(bits.len() <= E::Fr::NUM_BITS as usize);
+
         let mut data_from_lc = Num::<E>::zero();
         let mut coeff = E::Fr::one();
         for bit in bits {
