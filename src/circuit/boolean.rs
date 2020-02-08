@@ -644,6 +644,22 @@ impl Boolean {
         }
     }
 
+    /// Perform OR over two boolean operands
+    pub fn or<'a, E, CS>(
+        cs: CS,
+        a: &'a Self,
+        b: &'a Self
+    ) -> Result<Self, SynthesisError>
+        where E: Engine,
+              CS: ConstraintSystem<E>
+    {
+        Ok(Boolean::and(
+            cs,
+            &a.not(),
+            &b.not()
+        )?.not())
+    }
+
     /// Computes (a and b) xor ((not a) and c)
     pub fn sha256_ch<'a, E, CS>(
         mut cs: CS,

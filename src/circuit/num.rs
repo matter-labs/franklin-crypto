@@ -542,6 +542,78 @@ impl<E: Engine> AllocatedNum<E> {
         Ok(c)
     }
 
+    /// Takes two allocated numbers (a, b) and
+    /// returns boolean variable with value `true`
+    /// if `a` less than `b`, `false` otherwise.
+    pub fn less_than<CS>(
+        mut cs: CS,
+        a: &Self,
+        b: &Self
+    ) -> Result<Boolean, SynthesisError>
+        where E: Engine,
+              CS: ConstraintSystem<E>
+    {
+        let bits_a = a.into_bits_le_strict(cs.namespace(|| "a representation"))?;
+        let bits_b = b.into_bits_le_strict(cs.namespace(|| "b representation"))?;
+        assert_eq!(bits_a.len(), bits_b.len());
+
+        let mut is_suffixes_equal = Boolean::from(AllocatedBit::alloc(
+            cs.namespace(|| "is_suffixes_equal"),
+            Some(true)
+        )?);
+        Boolean::enforce_equal(
+            cs.namespace(|| "is_suffix_equal start value"),
+            &is_suffixes_equal,
+            &Boolean::Constant(true)
+        );
+
+        let mut result = Boolean::from(AllocatedBit::alloc(
+            cs.namespace(|| "comparison result"),
+            Some(false)
+        )?);
+        Boolean::enforce_equal(
+            cs.namespace(|| "result start value"),
+            &result,
+            &Boolean::Constant(false)
+        );
+
+        for (i, (a, b)) in bits_a.iter().zip(&bits_b).rev().enumerate() {
+            // ((not a) and (b))
+            let current_bit_compare = Boolean::and(
+                cs.namespace(|| format!("comparing bits with index {} in big-endian", i)),
+                &a.not(),
+                &b
+            )?;
+
+            let a_less_b_on_this_bit_and_suffixes_are_equal = Boolean::and(
+                cs.namespace(|| format!("a[{}] less than b[{}] and suffixes are equal at bit {}", i, i, i)),
+                &current_bit_compare,
+                &is_suffixes_equal
+            )?;
+
+            // result = result or a_less_b_on_this_bit_and_suffixes_are_equal
+            result = Boolean::or(
+                cs.namespace(|| format!("result after {} bits consideration", i + 1)),
+                &result,
+                &a_less_b_on_this_bit_and_suffixes_are_equal
+            )?;
+
+            let a_xor_b = Boolean::xor(
+                cs.namespace(|| format!("a[{}] xor b[{}]", i, i)),
+                &a,
+                &b
+            )?;
+            is_suffixes_equal = Boolean::and(
+                cs.namespace(|| format!("is_suffixes_equal after {} bits consideration", i + 1)),
+                &is_suffixes_equal,
+                &a_xor_b.not()
+            )?;
+        }
+
+        Ok(result)
+    }
+
+
     /// Takes two allocated numbers (a, b) and returns
     /// allocated boolean variable with value `true`
     /// if the `a` and `b` are equal, `false` otherwise.
@@ -834,6 +906,7 @@ mod test {
     use bellman::pairing::ff::{Field, PrimeField, BitIterator};
     use ::circuit::test::*;
     use super::{AllocatedNum, Boolean, Num};
+    use std::cmp::Ordering;
 
     #[test]
     fn test_allocated_num() {
@@ -947,6 +1020,60 @@ mod test {
             assert_eq!(a.value.unwrap(), c.value.unwrap());
             assert_eq!(b.value.unwrap(), d.value.unwrap());
         }
+    }
+
+    #[test]
+    fn test_num_less_than() {
+        let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        let mut cs = TestConstraintSystem::<Bls12>::new();
+
+        let a = AllocatedNum::alloc(cs.namespace(|| "a"), || Ok(Fr::from_str("10").unwrap())).unwrap();
+        let b = AllocatedNum::alloc(cs.namespace(|| "b"), || Ok(Fr::from_str("12").unwrap())).unwrap();
+        let c = AllocatedNum::alloc(cs.namespace(|| "c"), || Ok(Fr::from_str("10").unwrap())).unwrap();
+
+        let comparing_ab = AllocatedNum::less_than(cs.namespace(|| "comparing_ab"), &a, &b).unwrap();
+        let comparing_ac = AllocatedNum::less_than(cs.namespace(|| "comparing_ac"), &a, &c).unwrap();
+
+        let comparing_ba = AllocatedNum::less_than(cs.namespace(|| "comparing_ba"), &b, &a).unwrap();
+        let comparing_bb = AllocatedNum::less_than(cs.namespace(|| "comparing_bb"), &b, &b).unwrap();
+
+        let comparing_cb = AllocatedNum::less_than(cs.namespace(|| "comparing_cb"), &c, &b).unwrap();
+
+        assert_eq!(comparing_ab.get_value().unwrap(), true);
+        assert_eq!(comparing_ac.get_value().unwrap(), false);
+        assert_eq!(comparing_ba.get_value().unwrap(), false);
+        assert_eq!(comparing_bb.get_value().unwrap(), false);
+        assert_eq!(comparing_cb.get_value().unwrap(), true);
+
+        for iteration in 0..3 {
+            let mut values: Vec<AllocatedNum<Bls12>> = vec![];
+
+            for i in 0..20 {
+                values.push(AllocatedNum::alloc(
+                    cs.namespace(|| format!("test variable iteration({}) i({})", iteration, i)),
+                    || Ok(rng.gen())
+                ).unwrap());
+            }
+            for i in 0..values.len() {
+                for j in 0..values.len() {
+                    let comparing_result = AllocatedNum::less_than(
+                        cs.namespace(|| format!("comparing iteration({}) i({}) j({})", iteration, i, j)),
+                        &values[i],
+                        &values[j]
+                    ).unwrap();
+
+                    let a_repr = values[i].get_value().unwrap().into_repr();
+                    let b_repr = values[j].get_value().unwrap().into_repr();
+
+                    let expected = (a_repr.cmp(&b_repr) == Ordering::Less);
+
+                    assert_eq!(comparing_result.get_value().unwrap(), expected);
+                }
+            }
+        }
+
+        assert!(cs.is_satisfied());
     }
 
     #[test]
