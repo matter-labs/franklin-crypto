@@ -287,14 +287,43 @@ mod test {
     use circuit::test::*;
     use bellman::pairing::ff::PrimeField;
 
-    impl<E: Engine> SortablePermutationElement<E> for Vec<AllocatedNum<E>>
+    #[derive(Clone)]
+    struct TestSPE<E: Engine>
+    {
+        pub field: Vec<AllocatedNum<E>>
+    }
+
+    impl<E: Engine> PermutationElement<E> for TestSPE<E>
+    {
+        fn switch_2x2<CS>(
+            cs: CS,
+            a: &Self,
+            b: &Self,
+            switched_on: bool
+        ) -> Result<(Self, Self), SynthesisError>
+            where CS: ConstraintSystem<E>
+        {
+            let (c, d) = <Vec<AllocatedNum<E>> as PermutationElement<E>>::switch_2x2(
+                cs,
+                &a.field,
+                &b.field,
+                switched_on
+            )?;
+            Ok((
+                TestSPE{ field: c },
+                TestSPE{ field: d }
+            ))
+        }
+    }
+
+    impl<E: Engine> SortablePermutationElement<E> for TestSPE<E>
     {
         fn cmp(
             a: &Self,
             b: &Self,
         ) -> Ordering
         {
-            for (a, b) in a.iter().zip(b) {
+            for (a, b) in a.field.iter().zip(&b.field) {
                 let a_repr = a.get_value().unwrap().into_repr();
                 let b_repr = b.get_value().unwrap().into_repr();
 
@@ -338,7 +367,7 @@ mod test {
                 &Boolean::Constant(false)
             );
 
-            for (i, (a, b)) in a.iter().zip(b).enumerate() {
+            for (i, (a, b)) in a.field.iter().zip(&b.field).enumerate() {
                 let comparison_result = AllocatedNum::less_than(
                     cs.namespace(|| format!("comparison_result of a[{}] and b[{}]", i, i)),
                     a,
@@ -386,7 +415,7 @@ mod test {
     }
 
     #[test]
-    fn test_Vec_AllocatedNum_enforce_sort() {
+    fn test_enforce_sort() {
         let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
         for iteration in 0..5 {
             for size in 2..=50 {
@@ -394,17 +423,19 @@ mod test {
                     let mut cs = TestConstraintSystem::<Bn256>::new();
 
                     let original_vector = (0..size).map(|i|
-                        (0..fields).map(|j|
-                            AllocatedNum::alloc(
-                                cs.namespace(|| format!("input {} {} (size({}), fields({}))", i, j, size, fields)),
-                                || Ok(rng.gen())
-                            ).unwrap()
-                        ).collect::<Vec<_>>()
+                        TestSPE{
+                            field: (0..fields).map(|j|
+                                AllocatedNum::alloc(
+                                    cs.namespace(|| format!("input {} {} (size({}), fields({}))", i, j, size, fields)),
+                                    || Ok(rng.gen())
+                                ).unwrap()
+                            ).collect::<Vec<_>>()
+                        }
                     ).collect::<Vec<_>>();
 
                     let mut expected_sorted = original_vector.clone();
-                    expected_sorted.sort_by(|lhs: &Vec<AllocatedNum<Bn256>>, rhs: &Vec<AllocatedNum<Bn256>>| {
-                        <Vec<AllocatedNum<Bn256>> as SortablePermutationElement<Bn256>>::cmp(lhs, rhs)
+                    expected_sorted.sort_by(|lhs: &TestSPE<Bn256>, rhs: &TestSPE<Bn256>| {
+                        <TestSPE<Bn256> as SortablePermutationElement<Bn256>>::cmp(lhs, rhs)
                     });
 
                     let sorted = enforce_sort(
@@ -415,8 +446,8 @@ mod test {
                     assert_eq!(expected_sorted.len(), sorted.len());
 
                     for (expected_i, result_i) in expected_sorted.iter().zip(&sorted) {
-                        assert_eq!(expected_i.len(), result_i.len());
-                        for (expected, result) in expected_i.iter().zip(result_i) {
+                        assert_eq!(expected_i.field.len(), result_i.field.len());
+                        for (expected, result) in expected_i.field.iter().zip(&result_i.field) {
                             assert_eq!(expected.get_value().unwrap(), result.get_value().unwrap());
                         }
                     }
