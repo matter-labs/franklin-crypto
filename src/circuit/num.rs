@@ -34,6 +34,22 @@ pub struct AllocatedNum<E: Engine> {
     variable: Variable
 }
 
+impl<E: Engine> PartialEq for AllocatedNum<E> {
+    fn eq(&self, other: &AllocatedNum<E>) -> bool {
+        self.value == other.value
+    }
+}
+
+impl<E: Engine> Eq for AllocatedNum<E> {}
+
+impl<E: Engine> std::hash::Hash for AllocatedNum<E> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        if let Some(value) = self.value {
+            value.into_repr().as_ref().iter().collect::<Vec<_>>().hash(state);
+        }
+    }
+}
+
 impl<E: Engine> Clone for AllocatedNum<E> {
     fn clone(&self) -> Self {
         AllocatedNum {
@@ -565,7 +581,7 @@ impl<E: Engine> AllocatedNum<E> {
             cs.namespace(|| "is_suffix_equal start value"),
             &is_suffixes_equal,
             &Boolean::Constant(true)
-        );
+        )?;
 
         let mut result = Boolean::from(AllocatedBit::alloc(
             cs.namespace(|| "comparison result"),
@@ -575,7 +591,7 @@ impl<E: Engine> AllocatedNum<E> {
             cs.namespace(|| "result start value"),
             &result,
             &Boolean::Constant(false)
-        );
+        )?;
 
         for (i, (a, b)) in bits_a.iter().zip(&bits_b).rev().enumerate() {
             // ((not a) and (b))

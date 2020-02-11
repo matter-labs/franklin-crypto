@@ -105,7 +105,7 @@ fn enforce_permutation_recursive<E: Engine, CS, PE>(
             let mut used_positions = BitVec::from_elem(n, false);
 
             for i in (0..n).rev() {
-                if (used_positions.get(i).unwrap()) {
+                if (used_positions.get(i).expect("used_positions must contain n elements")) {
                     continue;
                 }
 
@@ -175,7 +175,7 @@ fn enforce_permutation_recursive<E: Engine, CS, PE>(
                         cs.namespace(|| format!("switch of front layer with index {}", i / 2)),
                         &original[i],
                         &original[i + 1],
-                        front_layer_switches_on.get(i / 2).unwrap()
+                        front_layer_switches_on.get(i / 2).expect("front_layer_switches_on must contain n / 2 elements")
                     )?;
                     left.push(l);
                     right.push(r);
@@ -296,23 +296,70 @@ mod test {
     impl<E: Engine> PermutationElement<E> for TestSPE<E>
     {
         fn switch_2x2<CS>(
-            cs: CS,
+            mut cs: CS,
             a: &Self,
             b: &Self,
             switched_on: bool
         ) -> Result<(Self, Self), SynthesisError>
             where CS: ConstraintSystem<E>
         {
-            let (c, d) = <Vec<AllocatedNum<E>> as PermutationElement<E>>::switch_2x2(
-                cs,
-                &a.field,
-                &b.field,
-                switched_on
-            )?;
-            Ok((
-                TestSPE{ field: c },
-                TestSPE{ field: d }
-            ))
+            assert_eq!(a.field.len(), b.field.len());
+
+            let mut c = TestSPE { field: vec![] };
+            let mut d = TestSPE { field: vec![] };
+
+            if (a.field.len() == 1) {
+                let c_value = match (a.field[0].get_value(), b.field[0].get_value(), switched_on) {
+                    (Some(a), Some(b), false) => Some(a),
+                    (Some(a), Some(b), true) => Some(b),
+                    (_, _, _) => None
+                };
+                c.field.push(AllocatedNum::alloc(
+                    cs.namespace(|| "c"),
+                    || c_value.grab()
+                )?);
+
+                let d_value = match (a.field[0].get_value(), b.field[0].get_value(), switched_on) {
+                    (Some(a), Some(b), false) => Some(b),
+                    (Some(a), Some(b), true) => Some(a),
+                    (_, _, _) => None
+                };
+                d.field.push(AllocatedNum::alloc(
+                    cs.namespace(|| "d"),
+                    || d_value.grab()
+                )?);
+
+                cs.enforce(
+                    || "(a == c) or (a == d)",
+                    |lc| lc + a.field[0].get_variable() - c.field[0].get_variable(),
+                    |lc| lc + a.field[0].get_variable() - d.field[0].get_variable(),
+                    |lc| lc
+                );
+                cs.enforce(
+                    || "a + b == c + d",
+                    |lc| lc + a.field[0].get_variable() + b.field[0].get_variable(),
+                    |lc| lc + CS::one(),
+                    |lc| lc + c.field[0].get_variable() + d.field[0].get_variable(),
+                );
+            }
+            else {
+                let switch = Boolean::from(AllocatedBit::alloc(
+                    cs.namespace(|| "switch variable"),
+                    Some(switched_on)
+                )?);
+
+                for (i, (a, b)) in a.field.iter().zip(&b.field).enumerate() {
+                    c.field.push(AllocatedNum::conditionally_select(
+                        cs.namespace(|| format!("c[{}]", i)), a, b, &switch.not()
+                    )?);
+
+                    d.field.push(AllocatedNum::conditionally_select(
+                        cs.namespace(|| format!("d[{}]", i)), a, b, &switch
+                    )?);
+                }
+            }
+
+            Ok((c, d))
         }
     }
 
@@ -324,12 +371,18 @@ mod test {
         ) -> Ordering
         {
             for (a, b) in a.field.iter().zip(&b.field) {
-                let a_repr = a.get_value().unwrap().into_repr();
-                let b_repr = b.get_value().unwrap().into_repr();
+                let comparison_result = match (a.get_value(), b.get_value()) {
+                    (Some(a_value), Some(b_value)) => {
+                        let a_repr = a_value.into_repr();
+                        let b_repr = b_value.into_repr();
 
-                let comparison_result = a_repr.cmp(&b_repr);
-
-                if (comparison_result != Ordering::Equal){
+                        a_repr.cmp(&b_repr)
+                    }
+                    (None, Some(_)) => Ordering::Less,
+                    (None, None) => Ordering::Equal,
+                    (Some(_), None) => Ordering::Greater
+                };
+                if (comparison_result != Ordering::Equal) {
                     return comparison_result;
                 }
             }
@@ -353,7 +406,7 @@ mod test {
                 cs.namespace(|| "is_prefixes_equal start value"),
                 &is_prefixes_equal,
                 &Boolean::Constant(true)
-            );
+            )?;
 
             let mut lt = Boolean::from(
                 AllocatedBit::alloc(
@@ -365,7 +418,7 @@ mod test {
                 cs.namespace(|| "lt start value"),
                 &lt,
                 &Boolean::Constant(false)
-            );
+            )?;
 
             for (i, (a, b)) in a.field.iter().zip(&b.field).enumerate() {
                 let comparison_result = AllocatedNum::less_than(
@@ -408,9 +461,59 @@ mod test {
                 cs.namespace(|| "leq is true"),
                 &leq,
                 &Boolean::Constant(true)
-            );
+            )?;
 
             Ok(())
+        }
+    }
+
+    #[test]
+    fn test_switch_2x2() {
+        let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+        for size in 1..=15 {
+            for switched_on in 0..2 {
+                let mut cs = TestConstraintSystem::<Bn256>::new();
+
+                let a = TestSPE {
+                    field: (0..size).map(
+                        |i| AllocatedNum::alloc(
+                            cs.namespace(|| format!("a[{}]", i)),
+                            || Ok(rng.gen())
+                        ).unwrap()
+                    ).collect::<Vec<_>>()
+                };
+                let b = TestSPE {
+                    field: (0..size).map(
+                        |i| AllocatedNum::alloc(
+                            cs.namespace(|| format!("b[{}]", i)),
+                            || Ok(rng.gen())
+                        ).unwrap()
+                    ).collect::<Vec<_>>()
+                };
+
+                let (c, d) = <TestSPE<Bn256> as PermutationElement<Bn256>>::switch_2x2(
+                    cs.namespace(|| "switch_2x2"),
+                    &a,
+                    &b,
+                    switched_on != 0
+                ).unwrap();
+
+                let a = a.field.iter().map(|i| i.get_value().unwrap()).collect::<Vec<_>>();
+                let b = b.field.iter().map(|i| i.get_value().unwrap()).collect::<Vec<_>>();
+                let c = c.field.iter().map(|i| i.get_value().unwrap()).collect::<Vec<_>>();
+                let d = d.field.iter().map(|i| i.get_value().unwrap()).collect::<Vec<_>>();
+
+                if (switched_on == 0) {
+                    assert_eq!(a, c);
+                    assert_eq!(b, d);
+                }
+                else {
+                    assert_eq!(a, d);
+                    assert_eq!(b, c);
+                }
+
+                assert!(cs.is_satisfied());
+            }
         }
     }
 
