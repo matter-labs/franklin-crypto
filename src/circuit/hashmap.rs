@@ -197,11 +197,29 @@ impl<E: Engine> SortablePermutationElement<E> for HashMapMemoryAccessInfo<E>
     }
 }
 
+struct HashMapGadgetKey<E: Engine>(Option<E::Fr>);
+
+impl<E: Engine> PartialEq for HashMapGadgetKey<E> {
+    fn eq(&self, other: &HashMapGadgetKey<E>) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<E: Engine> Eq for HashMapGadgetKey<E> {}
+
+impl<E: Engine> std::hash::Hash for HashMapGadgetKey<E> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        if let Some(value) = self.0 {
+            value.into_repr().as_ref().iter().collect::<Vec<_>>().hash(state);
+        }
+    }
+}
+
 pub struct HashMapGadget<E: Engine>
 {
     default_value: Vec<AllocatedNum<E>>,
     index_of_last_memory_access: AllocatedNum<E>,
-    values: HashMap<AllocatedNum<E>, Vec<AllocatedNum<E>>>,
+    values: HashMap<HashMapGadgetKey<E>, Vec<AllocatedNum<E>>>,
     remembered_memory_accesses: Vec<HashMapMemoryAccessInfo<E>>,
     is_finalized: bool
 }
@@ -296,16 +314,16 @@ impl<E: Engine> HashMapGadget<E>
             |lc| lc + new_index_of_memory_access.get_variable()
         );
 
-        if (!self.values.contains_key(key)) {
-            self.values.insert(key.clone(), self.default_value.clone());
+        if (!self.values.contains_key(&HashMapGadgetKey(key.get_value()))) {
+            self.values.insert(HashMapGadgetKey(key.get_value()), self.default_value.clone());
         }
-        let old_value = self.values.get(key).expect("HashMap must contain key at this moment").clone();
+        let old_value = self.values.get(&HashMapGadgetKey(key.get_value())).expect("HashMap must contain key at this moment").clone();
 
         if let Some(new_value) = new_value {
             if (new_value.len() != self.default_value.len()) {
                 return Err(SynthesisError::Unsatisfiable);
             }
-            self.values.insert(key.clone(), new_value.clone());
+            self.values.insert(HashMapGadgetKey(key.get_value()), new_value.clone());
 
             self.remembered_memory_accesses.push(
                 HashMapMemoryAccessInfo{
@@ -489,7 +507,7 @@ mod test {
                 let mut cs = TestConstraintSystem::<Bn256>::new();
 
                 let keys = (0..NUMBER_OF_KEYS_PER_ITERATION).map(|i| Fr::rand(&mut rng)).collect::<Vec<_>>();
-                let mut hashmap: HashMap<AllocatedNum<Bn256>, Vec<AllocatedNum<Bn256>>> = HashMap::new();
+                let mut hashmap: HashMap<HashMapGadgetKey<Bn256>, Vec<AllocatedNum<Bn256>>> = HashMap::new();
 
                 let default_value = (0..fields).map(|i| AllocatedNum::alloc(
                     cs.namespace(|| format!("{} element of default_value", i)),
@@ -515,7 +533,7 @@ mod test {
                             &key
                         ).unwrap();
 
-                        let expected = match hashmap.get(&key) {
+                        let expected = match hashmap.get(&HashMapGadgetKey(key.get_value())) {
                             None => default_value.clone(),
                             Some(expected) => expected.clone()
                         };
@@ -541,7 +559,7 @@ mod test {
                             &new_value
                         ).unwrap();
 
-                        let expected = match hashmap.get(&key) {
+                        let expected = match hashmap.get(&HashMapGadgetKey(key.get_value())) {
                             None => default_value.clone(),
                             Some(expected) => expected.clone()
                         };
@@ -551,7 +569,7 @@ mod test {
 
                         assert_eq!(expected_values, gadget_result_values);
 
-                        hashmap.insert(key, new_value);
+                        hashmap.insert(HashMapGadgetKey(key.get_value()), new_value);
                     }
                 }
 

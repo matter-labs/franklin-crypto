@@ -34,22 +34,6 @@ pub struct AllocatedNum<E: Engine> {
     variable: Variable
 }
 
-impl<E: Engine> PartialEq for AllocatedNum<E> {
-    fn eq(&self, other: &AllocatedNum<E>) -> bool {
-        self.value == other.value
-    }
-}
-
-impl<E: Engine> Eq for AllocatedNum<E> {}
-
-impl<E: Engine> std::hash::Hash for AllocatedNum<E> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        if let Some(value) = self.value {
-            value.into_repr().as_ref().iter().collect::<Vec<_>>().hash(state);
-        }
-    }
-}
-
 impl<E: Engine> Clone for AllocatedNum<E> {
     fn clone(&self) -> Self {
         AllocatedNum {
