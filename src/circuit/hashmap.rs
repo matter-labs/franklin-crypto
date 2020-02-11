@@ -37,6 +37,7 @@ pub struct HashMapMemoryAccessInfo<E: Engine>
 {
     pub index_of_access: AllocatedNum<E>,
     pub key: AllocatedNum<E>,
+    pub key_bitlength: usize,
     pub old_value: Vec<AllocatedNum<E>>,
     pub new_value: Vec<AllocatedNum<E>>
 }
@@ -149,10 +150,13 @@ impl<E: Engine> SortablePermutationElement<E> for HashMapMemoryAccessInfo<E>
     ) -> Result<(), SynthesisError>
         where CS: ConstraintSystem<E>
     {
-        let key_comparison = AllocatedNum::less_than(
+        let key_bitlength = std::cmp::max(a.key_bitlength, b.key_bitlength);
+
+        let key_comparison = AllocatedNum::less_than_fixed(
             cs.namespace(|| "key_comparison"),
             &a.key,
-            &b.key
+            &b.key,
+            key_bitlength
         )?;
         let key_equals = Boolean::from(AllocatedNum::equals(
             cs.namespace(|| "key_equals"),
@@ -160,10 +164,11 @@ impl<E: Engine> SortablePermutationElement<E> for HashMapMemoryAccessInfo<E>
             &b.key
         )?);
 
-        let index_of_access_comparison = AllocatedNum::less_than(
+        let index_of_access_comparison = AllocatedNum::less_than_fixed(
             cs.namespace(|| "index_of_access_comparison"),
             &a.index_of_access,
-            &b.index_of_access
+            &b.index_of_access,
+            key_bitlength
         )?;
         let index_of_access_equals = Boolean::from(AllocatedNum::equals(
             cs.namespace(|| "index_of_access_equals"),
@@ -221,6 +226,7 @@ pub struct HashMapGadget<E: Engine>
     index_of_last_memory_access: AllocatedNum<E>,
     values: HashMap<HashMapGadgetKey<E>, Vec<AllocatedNum<E>>>,
     remembered_memory_accesses: Vec<HashMapMemoryAccessInfo<E>>,
+    key_bitlength: usize,
     is_finalized: bool
 }
 
@@ -262,6 +268,12 @@ impl<E: Engine> HashMapGadget<E>
         };
         assert_eq!(default_value.len(), fields_in_value);
 
+        let key_bitlength = match key_bitlength {
+            None => E::Fr::NUM_BITS as usize,
+            Some(key_bitlength) => key_bitlength
+        };
+        assert!(key_bitlength <= E::Fr::NUM_BITS as usize, "key_bitlength can't be greater than E::Fr::NUM_BITS");
+
         let index_of_last_memory_access = AllocatedNum::alloc(
             cs.namespace(|| "index_of_last_memory_access"),
             || Ok(E::Fr::zero())
@@ -278,6 +290,7 @@ impl<E: Engine> HashMapGadget<E>
             index_of_last_memory_access: index_of_last_memory_access,
             values: HashMap::new(),
             remembered_memory_accesses: vec![],
+            key_bitlength: key_bitlength,
             is_finalized: false
         })
     }
@@ -329,6 +342,7 @@ impl<E: Engine> HashMapGadget<E>
                 HashMapMemoryAccessInfo{
                     index_of_access: new_index_of_memory_access.clone(),
                     key: key.clone(),
+                    key_bitlength: self.key_bitlength,
                     old_value: old_value.clone(),
                     new_value: new_value.clone()
                 }
@@ -339,6 +353,7 @@ impl<E: Engine> HashMapGadget<E>
                 HashMapMemoryAccessInfo{
                     index_of_access: new_index_of_memory_access.clone(),
                     key: key.clone(),
+                    key_bitlength: self.key_bitlength,
                     old_value: old_value.clone(),
                     new_value: old_value.clone()
                 }

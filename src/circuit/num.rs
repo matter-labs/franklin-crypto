@@ -560,7 +560,7 @@ impl<E: Engine> AllocatedNum<E> {
             return Self::less_than_fixed(cs, a, b, E::Fr::NUM_BITS as usize);
         }
 
-        if (bit_length + 1 < E::Fr::NUM_BITS as usize) {
+        if (bit_length < E::Fr::CAPACITY as usize) {
             let mut two_power_bit_length = E::Fr::one();
             for _ in 0..bit_length {
                 let tmp = two_power_bit_length;
