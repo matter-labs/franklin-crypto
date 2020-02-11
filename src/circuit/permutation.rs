@@ -54,7 +54,7 @@ pub fn is_valid_permutation(
 {
     let mut set: std::collections::HashSet<usize> = std::collections::HashSet::with_capacity(permutation.len());
     for element in permutation.iter() {
-        if *element < 0 || *element >= permutation.len() {
+        if *element >= permutation.len() {
             return false;
         }
         if set.contains(element) {
@@ -69,7 +69,7 @@ fn enforce_permutation_recursive<E: Engine, CS, PE>(
     mut cs: CS,
     original: &[PE],
     permutation: &[usize]
-) -> Result<(Vec<PE>), SynthesisError>
+) -> Result<Vec<PE>, SynthesisError>
     where CS: ConstraintSystem<E>,
           PE: PermutationElement<E>
 {
@@ -236,7 +236,7 @@ pub fn enforce_permutation<E: Engine, CS, PE>(
     mut cs: CS,
     original: &[PE],
     permutation: &[usize]
-) -> Result<(Vec<PE>), SynthesisError>
+) -> Result<Vec<PE>, SynthesisError>
     where CS: ConstraintSystem<E>,
           PE: PermutationElement<E>
 {
@@ -252,7 +252,7 @@ pub fn enforce_permutation<E: Engine, CS, PE>(
 pub fn enforce_sort<E: Engine, CS, SPE>(
     mut cs: CS,
     original: &[SPE]
-) -> Result<(Vec<SPE>), SynthesisError>
+) -> Result<Vec<SPE>, SynthesisError>
     where CS: ConstraintSystem<E>,
           SPE: SortablePermutationElement<E>
 {
@@ -274,7 +274,7 @@ pub fn enforce_sort<E: Engine, CS, SPE>(
             cs.namespace(|| format!("enforce comparing elements {} and {}", i - 1, i)),
             &result[i - 1],
             &result[i]
-        );
+        )?;
     }
     Ok(result)
 }

@@ -272,7 +272,7 @@ impl<E: Engine> HashMapGadget<E>
     ) -> Result<Vec<AllocatedNum<E>>, SynthesisError>
         where CS: ConstraintSystem<E>
     {
-        if (self.is_finalized){
+        if (self.is_finalized) {
             // can't access to memory of finalized hashmap
             return Err(SynthesisError::Unsatisfiable);
         }
@@ -296,13 +296,13 @@ impl<E: Engine> HashMapGadget<E>
             |lc| lc + new_index_of_memory_access.get_variable()
         );
 
-        if (!self.values.contains_key(key)){
+        if (!self.values.contains_key(key)) {
             self.values.insert(key.clone(), self.default_value.clone());
         }
         let old_value = self.values.get(key).expect("HashMap must contain key at this moment").clone();
 
         if let Some(new_value) = new_value {
-            if (new_value.len() != self.default_value.len()){
+            if (new_value.len() != self.default_value.len()) {
                 return Err(SynthesisError::Unsatisfiable);
             }
             self.values.insert(key.clone(), new_value.clone());
@@ -316,7 +316,7 @@ impl<E: Engine> HashMapGadget<E>
                 }
             );
         }
-        else{
+        else {
             self.remembered_memory_accesses.push(
                 HashMapMemoryAccessInfo{
                     index_of_access: new_index_of_memory_access.clone(),
@@ -367,7 +367,7 @@ impl<E: Engine> HashMapGadget<E>
     ) -> Result<(), SynthesisError>
         where CS: ConstraintSystem<E>
     {
-        if (self.is_finalized){
+        if (self.is_finalized) {
             // trying to finalize of finalized hashmap
             return Err(SynthesisError::Unsatisfiable);
         }
@@ -391,7 +391,7 @@ impl<E: Engine> HashMapGadget<E>
                     );
                 }
             }
-            else{
+            else {
                 // enforce that
                 // sorted_memory_accesses[i].old_value equal to sorted_memory_accesses[i - 1].new_value
                 // or
@@ -555,7 +555,7 @@ mod test {
                     }
                 }
 
-                hashmap_gadget.finalize(cs.namespace(|| "finalize"));
+                hashmap_gadget.finalize(cs.namespace(|| "finalize")).unwrap();
 
                 assert!(cs.is_satisfied());
             }

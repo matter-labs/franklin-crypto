@@ -561,6 +561,189 @@ impl<E: Engine> AllocatedNum<E> {
     /// Takes two allocated numbers (a, b) and
     /// returns boolean variable with value `true`
     /// if `a` less than `b`, `false` otherwise.
+    ///
+    /// Should be used when there is a priori knowledge of bit length of the number
+    pub fn less_than_fixed<CS>(
+        mut cs: CS,
+        a: &Self,
+        b: &Self,
+        bit_length: usize
+    ) -> Result<Boolean, SynthesisError>
+        where E: Engine,
+              CS: ConstraintSystem<E>
+    {
+        if (bit_length > E::Fr::NUM_BITS as usize) {
+            return Self::less_than_fixed(cs, a, b, E::Fr::NUM_BITS as usize);
+        }
+
+        if (bit_length + 1 < E::Fr::NUM_BITS as usize) {
+            let mut two_power_bit_length = E::Fr::one();
+            for _ in 0..bit_length {
+                let tmp = two_power_bit_length;
+                two_power_bit_length.add_assign(&tmp);
+            }
+
+            // z = 2^bit_length + a - b
+            let z = AllocatedNum::alloc(
+                cs.namespace(|| "z"),
+                || {
+                    let a = a.get_value().grab()?;
+                    let b = b.get_value().grab()?;
+
+                    let mut result = two_power_bit_length;
+                    result.add_assign(&a);
+                    result.sub_assign(&b);
+                    Ok(result)
+                }
+            )?;
+            cs.enforce(
+                || "z = 2^bit_length + a - b",
+                |lc| lc + (two_power_bit_length, CS::one()) + a.get_variable() - b.get_variable(),
+                |lc| lc + CS::one(),
+                |lc| lc + z.get_variable(),
+            );
+
+            let z_bits = z.into_bits_le_fixed(
+                cs.namespace(|| "z_bits"),
+                bit_length + 1
+            )?;
+
+            Ok(z_bits.last().expect("bit representation of z can't be empty").not())
+        }
+        else {
+            let mut two_power_NUM_BITS_minus_two = E::Fr::one();
+            for _ in (0..E::Fr::NUM_BITS - 2) {
+                let tmp = two_power_NUM_BITS_minus_two;
+                two_power_NUM_BITS_minus_two.add_assign(&tmp);
+            }
+
+            let mut two_power_NUM_BITS_minus_one = E::Fr::one();
+            for _ in (0..E::Fr::NUM_BITS - 1) {
+                let tmp = two_power_NUM_BITS_minus_one;
+                two_power_NUM_BITS_minus_one.add_assign(&tmp);
+            }
+
+            let bits_a = a.into_bits_le_strict(cs.namespace(|| "a representation"))?;
+            let bits_b = b.into_bits_le_strict(cs.namespace(|| "b representation"))?;
+            assert_eq!(bits_a.len(), E::Fr::NUM_BITS as usize);
+            assert_eq!(bits_b.len(), E::Fr::NUM_BITS as usize);
+
+            let a_previous_last_bit = bits_a[bits_a.len() - 2].clone();
+            let b_previous_last_bit = bits_b[bits_b.len() - 2].clone();
+
+            let a_last_bit = bits_a[bits_a.len() - 1].clone();
+            let b_last_bit = bits_b[bits_b.len() - 1].clone();
+
+            let a_less_than_b_in_last_bit = Boolean::and(
+                cs.namespace(|| "a_less_than_b_in_last_bit"),
+                &a_last_bit.not(),
+                &b_last_bit
+            )?;
+
+            let a_equal_b_in_last_bit = Boolean::xor(
+                cs.namespace(|| "a_equal_b_in_last_bit"),
+                &a_last_bit,
+                &b_last_bit
+            )?.not();
+
+            let a_less_than_b_in_previous_last_bit = Boolean::and(
+                cs.namespace(|| "a_less_than_b_in_previous_last_bit"),
+                &a_previous_last_bit.not(),
+                &b_previous_last_bit
+            )?;
+
+            let a_equal_b_in_previous_last_bit = Boolean::xor(
+                cs.namespace(|| "a_equal_b_in_previous_last_bit"),
+                &a_previous_last_bit,
+                &b_previous_last_bit
+            )?.not();
+
+            let a_without_two_last_bits = AllocatedNum::alloc(
+                cs.namespace(|| "a_without_two_last_bits"),
+                || {
+                    let mut tmp = a.get_value().grab()?;
+                    if (a_previous_last_bit.get_value().grab()?) {
+                        tmp.sub_assign(&two_power_NUM_BITS_minus_two);
+                    }
+                    if (a_last_bit.get_value().grab()?) {
+                        tmp.sub_assign(&two_power_NUM_BITS_minus_one);
+                    }
+                    Ok(tmp)
+                }
+            )?;
+            cs.enforce(
+                || "a_without_two_last_bits condition",
+                |lc| lc + a_without_two_last_bits.get_variable(),
+                |lc| lc + CS::one(),
+                |lc| lc + a.get_variable()
+                    - &a_previous_last_bit.lc(CS::one(), two_power_NUM_BITS_minus_two)
+                    - &a_last_bit.lc(CS::one(), two_power_NUM_BITS_minus_one),
+            );
+
+            let b_without_two_last_bits = AllocatedNum::alloc(
+                cs.namespace(|| "b_without_two_last_bits"),
+                || {
+                    let mut tmp = b.get_value().grab()?;
+                    if (b_previous_last_bit.get_value().grab()?) {
+                        tmp.sub_assign(&two_power_NUM_BITS_minus_two);
+                    }
+                    if (b_last_bit.get_value().grab()?) {
+                        tmp.sub_assign(&two_power_NUM_BITS_minus_one);
+                    }
+                    Ok(tmp)
+                }
+            )?;
+            cs.enforce(
+                || "b_without_two_last_bits condition",
+                |lc| lc + b_without_two_last_bits.get_variable(),
+                |lc| lc + CS::one(),
+                |lc| lc + b.get_variable()
+                    - &b_previous_last_bit.lc(CS::one(), two_power_NUM_BITS_minus_two)
+                    - &b_last_bit.lc(CS::one(), two_power_NUM_BITS_minus_one),
+            );
+
+            let compare_without_two_last_bits = Self::less_than_fixed(
+                cs.namespace(|| "compare without two last bits"),
+                &a_without_two_last_bits,
+                &b_without_two_last_bits,
+                E::Fr::NUM_BITS as usize - 2
+            )?;
+
+            let a_less_than_b_in_previous_last_bit_and_equal_in_last = Boolean::and(
+                cs.namespace(|| "a less than b in previous last bit and equal in last"),
+                &a_less_than_b_in_previous_last_bit,
+                &a_equal_b_in_last_bit
+            )?;
+
+            let comparing_two_last_bits = Boolean::or(
+                cs.namespace(|| "comparing two last bits"),
+                &a_less_than_b_in_last_bit,
+                &a_less_than_b_in_previous_last_bit_and_equal_in_last
+            )?;
+
+            let a_equal_b_in_two_last_bits = Boolean::and(
+                cs.namespace(|| "a equal b in two last bits"),
+                &a_equal_b_in_previous_last_bit,
+                &a_equal_b_in_last_bit
+            )?;
+
+            let a_equal_b_in_two_last_bits_and_compare_without_two_last_bits = Boolean::and(
+                cs.namespace(|| "a equal b in two last bits and compare without two last bits"),
+                &a_equal_b_in_two_last_bits,
+                &compare_without_two_last_bits
+            )?;
+
+            Boolean::or(
+                cs.namespace(|| "result of comparing"),
+                &comparing_two_last_bits,
+                &a_equal_b_in_two_last_bits_and_compare_without_two_last_bits
+            )
+        }
+    }
+
+    /// Takes two allocated numbers (a, b) and
+    /// returns boolean variable with value `true`
+    /// if `a` less than `b`, `false` otherwise.
     pub fn less_than<CS>(
         mut cs: CS,
         a: &Self,
@@ -569,64 +752,7 @@ impl<E: Engine> AllocatedNum<E> {
         where E: Engine,
               CS: ConstraintSystem<E>
     {
-        let bits_a = a.into_bits_le_strict(cs.namespace(|| "a representation"))?;
-        let bits_b = b.into_bits_le_strict(cs.namespace(|| "b representation"))?;
-        assert_eq!(bits_a.len(), bits_b.len());
-
-        let mut is_suffixes_equal = Boolean::from(AllocatedBit::alloc(
-            cs.namespace(|| "is_suffixes_equal"),
-            Some(true)
-        )?);
-        Boolean::enforce_equal(
-            cs.namespace(|| "is_suffix_equal start value"),
-            &is_suffixes_equal,
-            &Boolean::Constant(true)
-        )?;
-
-        let mut result = Boolean::from(AllocatedBit::alloc(
-            cs.namespace(|| "comparison result"),
-            Some(false)
-        )?);
-        Boolean::enforce_equal(
-            cs.namespace(|| "result start value"),
-            &result,
-            &Boolean::Constant(false)
-        )?;
-
-        for (i, (a, b)) in bits_a.iter().zip(&bits_b).rev().enumerate() {
-            // ((not a) and (b))
-            let current_bit_compare = Boolean::and(
-                cs.namespace(|| format!("comparing bits with index {} in big-endian", i)),
-                &a.not(),
-                &b
-            )?;
-
-            let a_less_b_on_this_bit_and_suffixes_are_equal = Boolean::and(
-                cs.namespace(|| format!("a[{}] less than b[{}] and suffixes are equal at bit {}", i, i, i)),
-                &current_bit_compare,
-                &is_suffixes_equal
-            )?;
-
-            // result = result or a_less_b_on_this_bit_and_suffixes_are_equal
-            result = Boolean::or(
-                cs.namespace(|| format!("result after {} bits consideration", i + 1)),
-                &result,
-                &a_less_b_on_this_bit_and_suffixes_are_equal
-            )?;
-
-            let a_xor_b = Boolean::xor(
-                cs.namespace(|| format!("a[{}] xor b[{}]", i, i)),
-                &a,
-                &b
-            )?;
-            is_suffixes_equal = Boolean::and(
-                cs.namespace(|| format!("is_suffixes_equal after {} bits consideration", i + 1)),
-                &is_suffixes_equal,
-                &a_xor_b.not()
-            )?;
-        }
-
-        Ok(result)
+        Self::less_than_fixed(cs, a, b, E::Fr::NUM_BITS as usize)
     }
 
 
@@ -1062,10 +1188,10 @@ mod test {
         assert_eq!(comparing_bb.get_value().unwrap(), false);
         assert_eq!(comparing_cb.get_value().unwrap(), true);
 
-        for iteration in 0..3 {
+        for iteration in 0..2 {
             let mut values: Vec<AllocatedNum<Bls12>> = vec![];
 
-            for i in 0..20 {
+            for i in 0..50 {
                 values.push(AllocatedNum::alloc(
                     cs.namespace(|| format!("test variable iteration({}) i({})", iteration, i)),
                     || Ok(rng.gen())
