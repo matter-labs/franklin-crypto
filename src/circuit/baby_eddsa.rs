@@ -50,6 +50,8 @@ pub struct EddsaSignature<E: JubjubEngine> {
 use ::alt_babyjubjub::{fs::Fs};
 
 use constants::{MATTER_EDDSA_BLAKE2S_PERSONALIZATION};
+use circuit::expression::Expression;
+use circuit::pedersen_hash;
 
 impl <E: JubjubEngine>EddsaSignature<E> {
 
@@ -327,7 +329,172 @@ impl <E: JubjubEngine>EddsaSignature<E> {
 
         return Ok(());
     }
-} 
+
+    pub fn is_verified_raw_message_signature<CS>(
+        &self,
+        mut cs: CS,
+        params: &E::Params,
+        message: &[Boolean],
+        generator: EdwardsPoint<E>,
+        max_message_len: usize,
+    ) -> Result<Boolean, SynthesisError>
+        where
+            CS: ConstraintSystem<E>,
+    {
+        // message is always padded to 256 bits in this gadget, but still checked on synthesis
+        assert!(message.len() <= max_message_len * 8);
+
+        let scalar_bits = self.s.into_bits_le(cs.namespace(|| "Get S bits"))?;
+
+        let sb = generator.mul(cs.namespace(|| "S*B computation"), &scalar_bits, params)?;
+
+        // only order of R is checked. Public key and generator can be guaranteed to be in proper group!
+        // by some other means for out particular case
+        let r_is_not_small_order = Self::is_not_small_order(
+            &self.r,
+            cs.namespace(|| "R is in right order"),
+            &params,
+        )?;
+
+        let mut h: Vec<Boolean> = vec![];
+        h.extend(message.iter().cloned());
+        h.resize(256, Boolean::Constant(false));
+
+        assert_eq!(h.len(), 256);
+
+        let pk_mul_hash = self
+            .pk
+            .mul(cs.namespace(|| "Calculate h*PK"), &h, params)?;
+
+        let rhs = pk_mul_hash.add(cs.namespace(|| "Make signature RHS"), &self.r, params)?;
+
+        let rhs_x = rhs.get_x();
+        let rhs_y = rhs.get_y();
+
+        let sb_x = sb.get_x();
+        let sb_y = sb.get_y();
+
+        let is_x_correct = Boolean::from(Expression::equals(
+            cs.namespace(|| "is x coordinate correct"),
+            Expression::from(rhs_x),
+            Expression::from(sb_x),
+        )?);
+        let is_y_correct = Boolean::from(Expression::equals(
+            cs.namespace(|| "is y coordinate correct"),
+            Expression::from(rhs_y),
+            Expression::from(sb_y),
+        )?);
+
+        let mut is_verified = Boolean::constant(true);
+        is_verified = Boolean::and(
+            cs.namespace(|| "is_verified and r_is_not_small_order"),
+            &is_verified,
+            &r_is_not_small_order,
+        )?;
+        is_verified = Boolean::and(
+            cs.namespace(|| "is_verified and is_x_correct"),
+            &is_verified,
+            &is_x_correct,
+        )?;
+        is_verified = Boolean::and(
+            cs.namespace(|| "is_verified and is_y_correct"),
+            &is_verified,
+            &is_y_correct,
+        )?;
+        Ok(is_verified)
+    }
+
+    pub fn verify_pedersen<CS: ConstraintSystem<E>>(
+        &self,
+        mut cs: CS,
+        sig_data_bits: &[Boolean],
+        params: &E::Params,
+        generator: EdwardsPoint<E>,
+    ) -> Result<Boolean, SynthesisError> {
+        let mut sig_data_bits = sig_data_bits.to_vec();
+        sig_data_bits.resize(256, Boolean::constant(false));
+
+        let mut first_round_bits: Vec<Boolean> = vec![];
+
+        let mut pk_x_serialized = self
+            .pk
+            .get_x()
+            .clone()
+            .into_bits_le(cs.namespace(|| "pk_x_bits"))?;
+        pk_x_serialized.resize(256, Boolean::constant(false));
+
+        let mut r_x_serialized = self
+            .r
+            .get_x()
+            .clone()
+            .into_bits_le(cs.namespace(|| "r_x_bits"))?;
+        r_x_serialized.resize(256, Boolean::constant(false));
+
+        first_round_bits.extend(pk_x_serialized);
+        first_round_bits.extend(r_x_serialized);
+
+        let first_round_hash = pedersen_hash::pedersen_hash(
+            cs.namespace(|| "first_round_hash"),
+            pedersen_hash::Personalization::NoteCommitment,
+            &first_round_bits,
+            params,
+        )?;
+        let mut first_round_hash_bits = first_round_hash
+            .get_x()
+            .into_bits_le(cs.namespace(|| "first_round_hash_bits"))?;
+        first_round_hash_bits.resize(256, Boolean::constant(false));
+
+        let mut second_round_bits = vec![];
+        second_round_bits.extend(first_round_hash_bits);
+        second_round_bits.extend(sig_data_bits);
+        let second_round_hash = pedersen_hash::pedersen_hash(
+            cs.namespace(|| "second_hash"),
+            pedersen_hash::Personalization::NoteCommitment,
+            &second_round_bits,
+            params,
+        )?
+            .get_x()
+            .clone();
+
+        let h_bits = second_round_hash.into_bits_le(cs.namespace(|| "h_bits"))?;
+
+        let max_message_len = 32 as usize; //since it is the result of pedersen hash
+
+        let is_sig_verified = self.is_verified_raw_message_signature(
+            cs.namespace(|| "verify transaction signature"),
+            params,
+            &h_bits,
+            generator,
+            max_message_len,
+        )?;
+        Ok(is_sig_verified)
+    }
+
+    fn is_not_small_order<CS>(
+        point: &EdwardsPoint<E>,
+        mut cs: CS,
+        params: &E::Params,
+    ) -> Result<Boolean, SynthesisError>
+        where
+            CS: ConstraintSystem<E>,
+    {
+        let tmp = point.double(cs.namespace(|| "first doubling"), params)?;
+        let tmp = tmp.double(cs.namespace(|| "second doubling"), params)?;
+        let tmp = tmp.double(cs.namespace(|| "third doubling"), params)?;
+
+        // (0, -1) is a small order point, but won't ever appear here
+        // because cofactor is 2^3, and we performed three doublings.
+        // (0, 1) is the neutral element, so checking if x is nonzero
+        // is sufficient to prevent small order points here.
+        let is_zero = Expression::equals(
+            cs.namespace(|| "x==0"),
+            Expression::from(tmp.get_x()),
+            Expression::u64::<CS>(0),
+        )?;
+
+        Ok(Boolean::from(is_zero).not())
+    }
+}
 
 
 #[cfg(test)]
