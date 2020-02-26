@@ -695,6 +695,87 @@ mod test {
         print!("EdDSA variant raw message signature takes constraints: {}\n", cs.num_constraints());
     }
 
+    #[test]
+    fn test_valid_raw_message_signatures_evaluation() {
+        let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+        let p_g = FixedGenerators::SpendingKeyGenerator;
+        let params = &AltJubjubBn256::new();
+        let mut cs = TestConstraintSystem::<Bn256>::new();
+        let sk = PrivateKey::<Bn256>(rng.gen());
+        let vk = PublicKey::from_private(&sk, p_g, params);
+
+        let msg1 = b"Foo bar pad to16"; // 16 bytes
+
+        let mut input: Vec<bool> = vec![];
+
+        for b in msg1.iter() {
+            for i in (0..8).into_iter() {
+                if (b & (1 << i)) != 0 {
+                    input.extend(&[true; 1]);
+                } else {
+                    input.extend(&[false; 1]);
+                }
+            }
+        }
+
+        // test for maximum message length of 16 bytes
+        let seed1 = Seed::random_seed(&mut rng, msg1);
+
+        let sig1 = sk.sign_raw_message(msg1, &seed1, p_g, params, 16);
+        assert!(vk.verify_for_raw_message(msg1, &sig1, p_g, params, 16));
+
+        let input_bools: Vec<Boolean> = input
+            .iter()
+            .enumerate()
+            .map(|(i, b)| {
+                Boolean::from(
+                    AllocatedBit::alloc(
+                        cs.namespace(|| format!("input {}", i)),
+                        Some(*b)
+                    ).unwrap()
+                )
+            })
+            .collect();
+
+        let mut sigs_bytes = [0u8; 32];
+        sig1.s.into_repr().write_le(& mut sigs_bytes[..]).expect("get LE bytes of signature S");
+        let mut sigs_repr = <Fr as PrimeField>::Repr::from(0);
+        sigs_repr.read_le(&sigs_bytes[..]).expect("interpret S as field element representation");
+
+        let sigs_converted = Fr::from_repr(sigs_repr).unwrap();
+
+        let s = AllocatedNum::alloc(
+            cs.namespace(|| "allocate s"),
+            || Ok(sigs_converted)
+        ).unwrap();
+
+        let public_generator = params.generator(FixedGenerators::SpendingKeyGenerator).clone();
+
+        let generator = EdwardsPoint::witness(
+            cs.namespace(|| "allocate public generator"),
+            Some(public_generator),
+            params
+        ).unwrap();
+
+        let r = EdwardsPoint::witness(cs.namespace(|| "allocate r"), Some(sig1.r), params).unwrap();
+
+        let pk = EdwardsPoint::witness(cs.namespace(|| "allocate pk"), Some(vk.0), params).unwrap();
+
+        let signature = EddsaSignature {r, s, pk};
+        let success = signature
+            .is_verified_raw_message_signature(
+                cs.namespace(|| "verify signature"),
+                params,
+                &input_bools,
+                generator,
+                16
+            )
+            .expect("succesfully generated verifying gadget");
+
+        assert!(cs.is_satisfied());
+        print!("EdDSA variant raw message signature takes constraints: {}\n", cs.num_constraints());
+        assert_eq!(success.get_value(), Some(true));
+    }
 }
 
 
