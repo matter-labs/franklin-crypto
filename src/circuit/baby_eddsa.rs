@@ -332,7 +332,7 @@ impl <E: JubjubEngine>EddsaSignature<E> {
 
 #[cfg(test)]
 mod test {
-    use ::eddsa::{PrivateKey, PublicKey};
+    use ::eddsa::{Seed, PrivateKey, PublicKey};
     use rand::{SeedableRng, Rng, XorShiftRng};
     use super::*;
     use ::circuit::test::*;
@@ -364,8 +364,10 @@ mod test {
                 }
             }
         }
+        
+        let seed1 = Seed::random_seed(&mut rng, msg1);
 
-        let sig1 = sk.sign_schnorr_blake2s(msg1, &mut rng, p_g, params);
+        let sig1 = sk.sign_schnorr_blake2s(msg1, &seed1, p_g, params);
         assert!(vk.verify_schnorr_blake2s(msg1, &sig1, p_g, params));
 
         let input_bools: Vec<Boolean> = input.iter().enumerate().map(|(i, b)| {
@@ -421,7 +423,9 @@ mod test {
             }
         }
 
-        let sig1 = sk.musig_sha256_sign(&msg1[..], &mut rng, p_g, params);
+        let seed1 = Seed::random_seed(&mut rng, &msg1[..]);
+
+        let sig1 = sk.musig_sha256_sign(&msg1[..], &seed1, p_g, params);
         assert!(vk.verify_musig_sha256(&msg1[..], &sig1, p_g, params));
 
         let input_bools: Vec<Boolean> = input.iter().enumerate().map(|(i, b)| {
@@ -486,7 +490,9 @@ mod test {
         }
 
         // test for maximum message length of 16 bytes
-        let sig1 = sk.sign_raw_message(msg1, &mut rng, p_g, params, 16);
+        let seed1 = Seed::random_seed(&mut rng, msg1);
+
+        let sig1 = sk.sign_raw_message(msg1, &seed1, p_g, params, 16);
         assert!(vk.verify_for_raw_message(msg1, &sig1, p_g, params, 16));
 
         let input_bools: Vec<Boolean> = input.iter().enumerate().map(|(i, b)| {
