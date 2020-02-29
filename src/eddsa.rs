@@ -628,7 +628,7 @@ impl<E: JubjubEngine> PublicKey<E> {
         to_hash_bits.extend(phash_first_bits);
         to_hash_bits.extend(msg_bits);
         // S = r + H*(PK_X || R_X || M) . sk
-        let mut c = pedersen_h_star::<E>(&to_hash_bits, params);
+        let c = pedersen_h_star::<E>(&to_hash_bits, params);
 
         // this one is for a simple sanity check. In application purposes the pk will always be in a right group 
         let order_check_pk = self.0.mul(E::Fs::char(), params);
