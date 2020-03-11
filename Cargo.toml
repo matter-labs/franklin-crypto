@@ -29,7 +29,7 @@ sha2 = "0.8.0"
 hmac = "0.7.1"
 
 # bellman = { package = "bellman_ce", path = "../bellman" }
-bellman = { package = "bellman_ce", git = "https://github.com/matter-labs/bellman", branch = "plonk" }
+bellman = { package = "bellman_ce", git = "https://github.com/matter-labs/bellman", rev = "d37cf517bcfa0793adeb43f22af658ad41a664dd" }
 blake2-rfc_bellman_edition = "0.0.1"
 
 [dev-dependencies]
