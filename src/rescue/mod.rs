@@ -7,12 +7,13 @@ use rand::{Rand, Rng};
 
 pub mod bn256_2_into_1;
 
-pub trait SBox<E: Engine>: Sized {
+pub trait SBox<E: Engine>: Sized + Clone {
     fn apply(&self, elements: &mut [E::Fr]);
 }
 
+#[derive(Clone)]
 pub struct CubicSBox<E: Engine> {
-    _marker: PhantomData<E>
+    pub _marker: PhantomData<E>
 }
 
 impl<E: Engine>SBox<E> for CubicSBox<E> {
@@ -26,8 +27,9 @@ impl<E: Engine>SBox<E> for CubicSBox<E> {
     }
 }
 
+#[derive(Clone)]
 pub struct QuinticSBox<E: Engine> {
-    _marker: PhantomData<E>
+    pub _marker: PhantomData<E>
 }
 
 impl<E: Engine>SBox<E> for QuinticSBox<E> {
@@ -41,8 +43,10 @@ impl<E: Engine>SBox<E> for QuinticSBox<E> {
     }
 }
 
+#[derive(Clone)]
 pub struct PowerSBox<E: Engine> {
-    power: <E::Fr as PrimeField>::Repr,
+    pub power: <E::Fr as PrimeField>::Repr,
+    pub inv: u64,
 }
 
 impl<E: Engine>SBox<E> for PowerSBox<E> {
@@ -53,8 +57,9 @@ impl<E: Engine>SBox<E> for PowerSBox<E> {
     }
 }
 
+#[derive(Clone)]
 pub struct InversionSBox<E: Engine> {
-    _marker: PhantomData<E>
+    pub _marker: PhantomData<E>
 }
 
 fn batch_inversion<E: Engine>(v: &mut [E::Fr]) {
@@ -100,7 +105,8 @@ impl<E: Engine>SBox<E> for InversionSBox<E> {
     }
 }
 
-pub trait RescueHashParams<E: Engine>: Sized {
+
+pub trait RescueHashParams<E: Engine>: Sized + Clone {
     type SBox0: SBox<E>;
     type SBox1: SBox<E>;
     fn capacity(&self) -> u32;
@@ -143,11 +149,14 @@ fn sponge<E: RescueEngine>(
 ) -> Vec<E::Fr> {
     let mut state = vec![E::Fr::zero(); params.state_width() as usize];
     let rate = params.rate() as usize;
-    let padding_len = rate - (input.len() % rate);
+    let mut absorbtion_cycles = input.len() / rate;
+    if input.len() % rate != 0 {
+        absorbtion_cycles += 1;
+    }
+    let padding_len = absorbtion_cycles * rate - input.len();
     let padding = vec![E::Fr::one(); padding_len];
 
     let mut it = input.iter().chain(&padding);
-    let absorbtion_cycles = (input.len() + padding_len) / rate;
     for _ in 0..absorbtion_cycles {
         for i in 0..rate {
             state[i].add_assign(&it.next().unwrap());
@@ -155,11 +164,13 @@ fn sponge<E: RescueEngine>(
         state = rescue_mimc::<E>(params, &state);
     }
 
+    debug_assert!(it.next().is_none());
+
     state[..(params.capacity() as usize)].to_vec()
 }   
 
 
-fn rescue_mimc<E: RescueEngine>(
+pub fn rescue_mimc<E: RescueEngine>(
     params: &E::Params,
     old_state: &[E::Fr]
 ) -> Vec<E::Fr> {
@@ -188,7 +199,9 @@ fn rescue_mimc<E: RescueEngine>(
         // mul state by MDS
         for (row, place_into) in mds_application_scratch.iter_mut()
                                         .enumerate() {
-            *place_into = scalar_product::<E>(& state[..], params.mds_matrix_row(row as u32));
+            let tmp = scalar_product::<E>(& state[..], params.mds_matrix_row(row as u32));
+            place_into.add_assign(&tmp);                                
+            // *place_into = scalar_product::<E>(& state[..], params.mds_matrix_row(row as u32));
         }
 
         // place new data into the state

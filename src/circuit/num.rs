@@ -65,6 +65,17 @@ impl<E: Engine> AllocatedNum<E> {
         })
     }
 
+    pub fn one<CS>() -> Self
+        where CS: ConstraintSystem<E>
+    {
+        let new_value = Some(E::Fr::one());
+
+        AllocatedNum {
+            value: new_value,
+            variable: CS::one()
+        }
+    }
+
     pub fn inputize<CS>(
         &self,
         mut cs: CS
@@ -311,6 +322,102 @@ impl<E: Engine> AllocatedNum<E> {
         );
 
         Ok(data_packed)
+    }
+
+    pub fn add<CS>(
+        &self,
+        mut cs: CS,
+        other: &Self
+    ) -> Result<Self, SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let mut value = None;
+
+        let var = cs.alloc(|| "add num", || {
+            let mut tmp = *self.value.get()?;
+            tmp.add_assign(other.value.get()?);
+
+            value = Some(tmp);
+
+            Ok(tmp)
+        })?;
+
+        // Constrain: a * b = ab
+        cs.enforce(
+            || "addition constraint",
+            |zero| zero + self.variable + other.variable,
+            |zero| zero + CS::one(),
+            |zero| zero + var
+        );
+
+        Ok(AllocatedNum {
+            value: value,
+            variable: var
+        })
+    }
+
+    pub fn add_constant<CS>(
+        &self,
+        mut cs: CS,
+        constant: E::Fr
+    ) -> Result<Self, SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let mut value = None;
+
+        let var = cs.alloc(|| "add constant to num", || {
+            let mut tmp = *self.value.get()?;
+            tmp.add_assign(&constant);
+
+            value = Some(tmp);
+
+            Ok(tmp)
+        })?;
+
+        // Constrain: a * b = ab
+        cs.enforce(
+            || "addition constraint",
+            |zero| zero + self.variable + (constant, CS::one()),
+            |zero| zero + CS::one(),
+            |zero| zero + var
+        );
+
+        Ok(AllocatedNum {
+            value: value,
+            variable: var
+        })
+    }
+
+    pub fn sub<CS>(
+        &self,
+        mut cs: CS,
+        other: &Self
+    ) -> Result<Self, SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let mut value = None;
+
+        let var = cs.alloc(|| "sub num", || {
+            let mut tmp = *self.value.get()?;
+            tmp.sub_assign(other.value.get()?);
+
+            value = Some(tmp);
+
+            Ok(tmp)
+        })?;
+
+        // Constrain: a * b = ab
+        cs.enforce(
+            || "addition constraint",
+            |zero| zero + self.variable - other.variable,
+            |zero| zero + CS::one(),
+            |zero| zero + var
+        );
+
+        Ok(AllocatedNum {
+            value: value,
+            variable: var
+        })
     }
 
     pub fn mul<CS>(
@@ -722,6 +829,15 @@ impl<E: Engine> From<AllocatedNum<E>> for Num<E> {
     }
 }
 
+impl<E: Engine> Clone for Num<E> {
+    fn clone(&self) -> Self {
+        Num {
+            value: self.value.clone(),
+            lc: self.lc.clone()
+        }
+    }
+}
+
 impl<E: Engine> Num<E> {
     pub fn zero() -> Self {
         Num {
@@ -729,6 +845,15 @@ impl<E: Engine> Num<E> {
             lc: LinearCombination::zero()
         }
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.lc.as_ref().len() == 0
+    }
+
+    pub fn len(&self) -> usize {
+        self.lc.as_ref().len()
+    }
+
 
     pub fn get_value(&self) -> Option<E::Fr> {
         self.value
@@ -761,6 +886,28 @@ impl<E: Engine> Num<E> {
             lc: self.lc + (coeff, variable.get_variable())
         }
     }
+
+    pub fn add_assign_number_with_coeff(
+        &mut self,
+        variable: &AllocatedNum<E>,
+        coeff: E::Fr
+    )
+    {
+        let newval = match (self.value, variable.get_value()) {
+            (Some(mut curval), Some(val)) => {
+                let mut tmp = val;
+                tmp.mul_assign(&coeff);
+
+                curval.add_assign(&tmp);
+
+                Some(curval)
+            },
+            _ => None
+        };
+
+        self.value = newval;
+        self.lc.as_mut().push((variable.get_variable(), coeff));
+    }
    
     pub fn add_bool_with_coeff(
         self,
@@ -785,7 +932,69 @@ impl<E: Engine> Num<E> {
             lc: self.lc + &bit.lc(one, coeff)
         }
     }
+
+    pub fn add_constant(
+        self,
+        one: Variable,
+        coeff: E::Fr
+    ) -> Self
+    {
+        let newval = match self.value {
+            Some(mut curval) => {
+                curval.add_assign(&coeff);
+
+                Some(curval)
+            },
+            _ => None
+        };
+
+        Num {
+            value: newval,
+            lc: self.lc + (coeff, one)
+        }
+    }
+
+    pub fn into_allocated_num<CS: ConstraintSystem<E>>(
+        self,
+        mut cs: CS
+    ) -> Result<AllocatedNum<E>, SynthesisError> {
+        let var = AllocatedNum::alloc(
+            cs.namespace(|| "allocate a collapse result"), 
+            || {
+                let val = *self.get_value().get()?;
+
+                Ok(val)
+            }
+        )?;
+
+        cs.enforce(
+            || "enforce collapse constraint", 
+            |_| self.lc - var.get_variable(),
+            |lc| lc + CS::one(),
+            |lc| lc
+        
+        );
+
+        Ok(var)
+    }
+
+    pub fn unwrap_as_allocated_num(
+        &self,
+    ) -> AllocatedNum<E> {
+        assert!(self.lc.as_ref().len() == 1);
+        let (var, c) = self.lc.as_ref().last().unwrap().clone();
+        assert!(c == E::Fr::one());
+
+        let var = AllocatedNum {
+            value: self.value,
+            variable: var
+        };
+
+        var
+    }
 }
+
+
 impl<E: Engine> Add<&Num<E>> for Num<E> {
     type Output = Num<E>;
 

@@ -12,6 +12,7 @@ impl RescueEngine for bn256::Bn256 {
     type Params = Bn256RescueParams2Into1;
 }
 
+#[derive(Clone)]
 pub struct Bn256RescueParams2Into1 {
     c: u32,
     r: u32,
@@ -80,7 +81,7 @@ impl Bn256RescueParams2Into1 {
             use rand::chacha::ChaChaRng;
             // Create an RNG based on the outcome of the random beacon
             let mut rng = {
-                let tag = b"Hadesmds";
+                let tag = b"Rescue_m";
                 let mut h = H::new(&tag[..]);
                 h.update(constants::GH_FIRST_BLOCK);
                 let h = h.finalize();
@@ -150,7 +151,7 @@ impl Bn256RescueParams2Into1 {
             mds_matrix: mds_matrix,
             security_level: 126,
             sbox_0: QuinticSBox { _marker: std::marker::PhantomData },
-            sbox_1: PowerSBox { power: alpha_inv_repr }
+            sbox_1: PowerSBox { power: alpha_inv_repr, inv: 5u64 }
         }
     }
 }
@@ -217,6 +218,28 @@ mod test {
     #[test]
     fn test_generate_bn256_rescue_params() {
         let params = Bn256RescueParams2Into1::new::<BlakeHasher>();
+    }
+
+    #[test]
+    fn test_bn256_rescue_params_permutation() {
+        let rng = &mut thread_rng();
+        let params = Bn256RescueParams2Into1::new::<BlakeHasher>();
+
+        for _ in 0..1000 {
+            let input: Fr = rng.gen();
+            let mut input_arr: [Fr; 1] = [input];
+            params.sbox_1().apply(&mut input_arr);
+            params.sbox_0().apply(&mut input_arr);
+            assert_eq!(input_arr[0], input);
+        }
+
+        for _ in 0..1000 {
+            let input: Fr = rng.gen();
+            let mut input_arr: [Fr; 1] = [input];
+            params.sbox_0().apply(&mut input_arr);
+            params.sbox_1().apply(&mut input_arr);
+            assert_eq!(input_arr[0], input);
+        }
     }
 
     #[test]
