@@ -32,6 +32,7 @@ pub mod util;
 pub mod eddsa;
 pub mod interpolation;
 pub mod as_waksman;
+pub mod rescue;
 
 extern crate serde;
 #[macro_use]
