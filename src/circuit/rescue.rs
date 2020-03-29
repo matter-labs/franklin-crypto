@@ -505,13 +505,13 @@ mod test {
     use bellman::pairing::bn256::{Bn256, Fr};
     use bellman::pairing::ff::PrimeField;
     use crate::rescue;
-    use crate::rescue::bn256_2_into_1::*;
     use crate::group_hash::BlakeHasher;
 
     #[test]
     fn test_rescue_mimc_gadget() {
+        use crate::rescue::bn256::*;
         let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-        let params = Bn256RescueParams2Into1::new::<BlakeHasher>();
+        let params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
         let input: Vec<Fr> = (0..params.state_width()).map(|_| rng.gen()).collect();
         let expected = rescue::rescue_mimc::<Bn256>(&params, &input[..]);
 
@@ -549,8 +549,43 @@ mod test {
 
     #[test]
     fn test_rescue_hash_gadget() {
+        use crate::rescue::bn256::*;
         let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-        let params = Bn256RescueParams2Into1::new::<BlakeHasher>();
+        let params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
+        // let input: Vec<Fr> = (0..(params.rate()*2)).map(|_| rng.gen()).collect();
+        let input: Vec<Fr> = (0..params.rate()).map(|_| rng.gen()).collect();
+        let expected = rescue::rescue_hash::<Bn256>(&params, &input[..]);
+
+        {
+            let mut cs = TestConstraintSystem::<Bn256>::new();
+
+            let input_words: Vec<AllocatedNum<Bn256>> = input.iter().enumerate().map(|(i, b)| {
+                AllocatedNum::alloc(
+                    cs.namespace(|| format!("input {}", i)),
+                    || {
+                        Ok(*b)
+                    }).unwrap()
+            }).collect();
+
+            let res = rescue_hash(
+                cs.namespace(|| "rescue hash"),
+                &input_words,
+                &params
+            ).unwrap();
+
+            assert!(cs.is_satisfied());
+            assert!(res.len() == 1);
+            println!("Rescue hash {} to {} taken {} constraints", input.len(), res.len(), cs.num_constraints());
+
+            assert_eq!(res[0].get_value().unwrap(), expected[0]);
+        }
+    }
+
+    #[test]
+    fn test_rescue_hash_gadget_3_into_1() {
+        use crate::rescue::bn256::*;
+        let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+        let params = Bn256RescueParams::new_3_into_1::<BlakeHasher>();
         // let input: Vec<Fr> = (0..(params.rate()*2)).map(|_| rng.gen()).collect();
         let input: Vec<Fr> = (0..params.rate()).map(|_| rng.gen()).collect();
         let expected = rescue::rescue_hash::<Bn256>(&params, &input[..]);
@@ -582,8 +617,9 @@ mod test {
 
     #[test]
     fn test_transpile_rescue_hash_gadget() {
+        use crate::rescue::bn256::*;
         let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-        let params = Bn256RescueParams2Into1::new::<BlakeHasher>();
+        let params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
         // let input: Vec<Fr> = (0..(params.rate()*2)).map(|_| rng.gen()).collect();
         let input: Vec<Fr> = (0..params.rate()).map(|_| rng.gen()).collect();
         let expected = rescue::rescue_hash::<Bn256>(&params, &input[..]);

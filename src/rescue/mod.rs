@@ -5,7 +5,8 @@ use super::group_hash::GroupHasher;
 
 use rand::{Rand, Rng};
 
-pub mod bn256_2_into_1;
+pub mod bn256;
+// pub mod bn256_3_into_1;
 
 pub trait SBox<E: Engine>: Sized + Clone {
     fn apply(&self, elements: &mut [E::Fr]);

@@ -1,5 +1,7 @@
 use bellman::pairing::bn256;
-use super::*;
+use bellman::pairing::ff::{Field, PrimeField, PrimeFieldRepr};
+use super::{RescueEngine, RescueHashParams, PowerSBox, QuinticSBox, generate_mds_matrix};
+use group_hash::GroupHasher;
 
 extern crate num_bigint;
 extern crate num_integer;
@@ -9,11 +11,11 @@ use self::num_integer::{Integer, ExtendedGcd};
 use self::num_traits::{ToPrimitive, Zero, One};
 
 impl RescueEngine for bn256::Bn256 {
-    type Params = Bn256RescueParams2Into1;
+    type Params = Bn256RescueParams;
 }
 
 #[derive(Clone)]
-pub struct Bn256RescueParams2Into1 {
+pub struct Bn256RescueParams {
     c: u32,
     r: u32,
     rounds: u32,
@@ -24,10 +26,19 @@ pub struct Bn256RescueParams2Into1 {
     sbox_1: QuinticSBox<bn256::Bn256>,
 }
 
-impl Bn256RescueParams2Into1 {
-    pub fn new<H: GroupHasher>() -> Self {
+impl Bn256RescueParams {
+    pub fn new_2_into_1<H: GroupHasher>() -> Self {
         let c = 1u32;
         let r = 2u32;
+        let rounds = 22u32;
+        let security_level = 126u32;
+
+        Self::new_for_params::<H>(c, r, rounds, security_level)
+    }
+
+    pub fn new_3_into_1<H: GroupHasher>() -> Self {
+        let c = 1u32;
+        let r = 3u32;
         let rounds = 22u32;
         let security_level = 126u32;
 
@@ -156,7 +167,7 @@ impl Bn256RescueParams2Into1 {
     }
 }
 
-impl RescueHashParams<bn256::Bn256> for Bn256RescueParams2Into1 {
+impl RescueHashParams<bn256::Bn256> for Bn256RescueParams {
     type SBox0 = PowerSBox<bn256::Bn256>;
     type SBox1 = QuinticSBox<bn256::Bn256>;
 
@@ -211,19 +222,19 @@ mod test {
     use bellman::pairing::bn256::{Bn256, Fr};
     use bellman::pairing::ff::PrimeField;
     use bellman::pairing::ff::Field;
-    use super::Bn256RescueParams2Into1;
+    use super::*;
     use crate::rescue::*;
     use crate::group_hash::BlakeHasher;
 
     #[test]
     fn test_generate_bn256_rescue_params() {
-        let params = Bn256RescueParams2Into1::new::<BlakeHasher>();
+        let params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
     }
 
     #[test]
     fn test_bn256_rescue_params_permutation() {
         let rng = &mut thread_rng();
-        let params = Bn256RescueParams2Into1::new::<BlakeHasher>();
+        let params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
 
         for _ in 0..1000 {
             let input: Fr = rng.gen();
@@ -245,7 +256,7 @@ mod test {
     #[test]
     fn test_bn256_rescue_hash() {
         let rng = &mut thread_rng();
-        let params = Bn256RescueParams2Into1::new::<BlakeHasher>();
+        let params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
         let input: Vec<Fr> = (0..params.rate()).map(|_| rng.gen()).collect();
         let output = rescue_hash::<Bn256>(&params, &input[..]);
         assert!(output.len() == 1);
