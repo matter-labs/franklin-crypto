@@ -20,8 +20,8 @@ pub struct Bn256RescueParams2Into1 {
     round_constants: Vec<bn256::Fr>,
     mds_matrix: Vec<bn256::Fr>,
     security_level: u32,
-    sbox_0: QuinticSBox<bn256::Bn256>,
-    sbox_1: PowerSBox<bn256::Bn256>,
+    sbox_0: PowerSBox<bn256::Bn256>,
+    sbox_1: QuinticSBox<bn256::Bn256>,
 }
 
 impl Bn256RescueParams2Into1 {
@@ -150,15 +150,15 @@ impl Bn256RescueParams2Into1 {
             round_constants: round_constants,
             mds_matrix: mds_matrix,
             security_level: 126,
-            sbox_0: QuinticSBox { _marker: std::marker::PhantomData },
-            sbox_1: PowerSBox { power: alpha_inv_repr, inv: 5u64 }
+            sbox_0: PowerSBox { power: alpha_inv_repr, inv: 5u64 },
+            sbox_1: QuinticSBox { _marker: std::marker::PhantomData },
         }
     }
 }
 
 impl RescueHashParams<bn256::Bn256> for Bn256RescueParams2Into1 {
-    type SBox0 = QuinticSBox<bn256::Bn256>;
-    type SBox1 = PowerSBox<bn256::Bn256>;
+    type SBox0 = PowerSBox<bn256::Bn256>;
+    type SBox1 = QuinticSBox<bn256::Bn256>;
 
     fn capacity(&self) -> u32 {
         self.c
