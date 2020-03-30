@@ -681,7 +681,7 @@ mod test {
         };
 
 
-        let hints = transpile::<Bn256, _>(c.clone()).expect("transpilation is successful");
+        let (n, hints) = transpile_with_gates_count::<Bn256, _>(c.clone()).expect("transpilation is successful");
 
         let mut hints_hist = std::collections::HashMap::new();
         hints_hist.insert("into addition gate".to_owned(), 0);
@@ -712,16 +712,6 @@ mod test {
 
         println!("Done transpiling");
 
-        is_satisfied_using_one_shot_check(c.clone(), &hints).expect("must validate");
-
-        println!("Done checking if satisfied using one-shot");
-
-        is_satisfied(c.clone(), &hints).expect("must validate");
-
-        println!("Done checking if satisfied");
-
-        let setup = setup(c.clone(), &hints).expect("must make setup");
-
-        println!("Made {} invocations into {} gates", dupls, setup.n);
+        println!("Made {} invocations into {} gates", dupls, n);
     }
 }
