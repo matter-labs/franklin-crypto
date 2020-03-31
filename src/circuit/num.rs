@@ -76,6 +76,32 @@ impl<E: Engine> AllocatedNum<E> {
         }
     }
 
+    pub fn zero<CS>(
+        mut cs: CS
+    ) -> Result<Self, SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let new_value = Some(E::Fr::zero());
+
+        let var = cs.alloc(|| "zero num", 
+            || {
+                Ok(E::Fr::zero())
+            }
+        )?;
+
+        cs.enforce(
+            || "enforce one is actually one",
+            |lc| lc + var,
+            |lc| lc + CS::one(),
+            |lc| lc 
+        );
+
+        Ok(AllocatedNum {
+            value: new_value,
+            variable: var
+        })
+    }
+
     pub fn inputize<CS>(
         &self,
         mut cs: CS
