@@ -106,10 +106,11 @@ impl<E: Engine>SBox<E> for InversionSBox<E> {
     }
 }
 
+use crate::circuit::rescue::CsSBox;
 
 pub trait RescueHashParams<E: Engine>: Sized + Clone {
-    type SBox0: SBox<E>;
-    type SBox1: SBox<E>;
+    type SBox0: CsSBox<E>;
+    type SBox1: CsSBox<E>;
     fn capacity(&self) -> u32;
     fn rate(&self) -> u32;
     fn state_width(&self) -> u32 {
