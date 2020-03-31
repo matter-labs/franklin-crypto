@@ -2,7 +2,7 @@ use bellman::pairing::{Engine,};
 use bellman::pairing::ff::{Field, PrimeField};
 use bellman::{ConstraintSystem, SynthesisError};
 use super::boolean::{Boolean};
-use super::num::Num;
+use super::num::{AllocatedNum, Num};
 use super::Assignment;
 
 /// Takes a sequence of booleans and exposes them as compact
@@ -37,6 +37,47 @@ pub fn pack_into_inputs<E, CS>(
     }
 
     Ok(())
+}
+
+/// Takes a sequence of booleans and exposes them as compact
+/// public inputs
+pub fn pack_into_witness<E, CS>(
+    mut cs: CS,
+    bits: &[Boolean]
+) -> Result<Vec<AllocatedNum<E>>, SynthesisError>
+    where E: Engine, CS: ConstraintSystem<E>
+{
+    let mut results = vec![];
+
+    for (i, bits) in bits.chunks(E::Fr::CAPACITY as usize).enumerate()
+    {
+        let mut num = Num::<E>::zero();
+        let mut coeff = E::Fr::one();
+        for bit in bits {
+            num = num.add_bool_with_coeff(CS::one(), bit, coeff);
+
+            coeff.double();
+        }
+
+        let witness = AllocatedNum::alloc(
+            cs.namespace(|| format!("input {}", i)), 
+            || {
+                Ok(*num.get_value().get()?)
+            }
+        )?;
+
+        // num * 1 = input
+        cs.enforce(
+            || format!("packing constraint {}", i),
+            |_| num.lc(E::Fr::one()),
+            |lc| lc + CS::one(),
+            |lc| lc + witness.get_variable()
+        );
+
+        results.push(witness);
+    }
+
+    Ok(results)
 }
 
 pub fn bytes_to_bits(bytes: &[u8]) -> Vec<bool>
