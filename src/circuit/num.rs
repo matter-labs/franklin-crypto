@@ -984,6 +984,9 @@ impl<E: Engine> Num<E> {
         self,
         mut cs: CS
     ) -> Result<AllocatedNum<E>, SynthesisError> {
+        if self.lc.as_ref().len() == 1 {
+            return Ok(self.unwrap_as_allocated_num());
+        }
         let var = AllocatedNum::alloc(
             cs.namespace(|| "allocate a collapse result"), 
             || {

@@ -485,6 +485,147 @@ fn scalar_product_over_lc_of_length_one<E: Engine> (input: &[Num<E>], by: &[E::F
     result
 }
 
+
+enum RescueOpMode<E: RescueEngine> {
+    AccumulatingToAbsorb(Vec<AllocatedNum<E>>),
+    SqueezedInto(Vec<Num<E>>)
+}
+
+pub struct StatefulRescueGadget<E: RescueEngine> {
+    internal_state: Vec<Num<E>>,
+    mode: RescueOpMode<E>
+}
+
+impl<E: RescueEngine> StatefulRescueGadget<E> {
+    pub fn new(
+        params: &E::Params
+    ) -> Self {
+        let op = RescueOpMode::AccumulatingToAbsorb(Vec::with_capacity(params.rate() as usize));
+
+        Self {
+            internal_state: vec![Num::<E>::zero(); params.state_width() as usize],
+            mode: op
+        }
+    }
+
+    fn absorb_single_value<CS: ConstraintSystem<E>>(
+        &mut self,
+        mut cs: CS,
+        value: &AllocatedNum<E>,
+        params: &E::Params
+    ) -> Result<(), SynthesisError> {
+        match self.mode {
+            RescueOpMode::AccumulatingToAbsorb(ref mut into) => {
+                // two cases
+                // either we have accumulated enough already and should to 
+                // a mimc round before accumulating more, or just accumulate more
+                let rate = params.rate() as usize;
+                if into.len() < rate {
+                    into.push(value.clone());
+                } else {
+                    for i in 0..rate {
+                        self.internal_state[i].add_assign_number_with_coeff(&into[i], E::Fr::one());
+                    }
+
+                    self.internal_state = rescue_mimc_over_lcs(
+                        cs.namespace(|| "perform mimc round"), 
+                        &self.internal_state, 
+                        &params
+                    )?;
+
+                    into.truncate(0);
+                    into.push(value.clone());
+                }
+            },
+            RescueOpMode::SqueezedInto(_) => {
+                // we don't need anything from the output, so it's dropped
+
+                let mut s = Vec::with_capacity(params.rate() as usize);
+                s.push(value.clone());
+
+                let op = RescueOpMode::AccumulatingToAbsorb(s);
+                self.mode = op;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn absorb<CS: ConstraintSystem<E>>(
+        &mut self,
+        mut cs: CS,
+        input: &[AllocatedNum<E>],
+        params: &E::Params
+    ) -> Result<(), SynthesisError>{
+        let absorbtion_len = params.rate() as usize;
+        let t = params.state_width();
+        let rate = params.rate();
+    
+        let mut absorbtion_cycles = input.len() / absorbtion_len;
+        if input.len() % absorbtion_len != 0 {
+            absorbtion_cycles += 1;
+        }
+
+        let mut input = input.to_vec();
+        input.resize(absorbtion_cycles * absorbtion_len, AllocatedNum::one::<CS>());
+    
+        let it = input.into_iter();
+        
+        for (idx, val) in it.enumerate() {
+            self.absorb_single_value(
+                cs.namespace(|| format!("absorb index {}", idx)),
+                &val,
+                &params
+            )?;
+        }
+
+        Ok(())
+    }
+
+    pub fn squeeze_out_single<CS: ConstraintSystem<E>>(
+        &mut self,
+        mut cs: CS,
+        params: &E::Params
+    ) -> Result<AllocatedNum<E>, SynthesisError> {
+        match self.mode {
+            RescueOpMode::AccumulatingToAbsorb(ref mut into) => {
+                let rate = params.rate() as usize;
+                assert_eq!(into.len(), rate, "padding was necessary!");
+                // two cases
+                // either we have accumulated enough already and should to 
+                // a mimc round before accumulating more, or just accumulate more
+                for i in 0..rate {
+                    self.internal_state[i].add_assign_number_with_coeff(&into[i], E::Fr::one());
+                }
+                self.internal_state = rescue_mimc_over_lcs(
+                    cs.namespace(|| "perform mimc round"), 
+                    &self.internal_state, 
+                    &params
+                )?;
+
+                // we don't take full internal state, but only the rate
+                let mut sponge_output = self.internal_state[0..rate].to_vec();
+                let output = sponge_output.drain(0..1).next().unwrap().into_allocated_num(
+                    cs.namespace(|| "transform sponge output into allocated number")
+                )?;
+
+                let op = RescueOpMode::SqueezedInto(sponge_output);
+                self.mode = op;
+
+                return Ok(output);
+            },
+            RescueOpMode::SqueezedInto(ref mut into) => {
+                assert!(into.len() > 0, "squeezed state is depleted!");
+                let output = into.drain(0..1).next().unwrap().into_allocated_num(
+                    cs.namespace(|| "transform sponge output into allocated number")
+                )?;
+
+                return Ok(output);
+            }
+        }
+    }
+}
+
 fn print_lc<E: Engine>(input: &[Num<E>]) {
     for el in input.iter() {
         println!("{}", el.get_value().unwrap());
@@ -578,6 +719,76 @@ mod test {
             println!("Rescue hash {} to {} taken {} constraints", input.len(), res.len(), cs.num_constraints());
 
             assert_eq!(res[0].get_value().unwrap(), expected[0]);
+        }
+    }
+
+    #[test]
+    fn test_rescue_hash_stateful_gadget() {
+        use crate::rescue::bn256::*;
+        let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+        let params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
+        // let input: Vec<Fr> = (0..(params.rate()*2)).map(|_| rng.gen()).collect();
+        let input: Vec<Fr> = (0..(params.rate()+1)).map(|_| rng.gen()).collect();
+        let expected = rescue::rescue_hash::<Bn256>(&params, &input[..]);
+
+        {
+            let mut cs = TestConstraintSystem::<Bn256>::new();
+
+            let input_words: Vec<AllocatedNum<Bn256>> = input.iter().enumerate().map(|(i, b)| {
+                AllocatedNum::alloc(
+                    cs.namespace(|| format!("input {}", i)),
+                    || {
+                        Ok(*b)
+                    }).unwrap()
+            }).collect();
+
+            let res = rescue_hash(
+                cs.namespace(|| "rescue hash"),
+                &input_words,
+                &params
+            ).unwrap();
+
+            assert!(cs.is_satisfied());
+            assert!(res.len() == 1);
+
+            println!("Rescue stateless hash {} to {} taken {} constraints", input.len(), res.len(), cs.num_constraints());
+
+            let constr = cs.num_constraints();
+
+            let mut rescue_gadget = StatefulRescueGadget::<Bn256>::new(
+                &params
+            );
+
+            rescue_gadget.absorb(
+                cs.namespace(|| "absorb the input into stateful rescue gadget"), 
+                &input_words, 
+                &params
+            ).unwrap();
+
+            let res_0 = rescue_gadget.squeeze_out_single(
+                cs.namespace(|| "squeeze first word"), 
+                &params
+            ).unwrap();
+
+            assert_eq!(res_0.get_value().unwrap(), expected[0]);
+            println!("Rescue stateful hash {} to {} taken {} constraints", input.len(), res.len(), cs.num_constraints() - constr);
+
+            let res_1 = rescue_gadget.squeeze_out_single(
+                cs.namespace(|| "squeeze second word"), 
+                &params
+            ).unwrap();
+
+            let mut stateful_hasher = rescue::StatefulRescue::<Bn256>::new(
+                &params
+            );
+
+            stateful_hasher.absorb(&input);
+
+            let r0 = stateful_hasher.squeeze_out_single();
+            let r1 = stateful_hasher.squeeze_out_single();
+
+            assert_eq!(res_0.get_value().unwrap(), r0);
+            assert_eq!(res_1.get_value().unwrap(), r1);
         }
     }
 

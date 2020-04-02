@@ -406,6 +406,7 @@ impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
                     for i in 0..rate {
                         self.internal_state[i].add_assign(&into[i]);
                     }
+
                     self.internal_state = rescue_mimc::<E>(self.params, &self.internal_state);
 
                     into.truncate(0);
