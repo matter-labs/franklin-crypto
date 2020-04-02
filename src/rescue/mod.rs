@@ -107,7 +107,7 @@ impl<E: Engine>SBox<E> for InversionSBox<E> {
 
 use crate::circuit::rescue::CsSBox;
 
-pub trait RescueHashParams<E: Engine>: Sized + Clone {
+pub trait RescueHashParams<E: Engine>: RescueParamsInternal<E> {
     type SBox0: CsSBox<E>;
     type SBox1: CsSBox<E>;
     fn capacity(&self) -> u32;
@@ -131,6 +131,10 @@ pub trait RescueHashParams<E: Engine>: Sized + Clone {
 
     fn sbox_0(&self) -> &Self::SBox0;
     fn sbox_1(&self) -> &Self::SBox1;
+}
+
+pub trait RescueParamsInternal<E: Engine>: Send + Sync + Sized + Clone {
+    fn set_round_constants(&mut self, to: Vec<E::Fr>);
 }
 
 pub trait RescueEngine: Engine {
@@ -304,3 +308,172 @@ fn generate_mds_matrix<E: RescueEngine, R: Rng>(t: u32, rng: &mut R) -> Vec<E::F
         return mds_matrix;
     }
 }
+
+pub fn make_keyed_params<E: RescueEngine>(
+    default_params: &E::Params,
+    key: &[E::Fr]
+) -> E::Params {
+    // for this purpose we feed the master key through the rescue itself
+    // in a sense that we make non-trivial initial state and run it with empty input
+
+    assert_eq!(default_params.state_width() as usize, key.len());
+
+    let mut new_round_constants = vec![];
+
+    let mut state = key.to_vec();
+    let mut mds_application_scratch = vec![E::Fr::zero(); state.len()];
+    assert_eq!(state.len(), default_params.state_width() as usize);
+    // add round constatnts
+    for (s, c)  in state.iter_mut()
+                .zip(default_params.round_constants(0).iter()) {
+        s.add_assign(c);
+    }
+
+    // add to round constants
+    new_round_constants.extend_from_slice(&state);
+
+    // parameters use number of rounds that is number of invocations of each SBox,
+    // so we double
+    for round_num in 0..(2*default_params.num_rounds()) {
+        // apply corresponding sbox
+        if round_num & 1u32 == 0 {
+            default_params.sbox_0().apply(&mut state);
+        } else {
+            default_params.sbox_1().apply(&mut state);
+        }
+
+        // add round keys right away
+        mds_application_scratch.copy_from_slice(default_params.round_constants(round_num + 1));
+
+        // mul state by MDS
+        for (row, place_into) in mds_application_scratch.iter_mut()
+                                        .enumerate() {
+            let tmp = scalar_product::<E>(& state[..], default_params.mds_matrix_row(row as u32));
+            place_into.add_assign(&tmp);                                
+            // *place_into = scalar_product::<E>(& state[..], params.mds_matrix_row(row as u32));
+        }
+
+        // place new data into the state
+        state.copy_from_slice(&mds_application_scratch[..]);
+
+        new_round_constants.extend_from_slice(&state);
+    }
+    
+    let mut new_params = default_params.clone();
+
+    new_params.set_round_constants(new_round_constants);
+
+    new_params
+}
+
+enum RescueOpMode<E: RescueEngine> {
+    AccumulatingToAbsorb(Vec<E::Fr>),
+    SqueezedInto(Vec<E::Fr>)
+}
+
+pub struct StatefulRescue<'a, E: RescueEngine> {
+    params: &'a E::Params,
+    internal_state: Vec<E::Fr>,
+    mode: RescueOpMode<E>
+}
+
+impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
+    pub fn new(
+        params: &'a E::Params
+    ) -> Self {
+        let op = RescueOpMode::AccumulatingToAbsorb(Vec::with_capacity(params.rate() as usize));
+
+        StatefulRescue::<_> {
+            params,
+            internal_state: vec![E::Fr::zero(); params.state_width() as usize],
+            mode: op
+        }
+    }
+
+    fn absorb_single_value(
+        &mut self,
+        value: E::Fr
+    ) {
+        match self.mode {
+            RescueOpMode::AccumulatingToAbsorb(ref mut into) => {
+                // two cases
+                // either we have accumulated enough already and should to 
+                // a mimc round before accumulating more, or just accumulate more
+                let rate = self.params.rate() as usize;
+                if into.len() < rate {
+                    into.push(value);
+                } else {
+                    for i in 0..rate {
+                        self.internal_state[i].add_assign(&into[i]);
+                    }
+                    self.internal_state = rescue_mimc::<E>(self.params, &self.internal_state);
+
+                    into.truncate(0);
+                    into.push(value);
+                }
+            },
+            RescueOpMode::SqueezedInto(_) => {
+                // we don't need anything from the output, so it's dropped
+
+                let mut s = Vec::with_capacity(self.params.rate() as usize);
+                s.push(value);
+
+                let op = RescueOpMode::AccumulatingToAbsorb(s);
+                self.mode = op;
+            }
+        }
+    }
+
+    pub fn absorb(
+        &mut self,
+        input: &[E::Fr]
+    ) {
+        let rate = self.params.rate() as usize;
+        let mut absorbtion_cycles = input.len() / rate;
+        if input.len() % rate != 0 {
+            absorbtion_cycles += 1;
+        }
+        let padding_len = absorbtion_cycles * rate - input.len();
+        let padding = vec![E::Fr::one(); padding_len];
+
+        let it = input.iter().chain(&padding);
+
+        for &val in it {
+            self.absorb_single_value(val);
+        }
+    }
+
+    pub fn squeeze_out_single(
+        &mut self,
+    ) -> E::Fr {
+        match self.mode {
+            RescueOpMode::AccumulatingToAbsorb(ref mut into) => {
+                let rate = self.params.rate() as usize;
+                assert_eq!(into.len(), rate, "padding was necessary!");
+                // two cases
+                // either we have accumulated enough already and should to 
+                // a mimc round before accumulating more, or just accumulate more
+                for i in 0..rate {
+                    self.internal_state[i].add_assign(&into[i]);
+                }
+                self.internal_state = rescue_mimc::<E>(self.params, &self.internal_state);
+
+                // we don't take full internal state, but only the rate
+                let mut sponge_output = self.internal_state[0..rate].to_vec();
+                let output = sponge_output.drain(0..1).next().unwrap();
+
+                let op = RescueOpMode::SqueezedInto(sponge_output);
+                self.mode = op;
+
+                return output;
+            },
+            RescueOpMode::SqueezedInto(ref mut into) => {
+                assert!(into.len() > 0, "squeezed state is depleted!");
+                let output = into.drain(0..1).next().unwrap();
+
+                return output;
+            }
+        }
+    }
+}
+

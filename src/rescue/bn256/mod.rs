@@ -1,6 +1,6 @@
 use bellman::pairing::bn256;
 use bellman::pairing::ff::{Field, PrimeField, PrimeFieldRepr};
-use super::{RescueEngine, RescueHashParams, PowerSBox, QuinticSBox, generate_mds_matrix};
+use super::{RescueEngine, RescueHashParams, RescueParamsInternal, PowerSBox, QuinticSBox, generate_mds_matrix};
 use group_hash::GroupHasher;
 
 extern crate num_bigint;
@@ -145,8 +145,6 @@ impl Bn256RescueParams {
             y.to_biguint().expect("must be > 0")
         };
 
-        println!("Y = {}", y.clone().to_str_radix(16));
-
         let inv_alpha = biguint_to_u64_array(y);
 
         let mut alpha_inv_repr = <bn256::Fr as PrimeField>::Repr::default();
@@ -164,6 +162,13 @@ impl Bn256RescueParams {
             sbox_0: PowerSBox { power: alpha_inv_repr, inv: 5u64 },
             sbox_1: QuinticSBox { _marker: std::marker::PhantomData },
         }
+    }
+}
+
+impl RescueParamsInternal<bn256::Bn256> for Bn256RescueParams {
+    fn set_round_constants(&mut self, to: Vec<bn256::Fr>) {
+        assert_eq!(self.round_constants.len(), to.len());
+        self.round_constants = to;
     }
 }
 
@@ -260,5 +265,54 @@ mod test {
         let input: Vec<Fr> = (0..params.rate()).map(|_| rng.gen()).collect();
         let output = rescue_hash::<Bn256>(&params, &input[..]);
         assert!(output.len() == 1);
+    }
+
+    #[test]
+    fn test_bn256_stateful_rescue_hash() {
+        let rng = &mut thread_rng();
+        let params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
+        let input: Vec<Fr> = (0..params.rate()).map(|_| rng.gen()).collect();
+        let output = rescue_hash::<Bn256>(&params, &input[..]);
+        assert!(output.len() == 1);
+
+        let mut stateful_rescue = super::super::StatefulRescue::<Bn256>::new(&params);
+        stateful_rescue.absorb(&input);
+
+        let first_output = stateful_rescue.squeeze_out_single();
+        assert_eq!(first_output, output[0]);
+
+        let _ = stateful_rescue.squeeze_out_single();
+    }
+
+    #[test]
+    fn test_bn256_long_input_rescue_hash() {
+        let rng = &mut thread_rng();
+        let params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
+        let input: Vec<Fr> = (0..((params.rate()*10) + 1)).map(|_| rng.gen()).collect();
+        let output = rescue_hash::<Bn256>(&params, &input[..]);
+        assert!(output.len() == 1);
+
+        let mut stateful_rescue = super::super::StatefulRescue::<Bn256>::new(&params);
+        stateful_rescue.absorb(&input);
+
+        let first_output = stateful_rescue.squeeze_out_single();
+        assert_eq!(first_output, output[0]);
+
+        let _ = stateful_rescue.squeeze_out_single();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bn256_stateful_rescue_depleted_sponge() {
+        let rng = &mut thread_rng();
+        let params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
+        let input: Vec<Fr> = (0..params.rate()).map(|_| rng.gen()).collect();
+
+        let mut stateful_rescue = super::super::StatefulRescue::<Bn256>::new(&params);
+        stateful_rescue.absorb(&input);
+
+        let _ = stateful_rescue.squeeze_out_single();
+        let _ = stateful_rescue.squeeze_out_single();
+        let _ = stateful_rescue.squeeze_out_single();
     }
 }

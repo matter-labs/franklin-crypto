@@ -15,8 +15,9 @@ use jubjub::{
     edwards::Point,
     ToUniform};
 use hmac::{Hmac, Mac};
+use crate::rescue::{RescueEngine};
 
-use util::{hash_to_scalar, hash_to_scalar_s, sha256_hash_to_scalar};
+use util::{hash_to_scalar, hash_to_scalar_s, sha256_hash_to_scalar, rescue_hash_to_scalar};
 
 use ::constants::{MATTER_EDDSA_BLAKE2S_PERSONALIZATION};
 
@@ -50,6 +51,7 @@ fn h_star_s<E: JubjubEngine>(a: &[u8], b: &[u8]) -> E::Fs {
 fn sha256_h_star<E: JubjubEngine>(a: &[u8], b: &[u8]) -> E::Fs {
     sha256_hash_to_scalar::<E>(&[], a, b)
 }
+
 fn pedersen_h_star<E: JubjubEngine>(bits: &[bool], params: &E::Params) -> E::Fs{
     let result: E::Fr = baby_pedersen_hash::<E,_>(Personalization::NoteCommitment, bits.to_vec().into_iter(), params).into_xy().0;
     let mut result_le_bits: Vec<bool> = BitIterator::new(result.into_repr()).collect();
@@ -66,6 +68,20 @@ fn pedersen_h_star<E: JubjubEngine>(bits: &[bool], params: &E::Params) -> E::Fs{
 
     fe
 }
+
+fn rescue_h_star<E: RescueEngine + JubjubEngine>(
+    a: &[u8], 
+    b: &[u8],
+    params: &<E as RescueEngine>::Params
+) -> E::Fs {
+    rescue_hash_to_scalar::<E>(
+        &[], 
+        a, 
+        b,
+        params
+    )
+}
+
 #[derive(Copy, Clone)]
 pub struct SerializedSignature {
     rbar: [u8; 32],
@@ -421,6 +437,52 @@ impl<E: JubjubEngine> PrivateKey<E> {
         Signature { r: as_unknown, s: s }
     }
 }
+
+impl<E: RescueEngine + JubjubEngine> PrivateKey<E> {
+    // sign a message by following MuSig protocol, with public key being just a trivial key,
+    // not a multisignature one
+    pub fn musig_rescue_sign(
+        &self,
+        msg: &[u8],
+        seed: &Seed<E>,
+        p_g: FixedGenerators,
+        rescue_params: &<E as RescueEngine>::Params,
+        jubjub_params: &<E as JubjubEngine>::Params,
+    ) -> Signature<E> {
+        let pk = PublicKey::from_private(&self, p_g, jubjub_params);
+        let order_check = pk.0.mul(E::Fs::char(), jubjub_params);
+        assert!(order_check.eq(&Point::zero()));
+
+        let (pk_x, _) = pk.0.into_xy();
+        let mut pk_x_bytes = [0u8; 32];
+        pk_x.into_repr().write_le(& mut pk_x_bytes[..]).expect("has serialized pk_x");
+
+        // R = seed . P_G
+        let r_g = jubjub_params.generator(p_g).mul(seed.0, jubjub_params);
+
+        let (r_g_x, _) = r_g.into_xy();
+        let mut r_g_x_bytes = [0u8; 32];
+        r_g_x.into_repr().write_le(& mut r_g_x_bytes[..]).expect("has serialized r_g_x");
+
+        // we also pad message to 256 bits as LE
+
+        let mut concatenated: Vec<u8> = pk_x_bytes.as_ref().to_vec();
+        concatenated.extend(r_g_x_bytes.as_ref().to_vec().into_iter());
+
+        let mut msg_padded : Vec<u8> = msg.iter().cloned().collect();
+        msg_padded.resize(32, 0u8);
+
+        // S = r + H*(PK_X || R_X || M) . sk
+        let mut s = rescue_h_star::<E>(&concatenated[..], &msg_padded[..], &rescue_params);
+        s.mul_assign(&self.0);
+        s.add_assign(&seed.0);
+    
+        let as_unknown = Point::from(r_g);
+        Signature { r: as_unknown, s: s }
+    }
+
+}
+
 impl<E: JubjubEngine> PublicKey<E> {
     pub fn from_private(privkey: &PrivateKey<E>, p_g: FixedGenerators, params: &E::Params) -> Self {
         let res = params.generator(p_g).mul(privkey.0, params).into();
@@ -548,6 +610,8 @@ impl<E: JubjubEngine> PublicKey<E> {
         p_g: FixedGenerators,
         params: &E::Params,
     ) -> bool {
+        assert!(msg.len() < 32);
+
         // c = H*(R_x || M)
         let (r_g_x, _) = sig.r.into_xy();
         let mut r_g_x_bytes = [0u8; 32];
@@ -596,6 +660,8 @@ impl<E: JubjubEngine> PublicKey<E> {
         p_g: FixedGenerators,
         params: &E::Params,
     ) -> bool {
+        assert!(msg.len() < 32);
+
         let (pk_x, _) = self.0.into_xy();
         let mut pk_x_bits: Vec<bool> = BitIterator::new(pk_x.into_repr()).collect();
         pk_x_bits.reverse();
@@ -664,6 +730,8 @@ impl<E: JubjubEngine> PublicKey<E> {
         p_g: FixedGenerators,
         params: &E::Params,
     ) -> bool {
+        assert!(msg.len() < 32);
+
         // c = H*(PK_x || R_x || M)
         let (pk_x, _) = self.0.into_xy();
         let mut pk_x_bytes = [0u8; 32];
@@ -706,7 +774,6 @@ impl<E: JubjubEngine> PublicKey<E> {
         ).eq(&Point::zero())
     }
 
-
     pub fn verify_serialized(
         &self,
         msg: &[u8],
@@ -734,6 +801,62 @@ impl<E: JubjubEngine> PublicKey<E> {
             &params.generator(p_g).mul(s, params).negate().into(),
             params
         ).mul_by_cofactor(params).eq(&Point::zero())
+    }
+}
+
+impl<E: RescueEngine + JubjubEngine> PublicKey<E> {
+// verify MuSig. While we are on the Edwards curve with cofactor,
+    // verification will be successful if and only if every element is in the main group
+    pub fn verify_musig_rescue(
+        &self,
+        msg: &[u8],
+        sig: &Signature<E>,
+        p_g: FixedGenerators,
+        rescue_params: &<E as RescueEngine>::Params,
+        jubjub_params: &<E as JubjubEngine>::Params,
+    ) -> bool {
+        assert!(msg.len() < 32);
+
+        // c = H*(PK_x || R_x || M)
+        let (pk_x, _) = self.0.into_xy();
+        let mut pk_x_bytes = [0u8; 32];
+        pk_x.into_repr().write_le(& mut pk_x_bytes[..]).expect("has serialized pk_x");
+
+        let (r_g_x, _) = sig.r.into_xy();
+        let mut r_g_x_bytes = [0u8; 32];
+        r_g_x.into_repr().write_le(& mut r_g_x_bytes[..]).expect("has serialized r_g_x");
+
+        let mut concatenated: Vec<u8> = pk_x_bytes.as_ref().to_vec();
+        concatenated.extend(r_g_x_bytes.as_ref().to_vec().into_iter());
+
+        let mut msg_padded : Vec<u8> = msg.iter().cloned().collect();
+        msg_padded.resize(32, 0u8);
+
+        let c = rescue_h_star::<E>(&concatenated[..], &msg_padded[..], rescue_params);
+
+        // this one is for a simple sanity check. In application purposes the pk will always be in a right group 
+        let order_check_pk = self.0.mul(E::Fs::char(), jubjub_params);
+        if !order_check_pk.eq(&Point::zero()) {
+            return false;
+        }
+
+        // r is input from user, so always check it!
+        let order_check_r = sig.r.mul(E::Fs::char(), jubjub_params);
+        if !order_check_r.eq(&Point::zero()) {
+            return false;
+        }
+
+        // 0 = h_G(-S . P_G + R + c . vk)
+        // self.0.mul(c, params).add(&sig.r, params).add(
+        //     &params.generator(p_g).mul(sig.s, params).negate().into(),
+        //     params
+        // ).mul_by_cofactor(params).eq(&Point::zero());
+
+        // 0 = -S . P_G + R + c . vk that requires all points to be in the same group
+        self.0.mul(c, jubjub_params).add(&sig.r, jubjub_params).add(
+            &jubjub_params.generator(p_g).mul(sig.s, jubjub_params).negate().into(),
+            jubjub_params
+        ).eq(&Point::zero())
     }
 }
 

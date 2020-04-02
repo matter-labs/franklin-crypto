@@ -119,12 +119,14 @@ pub fn convert_to_float(
 
     for _ in 0..max_power
     {
-        max_exponent = max_exponent * exponent_base;
+        max_exponent = max_exponent.checked_mul(exponent_base).ok_or(SynthesisError::Unsatisfiable)?;
     }
 
     let max_mantissa = (1u128 << mantissa_length) - 1;
+
+    let max_representable_value = max_mantissa.checked_mul(max_exponent).unwrap_or(u128::max_value());
     
-    if integer > (max_mantissa * max_exponent) {
+    if integer > max_representable_value {
         return Err(SynthesisError::Unsatisfiable)
     }
 
