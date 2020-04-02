@@ -37,9 +37,17 @@ pub fn rescue_hash_to_scalar<E: RescueEngine + JubjubEngine>(
     b: &[u8], 
     params: &<E as RescueEngine>::Params
 ) -> E::Fs {
-    let trim_bits: u32 = (E::Fr::NUM_BITS + 63) / 64 * 64 - E::Fs::CAPACITY;
-    assert!(trim_bits < 64);
-    let mask: u64 = (1u64 << (64 - trim_bits)) - 1;
+    use crate::rescue::RescueHashParams;
+    use bellman::{Field, PrimeField};
+    use bellman::pairing::ff::BitIterator;
+
+    assert!(params.rate() >= 2, "we will need to squeeze twice");
+
+    // in the essence we perform modular reduction, so to ensure
+    // uniformity we only take half of the bits, so non-uniformity is
+    // around 1 / (char / (E::Fs::CAPACITY / 2))
+    // that is around 1/2^126
+    let take_bits = (E::Fs::CAPACITY / 2) as usize;
 
     let mut input_bools = Vec::with_capacity((persona.len() + a.len() + b.len()) * 8);
 
@@ -49,23 +57,33 @@ pub fn rescue_hash_to_scalar<E: RescueEngine + JubjubEngine>(
 
     let inputs = multipack::compute_multipacking::<E>(&input_bools);
 
-    let mut sponge_output: Vec<E::Fr> = rescue::rescue_hash::<E>(&params, &inputs);
-    assert_eq!(sponge_output.len(), 1);
+    let mut sponge = rescue::StatefulRescue::<E>::new(&params);
+    sponge.absorb(&inputs);
 
-    let hash = sponge_output.pop().unwrap();
+    // draw two values from hash and use lowest bits
+    let s0 = sponge.squeeze_out_single().into_repr();
+    let s1 = sponge.squeeze_out_single().into_repr();
 
-    use bellman::PrimeField;
-    let mut hash_repr = hash.into_repr();
+    let mut s0_le_bits: Vec<_> = BitIterator::new(&s0).collect();
+    s0_le_bits.reverse();
 
-    let highest_limb: &mut u64 = hash_repr.as_mut().last_mut().unwrap();
-    *highest_limb = *highest_limb & mask;
+    let mut s1_le_bits: Vec<_> = BitIterator::new(&s1).collect();
+    s1_le_bits.reverse();
 
-    let mut fs_repr = <<E as JubjubEngine>::Fs as PrimeField>::Repr::default();
-    assert_eq!(fs_repr.as_ref().len(), hash_repr.as_ref().len());
+    let mut fs_bits = s0_le_bits;
+    fs_bits.drain(take_bits..);
+    fs_bits.extend_from_slice(&s1_le_bits[0..take_bits]);
+    assert!(fs_bits.len() == E::Fs::CAPACITY as usize);
 
-    for (fs, fr) in fs_repr.as_mut().iter_mut().zip(hash_repr.as_ref().iter()) {
-        *fs = *fr;
+    let one = E::Fs::one();
+    let mut scalar = E::Fs::zero();
+    for bit in fs_bits {
+        scalar.double();
+
+        if bit {
+            scalar.add_assign(&one);
+        }
     }
-
-    E::Fs::from_repr(fs_repr).unwrap()
+       
+    scalar
 }
