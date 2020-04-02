@@ -75,14 +75,14 @@ pub fn rescue_hash_to_scalar<E: RescueEngine + JubjubEngine>(
     fs_bits.extend_from_slice(&s1_le_bits[0..take_bits]);
     assert!(fs_bits.len() == E::Fs::CAPACITY as usize);
 
-    let one = E::Fs::one();
+    // perform bit reconstruction starting from LSB
+    let mut current = E::Fs::one();
     let mut scalar = E::Fs::zero();
-    for bit in fs_bits {
-        scalar.double();
-
+    for bit in fs_bits.into_iter() {
         if bit {
-            scalar.add_assign(&one);
+            scalar.add_assign(&current);
         }
+        current.double();
     }
        
     scalar
