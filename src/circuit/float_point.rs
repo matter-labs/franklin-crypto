@@ -124,7 +124,7 @@ pub fn convert_to_float(
 
     let max_mantissa = (1u128 << mantissa_length) - 1;
     
-    if integer > (max_mantissa * max_exponent) {
+    if integer > (max_mantissa.saturating_mul(max_exponent)) {
         return Err(SynthesisError::Unsatisfiable)
     }
 
@@ -179,7 +179,7 @@ pub fn convert_to_float(
         }
     }
 
-    assert!(encoding.len() == exponent_length + mantissa_length);
+    assert_eq!(encoding.len(), exponent_length + mantissa_length);
 
     Ok(encoding)
 }
@@ -191,7 +191,7 @@ pub fn parse_float_to_u128(
     exponent_base: u32
 ) -> Result<u128, SynthesisError>
 {
-    assert!(exponent_length + mantissa_length == encoding.len());
+    assert_eq!(exponent_length + mantissa_length, encoding.len());
 
     let exponent_base = u128::from(exponent_base);
     let mut exponent_multiplier = exponent_base;
