@@ -610,7 +610,7 @@ impl<E: JubjubEngine> PublicKey<E> {
         p_g: FixedGenerators,
         params: &E::Params,
     ) -> bool {
-        assert!(msg.len() < 32);
+        assert!(msg.len() <= 32);
 
         // c = H*(R_x || M)
         let (r_g_x, _) = sig.r.into_xy();
@@ -660,7 +660,7 @@ impl<E: JubjubEngine> PublicKey<E> {
         p_g: FixedGenerators,
         params: &E::Params,
     ) -> bool {
-        assert!(msg.len() < 32);
+        assert!(msg.len() <= 32);
 
         let (pk_x, _) = self.0.into_xy();
         let mut pk_x_bits: Vec<bool> = BitIterator::new(pk_x.into_repr()).collect();
@@ -730,7 +730,7 @@ impl<E: JubjubEngine> PublicKey<E> {
         p_g: FixedGenerators,
         params: &E::Params,
     ) -> bool {
-        assert!(msg.len() < 32);
+        assert!(msg.len() <= 32);
 
         // c = H*(PK_x || R_x || M)
         let (pk_x, _) = self.0.into_xy();
@@ -815,7 +815,7 @@ impl<E: RescueEngine + JubjubEngine> PublicKey<E> {
         rescue_params: &<E as RescueEngine>::Params,
         jubjub_params: &<E as JubjubEngine>::Params,
     ) -> bool {
-        assert!(msg.len() < 32);
+        assert!(msg.len() <= 32);
 
         // c = H*(PK_x || R_x || M)
         let (pk_x, _) = self.0.into_xy();
