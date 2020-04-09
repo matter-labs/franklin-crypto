@@ -92,7 +92,9 @@ impl Bn256RescueParams {
             use rand::chacha::ChaChaRng;
             // Create an RNG based on the outcome of the random beacon
             let mut rng = {
-                let tag = b"Rescue_m";
+                // This tag is a first one in a sequence of b"ResMxxxx"
+                // that produces MDS matrix without eigenvalues
+                let tag = b"ResM0003";
                 let mut h = H::new(&tag[..]);
                 h.update(constants::GH_FIRST_BLOCK);
                 let h = h.finalize();
@@ -314,5 +316,17 @@ mod test {
         let _ = stateful_rescue.squeeze_out_single();
         let _ = stateful_rescue.squeeze_out_single();
         let _ = stateful_rescue.squeeze_out_single();
+    }
+
+    #[test]
+    fn print_mds() {
+        let params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
+        println!("MDS_MATRIX");
+        let mut vec = vec![];
+        for i in 0..params.state_width() {
+            vec.push(format!("{:?}", params.mds_matrix_row(i)));
+        }
+
+        println!("[ {} ]", vec.join(","));
     }
 }
