@@ -80,7 +80,7 @@ impl<E: Engine> LinearCombination<E> {
         &mut self,
         coeff: &E::Fr
     ) {
-        if let Some(ref val) = self.value.as_mut() {
+        if let Some(ref mut val) = self.value.as_mut() {
             val.mul_assign(&coeff);
         }
 
@@ -176,9 +176,13 @@ impl<E: Engine> LinearCombination<E> {
 
                 Some(curval)
             },
-            _ => None
+            None => {
+                Some(coeff)
+            }
+            // _ => None
         };
 
+        self.value = newval;
         self.constant.add_assign(&coeff);
     }
 
@@ -214,7 +218,11 @@ impl<E: Engine> LinearCombination<E> {
         use crate::bellman::plonk::better_better_cs::cs::PlonkConstraintSystemParams;
 
         if CS::Params::CAN_ACCESS_NEXT_TRACE_STEP {
-
+            Self::inscribe_using_next_step(
+                cs,
+                terms,
+                self.constant
+            )?;
         } else {
             unimplemented!()
         }
@@ -251,9 +259,24 @@ impl<E: Engine> LinearCombination<E> {
         deduped_vec
     }
 
+    fn evaluate_term_value<CS: ConstraintSystem<E>>(
+        cs: &CS,
+        terms: &[(E::Fr, Variable)],
+        constant: E::Fr,
+    ) -> Result<E::Fr, SynthesisError> {
+        let mut result = constant;
+        for (c, v) in terms.iter() {
+            let mut tmp = cs.get_value(*v)?;
+            tmp.mul_assign(&c);
+            result.add_assign(&tmp);
+        }
+
+        Ok(result)
+    }
+
     fn inscribe_using_next_step<CS: ConstraintSystem<E>>(
         cs: &mut CS,
-        mut terms: Vec<(E::Fr, Variable)>,
+        terms: Vec<(E::Fr, Variable)>,
         constant_term: E::Fr
     ) -> Result<(), SynthesisError> {
         // we assume that terms are deduplicated
@@ -290,8 +313,6 @@ impl<E: Engine> LinearCombination<E> {
             gate_term.add_assign(t);
 
             cs.allocate_main_gate(gate_term)?;
-
-            return Ok(());
         } else {
             // we can take:
             // - STATE_WIDTH variables to form the first gate and place their sum into the last wire of the next gate
@@ -301,38 +322,18 @@ impl<E: Engine> LinearCombination<E> {
             let cycles = ((terms.len() - CS::Params::STATE_WIDTH) + (CS::Params::STATE_WIDTH - 2)) / (CS::Params::STATE_WIDTH - 1); // ceil 
             let mut it = terms.into_iter();
 
+            use crate::bellman::plonk::better_better_cs::cs::{GateEquation, MainGateEquation};
+
+            let next_term_range = CS::MainGate::range_of_next_step_linear_terms();
+
             // this is a placeholder variable that must go into the 
             // corresponding trace polynomial at the NEXT time step 
             let mut next_step_var_in_chain = {
-
-
-
-                scratch_space.scratch_space_for_vars.resize(P::STATE_WIDTH, cs.get_dummy_variable());
-                scratch_space.scratch_space_for_booleans.resize(P::STATE_WIDTH, false);
-                scratch_space.scratch_space_for_coeffs.resize(P::STATE_WIDTH, zero_fr);
-        
-                // we can consume and never have leftovers
-        
-                let mut idx = 0;
-                for (var, coeff) in &mut it {
-                    if scratch_space.scratch_space_for_booleans[idx] == false {
-                        scratch_space.scratch_space_for_booleans[idx] = true;
-                        scratch_space.scratch_space_for_coeffs[idx] = coeff;
-                        scratch_space.scratch_space_for_vars[idx] = convert_variable(var);
-                        idx += 1;
-                        if idx == P::STATE_WIDTH {
-                            break;
-                        }
-                    }
-                }
-
-                // for a P::STATE_WIDTH variables we make a corresponding LC
-                // ~ a + b + c + d + constant. That will be equal to d_next
-                let may_be_new_intermediate_value = evaluate_over_plonk_variables_and_coeffs::<E, P, CS>(
-                    &*cs,
-                    &*scratch_space.scratch_space_for_vars,
-                    &*scratch_space.scratch_space_for_coeffs, 
-                    free_term_constant
+                let chunk: Vec<_> = (&mut it).take(CS::Params::STATE_WIDTH).collect();
+                let may_be_new_intermediate_value = Self::evaluate_term_value(
+                    &*cs, 
+                    &chunk, 
+                    constant_term
                 );
 
                 // we manually allocate the new variable
@@ -340,20 +341,28 @@ impl<E: Engine> LinearCombination<E> {
                     may_be_new_intermediate_value
                 })?;
 
-                // no multiplication coefficient,
-                // but -1 to link to the next trace step (we enforce == 0)
-                scratch_space.scratch_space_for_coeffs.push(zero_fr); // no multiplication
-                scratch_space.scratch_space_for_coeffs.push(free_term_constant); // add constant
-                scratch_space.scratch_space_for_coeffs.push(minus_one_fr); // -1 for a d_next
+                let mut gate_term = MainGateTerm::<E>::new();
 
-                allocate_into_cs(
-                    cs, 
-                    true, 
-                    &*scratch_space.scratch_space_for_vars, 
-                    &*scratch_space.scratch_space_for_coeffs
+                for (c, var) in chunk.into_iter() {
+                    let t = ArithmeticTerm::from_variable_and_coeff(var, c);
+                    gate_term.add_assign(t);
+                }
+
+                let t = ArithmeticTerm::constant(constant_term);
+                gate_term.add_assign(t);
+
+                let dummy = CS::get_dummy_variable();
+
+                let (vars, mut coeffs) = CS::MainGate::format_term(gate_term, dummy)?;
+                let idx = next_term_range.clone().next().expect("must give at least one index");
+                coeffs[idx] = minus_one_fr;
+
+                cs.new_single_gate_for_trace_step(
+                    CS::MainGate::static_description(), 
+                    &coeffs, 
+                    &vars,
+                    &[]
                 )?;
-
-                scratch_space.clear();
 
                 new_intermediate_var
             };
@@ -364,99 +373,65 @@ impl<E: Engine> LinearCombination<E> {
             // we've already used one of the variable
             let consume_from_lc = CS::Params::STATE_WIDTH - 1; 
             for _ in 0..(cycles-1) {
-                scratch_space.scratch_space_for_vars.resize(consume_from_lc, cs.get_dummy_variable());
-                scratch_space.scratch_space_for_booleans.resize(consume_from_lc, false);
-                scratch_space.scratch_space_for_coeffs.resize(consume_from_lc, zero_fr);
-        
-                // we can consume and never have leftovers
-        
-                let mut idx = 0;
-                for (var, coeff) in &mut it {
-                    if scratch_space.scratch_space_for_booleans[idx] == false {
-                        scratch_space.scratch_space_for_booleans[idx] = true;
-                        scratch_space.scratch_space_for_coeffs[idx] = coeff;
-                        scratch_space.scratch_space_for_vars[idx] = convert_variable(var);
-                        idx += 1;
-                        if idx == consume_from_lc {
-                            break;
-                        }
-                    }
-                }
-
-                // push +1 and the allocated variable from the previous step
-
-                scratch_space.scratch_space_for_coeffs.push(one_fr);
-                scratch_space.scratch_space_for_vars.push(next_step_var_in_chain);
-
-                let may_be_new_intermediate_value = evaluate_over_plonk_variables_and_coeffs::<E, P, CS>(
-                    &*cs,
-                    &*scratch_space.scratch_space_for_vars,
-                    &*scratch_space.scratch_space_for_coeffs, 
-                    zero_fr
+                let chunk: Vec<_> = (&mut it).take(CS::Params::STATE_WIDTH - 1).collect();
+                let may_be_new_intermediate_value = Self::evaluate_term_value(
+                    &*cs, 
+                    &chunk, 
+                    E::Fr::zero()
                 );
 
+                // we manually allocate the new variable
                 let new_intermediate_var = cs.alloc(|| {
                     may_be_new_intermediate_value
                 })?;
 
-                // no multiplication coefficient and no constant now,
-                // but -1 to link to the next trace step
-                scratch_space.scratch_space_for_coeffs.push(zero_fr);
-                scratch_space.scratch_space_for_coeffs.push(zero_fr);
-                scratch_space.scratch_space_for_coeffs.push(minus_one_fr);
+                let mut gate_term = MainGateTerm::<E>::new();
 
-                allocate_into_cs(
-                    cs, 
-                    true, 
-                    &*scratch_space.scratch_space_for_vars, 
-                    &*scratch_space.scratch_space_for_coeffs
+                for (c, var) in chunk.into_iter() {
+                    let t = ArithmeticTerm::from_variable_and_coeff(var, c);
+                    gate_term.add_assign(t);
+                }
+
+                let t = ArithmeticTerm::from_variable_and_coeff(next_step_var_in_chain, one_fr);
+                gate_term.add_assign(t);
+
+                let dummy = CS::get_dummy_variable();
+
+                let (vars, mut coeffs) = CS::MainGate::format_term(gate_term, dummy)?;
+                let idx = next_term_range.clone().next().expect("must give at least one index");
+                coeffs[idx] = minus_one_fr;
+
+                cs.new_single_gate_for_trace_step(
+                    CS::MainGate::static_description(), 
+                    &coeffs, 
+                    &vars,
+                    &[]
                 )?;
-
-                scratch_space.clear();
 
                 next_step_var_in_chain = new_intermediate_var;
             }
 
             // final step - we just make a single gate, last one
             {
-                scratch_space.scratch_space_for_vars.resize(P::STATE_WIDTH-1, cs.get_dummy_variable());
-                scratch_space.scratch_space_for_booleans.resize(P::STATE_WIDTH-1, false);
-                scratch_space.scratch_space_for_coeffs.resize(P::STATE_WIDTH-1, zero_fr);
-        
-                // we can consume and never have leftovers
-        
-                let mut idx = 0;
-                for (var, coeff) in &mut it {
-                    if scratch_space.scratch_space_for_booleans[idx] == false {
-                        scratch_space.scratch_space_for_booleans[idx] = true;
-                        scratch_space.scratch_space_for_coeffs[idx] = coeff;
-                        scratch_space.scratch_space_for_vars[idx] = convert_variable(var);
-                        idx += 1;
-                    }
+                let chunk: Vec<_> = (&mut it).collect();
+                assert!(chunk.len() <= CS::Params::STATE_WIDTH - 1);
+
+                let mut gate_term = MainGateTerm::new();
+
+                for (c, var) in chunk.into_iter() {
+                    let t = ArithmeticTerm::from_variable_and_coeff(var, c);
+                    gate_term.add_assign(t);
                 }
 
-                assert!(idx < P::STATE_WIDTH);
-                // append d_next
-                scratch_space.scratch_space_for_vars.push(next_step_var_in_chain);
-                scratch_space.scratch_space_for_coeffs.push(one_fr);
+                let t = ArithmeticTerm::from_variable_and_coeff(next_step_var_in_chain, one_fr);
+                gate_term.add_assign(t);
 
-                // no multiplication coefficient, no constant, no next step
-                scratch_space.scratch_space_for_coeffs.push(zero_fr);
-                scratch_space.scratch_space_for_coeffs.push(zero_fr);
-                scratch_space.scratch_space_for_coeffs.push(zero_fr);
-
-                allocate_into_cs(
-                    cs, 
-                    false, 
-                    &*scratch_space.scratch_space_for_vars, 
-                    &*scratch_space.scratch_space_for_coeffs
-                )?;
-
-                scratch_space.clear();
+                cs.allocate_main_gate(gate_term)?;
             }
-
             assert!(it.next().is_none());
-        
+        }
+
+        Ok(())
     }
 
     pub fn unwrap_as_allocated_num(
@@ -476,5 +451,50 @@ impl<E: Engine> LinearCombination<E> {
         }
 
         return Err(SynthesisError::Unsatisfiable);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::bellman::plonk::better_better_cs::cs::*;
+
+    #[test]
+    fn test_inscribe_linear_combination() {
+        use crate::bellman::pairing::bn256::{Bn256, Fr};
+
+        let mut assembly = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+        let before = assembly.n;
+
+        let variables: Vec<_> = (0..9).map(|_| AllocatedNum::alloc(
+            &mut assembly, 
+            || {
+                Ok(Fr::one())
+            }
+        ).unwrap()).collect();
+
+        let mut lc = LinearCombination::<Bn256>::zero();
+        lc.add_assign_constant(Fr::one());
+        let mut current = Fr::one();
+        for v in variables.iter() {
+            lc.add_assign_number_with_coeff(v, current);
+            current.double();
+        }
+
+        let result = lc.into_allocated_num(&mut assembly).unwrap();
+        println!("result = {}", result.get_value().unwrap());
+
+        assert!(assembly.constraints.len() == 1);
+        assert_eq!(assembly.n, 3);
+        // let num_gates = assembly.n - before;
+        // println!("Single rescue r = 2, c = 1, alpha = 5 invocation takes {} gates", num_gates);
+
+        // for (gate, density) in assembly.gate_density.0.into_iter() {
+        //     println!("Custom gate {:?} selector = {:?}", gate, density);
+        // }
+
+        println!("Assembly state polys = {:?}", assembly.storage.state_map);
+
+        println!("Assembly setup polys = {:?}", assembly.storage.setup_map);
     }
 }
