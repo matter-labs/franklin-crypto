@@ -34,6 +34,8 @@ pub mod interpolation;
 pub mod as_waksman;
 pub mod rescue;
 
+pub mod plonk;
+
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
