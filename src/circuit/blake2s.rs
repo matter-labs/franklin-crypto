@@ -342,7 +342,7 @@ mod test {
         let expected = hex!("c59f682376d137f3f255e671e207d1f2374ebe504e9314208a52d9f88d69e8c8");
 
         let mut out = out.into_iter();
-        for b in expected.into_iter() {
+        for b in expected.iter() {
             for i in 0..8 {
                 let c = out.next().unwrap().get_value().unwrap();
 

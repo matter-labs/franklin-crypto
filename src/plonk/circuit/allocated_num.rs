@@ -24,6 +24,13 @@ use crate::circuit::{
     Assignment
 };
 
+#[derive(Clone, Debug)]
+pub enum Num<E: Engine> {
+    Variable(AllocatedNum<E>),
+    Constant(E::Fr)
+}
+
+#[derive(Debug)]
 pub struct AllocatedNum<E: Engine> {
     pub(crate) value: Option<E::Fr>,
     pub(crate) variable: Variable

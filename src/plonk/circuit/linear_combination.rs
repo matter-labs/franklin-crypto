@@ -25,7 +25,8 @@ use crate::circuit::{
 };
 
 use super::allocated_num::{
-    AllocatedNum
+    AllocatedNum,
+    Num
 };
 
 #[derive(Debug)]
@@ -121,6 +122,24 @@ impl<E: Engine> LinearCombination<E> {
     // }
 
     pub fn add_assign_number_with_coeff(
+        &mut self,
+        number: &Num<E>,
+        coeff: E::Fr
+    ) {
+        match number {
+            Num::Variable(ref allocated_number) => {
+                self.add_assign_variable_with_coeff(allocated_number, coeff);
+            },
+            Num::Constant(constant) => {
+                let mut res = coeff;
+                res.mul_assign(&constant);
+
+                self.add_assign_constant(res);
+            } 
+        }
+    }
+
+    pub fn add_assign_variable_with_coeff(
         &mut self,
         variable: &AllocatedNum<E>,
         coeff: E::Fr
@@ -477,7 +496,7 @@ mod test {
         lc.add_assign_constant(Fr::one());
         let mut current = Fr::one();
         for v in variables.iter() {
-            lc.add_assign_number_with_coeff(v, current);
+            lc.add_assign_variable_with_coeff(v, current);
             current.double();
         }
 
