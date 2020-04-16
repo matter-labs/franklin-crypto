@@ -66,7 +66,7 @@ const NEGATIVE_ONE: Fs = Fs(FsRepr([
 ]));
 
 /// This is the underlying representation of an element of `Fs`.
-#[derive(Copy, Clone, PartialEq, Eq, Default, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Default, Debug, Hash)]
 pub struct FsRepr(pub [u64; 4]);
 
 impl ::rand::Rand for FsRepr {
@@ -257,7 +257,7 @@ impl PrimeFieldRepr for FsRepr {
 }
 
 /// This is an element of the scalar field of the Jubjub curve.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub struct Fs(FsRepr);
 
 impl ::std::fmt::Display for Fs

@@ -29,11 +29,26 @@ use super::allocated_num::{
     Num
 };
 
-#[derive(Debug)]
+use super::boolean::{
+    AllocatedBit,
+    Boolean
+};
+
 pub struct LinearCombination<E: Engine> {
     pub(crate) value: Option<E::Fr>,
     pub(crate) terms: Vec<(E::Fr, Variable)>,
     pub(crate) constant: E::Fr
+}
+
+impl<E: Engine> std::fmt::Debug for LinearCombination<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LinearCombination")
+            .field("value", &self.value)
+            .field("number of terms", &self.terms.len())
+            .field("terms", &self.terms)
+            .field("constant", &self.constant)
+            .finish()
+    }
 }
 
 impl<E: Engine> From<AllocatedNum<E>> for LinearCombination<E> {
@@ -92,34 +107,29 @@ impl<E: Engine> LinearCombination<E> {
         self.constant.mul_assign(&coeff);
     }
 
-    // pub fn add_number_with_coeff(
-    //     self,
-    //     variable: &AllocatedNum<E>,
-    //     coeff: E::Fr
-    // ) -> Self
-    // {
-    //     let newval = match (self.value, variable.get_value()) {
-    //         (Some(mut curval), Some(val)) => {
-    //             let mut tmp = val;
-    //             tmp.mul_assign(&coeff);
+    pub fn add_assign(
+        &mut self,
+        other: &Self,
+    ) {
+        let new_value = match (self.value, other.value) {
+            (Some(this), Some(other)) => {
+                let mut tmp = this;
+                tmp.add_assign(&other);
 
-    //             curval.add_assign(&tmp);
+                Some(tmp)
+            },
+            _ => None
+        };
+        self.value = new_value;
 
-    //             Some(curval)
-    //         },
-    //         _ => None
-    //     };
+        self.terms.extend_from_slice(&other.terms);
 
-    //     let mut terms = self.terms;
+        let terms = std::mem::replace(&mut self.terms, vec![]);
 
-    //     terms.push((coeff, variable.variable));
+        self.terms = Self::deduplicate_stable(terms);
 
-    //     Self {
-    //         value: newval,
-    //         terms,
-    //         constant: self.constant
-    //     }
-    // }
+        self.constant.add_assign(&other.constant);
+    }
 
     pub fn add_assign_number_with_coeff(
         &mut self,
@@ -161,28 +171,63 @@ impl<E: Engine> LinearCombination<E> {
         self.terms.push((coeff, variable.variable));
     }
    
-    // pub fn add_assign_bool_with_coeff(
-    //     self,
-    //     bit: &Boolean,
-    //     coeff: E::Fr
-    // ) -> Self
-    // {
-    //     let newval = match (self.value, bit.get_value()) {
-    //         (Some(mut curval), Some(bval)) => {
-    //             if bval {
-    //                 curval.add_assign(&coeff);
-    //             }
+    pub fn add_assign_boolean_with_coeff(
+        &mut self,
+        bit: &Boolean,
+        coeff: E::Fr
+    )
+    {
+        let new_value = match (self.value, bit.get_value()) {
+            (Some(mut val), Some(bit_value)) => {
+                if bit_value {
+                    val.add_assign(&coeff);
+                }
 
-    //             Some(curval)
-    //         },
-    //         _ => None
-    //     };
+                Some(val)
+            },
+            _ => None
+        };
+        self.value = new_value;
 
-    //     Num {
-    //         value: newval,
-    //         lc: self.lc + &bit.lc(one, coeff)
-    //     }
-    // }
+        match bit {
+            &Boolean::Constant(c) => {
+                if c {
+                    self.constant.add_assign(&coeff);
+                }
+            },
+            &Boolean::Is(ref v) => {
+                self.terms.push((coeff, v.get_variable()));
+            },
+            &Boolean::Not(ref v) => {
+                let mut coeff_negated = coeff;
+                coeff_negated.negate();
+                self.terms.push((coeff_negated, v.get_variable()));
+
+                self.constant.add_assign(&coeff);
+            }
+        }
+    }
+
+    pub fn add_assign_bit_with_coeff(
+        &mut self,
+        bit: &AllocatedBit,
+        coeff: E::Fr
+    )
+    {
+        let new_value = match (self.value, bit.get_value()) {
+            (Some(mut val), Some(bit_value)) => {
+                if bit_value {
+                    val.add_assign(&coeff);
+                }
+
+                Some(val)
+            },
+            _ => None
+        };
+
+        self.value = new_value;
+        self.terms.push((coeff, bit.get_variable()))
+    }
 
     pub fn add_assign_constant(
         &mut self,
@@ -198,11 +243,40 @@ impl<E: Engine> LinearCombination<E> {
             None => {
                 Some(coeff)
             }
-            // _ => None
         };
 
         self.value = newval;
         self.constant.add_assign(&coeff);
+    }
+
+    pub fn into_num<CS: ConstraintSystem<E>>(
+        self,
+        cs: &mut CS
+    ) -> Result<Num<E>, SynthesisError> {
+        if self.terms.len() == 0 {
+            return Ok(Num::Constant(self.constant));
+        }
+
+        let allocated = self.into_allocated_num(cs)?;
+
+        Ok(Num::Variable(allocated))
+    }
+
+    pub fn enforce_zero<CS: ConstraintSystem<E>>(
+        self,
+        cs: &mut CS
+    ) -> Result<(), SynthesisError> {
+        use crate::bellman::plonk::better_better_cs::cs::PlonkConstraintSystemParams;
+
+        if CS::Params::CAN_ACCESS_NEXT_TRACE_STEP {
+            Self::enforce_zero_using_next_step(
+                cs,
+                self.terms,
+                self.constant
+            )
+        } else {
+            unimplemented!()
+        }
     }
 
     pub fn into_allocated_num<CS: ConstraintSystem<E>>(
@@ -237,7 +311,7 @@ impl<E: Engine> LinearCombination<E> {
         use crate::bellman::plonk::better_better_cs::cs::PlonkConstraintSystemParams;
 
         if CS::Params::CAN_ACCESS_NEXT_TRACE_STEP {
-            Self::inscribe_using_next_step(
+            Self::enforce_zero_using_next_step(
                 cs,
                 terms,
                 self.constant
@@ -293,7 +367,7 @@ impl<E: Engine> LinearCombination<E> {
         Ok(result)
     }
 
-    fn inscribe_using_next_step<CS: ConstraintSystem<E>>(
+    fn enforce_zero_using_next_step<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         terms: Vec<(E::Fr, Variable)>,
         constant_term: E::Fr
@@ -343,17 +417,24 @@ impl<E: Engine> LinearCombination<E> {
 
             use crate::bellman::plonk::better_better_cs::cs::{GateEquation, MainGateEquation};
 
-            let next_term_range = CS::MainGate::range_of_next_step_linear_terms();
+            let mut next_term_range = CS::MainGate::range_of_next_step_linear_terms();
+            assert_eq!(next_term_range.len(), 1, "for now works only if only one variable is accessible on the next step");
+            let next_step_coeff_idx = next_term_range.next().expect("must give at least one index");
 
             // this is a placeholder variable that must go into the 
             // corresponding trace polynomial at the NEXT time step 
-            let mut next_step_var_in_chain = {
+            let (mut next_step_var_in_chain, mut next_step_var_in_chain_value) = {
                 let chunk: Vec<_> = (&mut it).take(CS::Params::STATE_WIDTH).collect();
                 let may_be_new_intermediate_value = Self::evaluate_term_value(
                     &*cs, 
                     &chunk, 
                     constant_term
                 );
+
+                let some_value = match &may_be_new_intermediate_value {
+                    Ok(val) => Some(*val),
+                    Err(_) => None
+                };
 
                 // we manually allocate the new variable
                 let new_intermediate_var = cs.alloc(|| {
@@ -373,8 +454,7 @@ impl<E: Engine> LinearCombination<E> {
                 let dummy = CS::get_dummy_variable();
 
                 let (vars, mut coeffs) = CS::MainGate::format_term(gate_term, dummy)?;
-                let idx = next_term_range.clone().next().expect("must give at least one index");
-                coeffs[idx] = minus_one_fr;
+                coeffs[next_step_coeff_idx] = minus_one_fr;
 
                 cs.new_single_gate_for_trace_step(
                     CS::MainGate::static_description(), 
@@ -383,7 +463,7 @@ impl<E: Engine> LinearCombination<E> {
                     &[]
                 )?;
 
-                new_intermediate_var
+                (new_intermediate_var, some_value)
             };
 
             // run over the rest
@@ -392,14 +472,31 @@ impl<E: Engine> LinearCombination<E> {
             // we've already used one of the variable
             let consume_from_lc = CS::Params::STATE_WIDTH - 1; 
             for _ in 0..(cycles-1) {
-                let chunk: Vec<_> = (&mut it).take(CS::Params::STATE_WIDTH - 1).collect();
+                // we need to keep in mind that last term of the linear combination is taken
+                // so we have to fill only CS::Params::STATE_WIDTH - 1 and then manually 
+                // place the next_step_var_in_chain 
+                let chunk: Vec<_> = (&mut it).take(consume_from_lc).collect();
+                
+                // this is a sum of new terms
                 let may_be_new_intermediate_value = Self::evaluate_term_value(
                     &*cs, 
                     &chunk, 
                     E::Fr::zero()
-                );
+                ).map(|val| {
+                    // and 
+                    let mut tmp = val;
+                    tmp.add_assign(next_step_var_in_chain_value.as_ref().expect("value must be known"));
+
+                    tmp
+                });
+
+                let some_value = match &may_be_new_intermediate_value {
+                    Ok(val) => Some(*val),
+                    Err(_) => None
+                };
 
                 // we manually allocate the new variable
+                // and also add value of one in a chain
                 let new_intermediate_var = cs.alloc(|| {
                     may_be_new_intermediate_value
                 })?;
@@ -417,8 +514,7 @@ impl<E: Engine> LinearCombination<E> {
                 let dummy = CS::get_dummy_variable();
 
                 let (vars, mut coeffs) = CS::MainGate::format_term(gate_term, dummy)?;
-                let idx = next_term_range.clone().next().expect("must give at least one index");
-                coeffs[idx] = minus_one_fr;
+                coeffs[next_step_coeff_idx] = minus_one_fr;
 
                 cs.new_single_gate_for_trace_step(
                     CS::MainGate::static_description(), 
@@ -428,24 +524,57 @@ impl<E: Engine> LinearCombination<E> {
                 )?;
 
                 next_step_var_in_chain = new_intermediate_var;
+                next_step_var_in_chain_value = some_value;
             }
 
             // final step - we just make a single gate, last one
+            // we also make sure that chained variable only goes into the last term
             {
                 let chunk: Vec<_> = (&mut it).collect();
                 assert!(chunk.len() <= CS::Params::STATE_WIDTH - 1);
 
-                let mut gate_term = MainGateTerm::new();
+                let mut gate_term = MainGateTerm::<E>::new();
+
+                let mut num_terms = 0;
 
                 for (c, var) in chunk.into_iter() {
                     let t = ArithmeticTerm::from_variable_and_coeff(var, c);
                     gate_term.add_assign(t);
+                    num_terms += 1;
                 }
 
-                let t = ArithmeticTerm::from_variable_and_coeff(next_step_var_in_chain, one_fr);
-                gate_term.add_assign(t);
+                let dummy = CS::get_dummy_variable();
 
-                cs.allocate_main_gate(gate_term)?;
+                let range_of_linear_terms = CS::MainGate::range_of_linear_terms();
+                let idx_of_last_linear_term = range_of_linear_terms.last().expect("must have an index");
+
+                let (mut vars, mut coeffs) = CS::MainGate::format_term(gate_term, dummy)?;
+
+                *vars.last_mut().unwrap() = next_step_var_in_chain;
+                coeffs[idx_of_last_linear_term] = one_fr;
+
+                cs.new_single_gate_for_trace_step(
+                    CS::MainGate::static_description(), 
+                    &coeffs, 
+                    &vars,
+                    &[]
+                )?;
+
+
+
+                // for _ in num_terms..consume_from_lc {
+                //     let t = ArithmeticTerm::from_variable_and_coeff(dummy, E::Fr::zero());
+                //     gate_term.add_assign(t);
+                // }
+
+                // debug_assert_eq!(gate_term.len_without_constant(), consume_from_lc);
+
+                // // now chained value only goes into the last gate
+
+                // let t = ArithmeticTerm::from_variable_and_coeff(next_step_var_in_chain, one_fr);
+                // gate_term.add_assign(t);
+
+                // cs.allocate_main_gate(gate_term)?;
             }
             assert!(it.next().is_none());
         }
@@ -515,5 +644,48 @@ mod test {
         println!("Assembly state polys = {:?}", assembly.storage.state_map);
 
         println!("Assembly setup polys = {:?}", assembly.storage.setup_map);
+
+        assert!(assembly.is_satisfied());
+    }
+
+    #[test]
+    fn test_inscribe_linear_combination_of_two_gates() {
+        use crate::bellman::pairing::bn256::{Bn256, Fr};
+
+        let mut assembly = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+        let before = assembly.n;
+
+        let variables: Vec<_> = (0..5).map(|_| AllocatedNum::alloc(
+            &mut assembly, 
+            || {
+                Ok(Fr::one())
+            }
+        ).unwrap()).collect();
+
+        let mut lc = LinearCombination::<Bn256>::zero();
+        lc.add_assign_constant(Fr::one());
+        let mut current = Fr::one();
+        for v in variables.iter() {
+            lc.add_assign_variable_with_coeff(v, current);
+            current.double();
+        }
+
+        let result = lc.into_allocated_num(&mut assembly).unwrap();
+        println!("result = {}", result.get_value().unwrap());
+
+        assert!(assembly.constraints.len() == 1);
+        assert_eq!(assembly.n, 2);
+        // let num_gates = assembly.n - before;
+        // println!("Single rescue r = 2, c = 1, alpha = 5 invocation takes {} gates", num_gates);
+
+        // for (gate, density) in assembly.gate_density.0.into_iter() {
+        //     println!("Custom gate {:?} selector = {:?}", gate, density);
+        // }
+
+        println!("Assembly state polys = {:?}", assembly.storage.state_map);
+
+        println!("Assembly setup polys = {:?}", assembly.storage.setup_map);
+
+        assert!(assembly.is_satisfied());
     }
 }

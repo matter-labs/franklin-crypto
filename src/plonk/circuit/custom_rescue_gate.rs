@@ -25,7 +25,8 @@ use crate::bellman::plonk::better_better_cs::cs::{
     LinearCombinationOfTerms,
     PolynomialMultiplicativeTerm,
     PolynomialInConstraint,
-    TimeDilation
+    TimeDilation,
+    Coefficient,
 };
 
 
@@ -42,7 +43,6 @@ use super::linear_combination::{
 };
 
 use crate::rescue::*;
-
 
 #[derive(Clone, Debug, Hash)]
 pub struct Rescue5CustomGate(pub [LinearCombinationOfTerms; 3]);
@@ -66,6 +66,8 @@ impl GateEquationInternal for Rescue5CustomGate {
 }
 
 impl GateEquation for Rescue5CustomGate {
+    const HAS_NONTRIVIAL_CONSTANTS: bool = false;
+    const NUM_CONSTANTS: usize = 6;
     // Rescue5CustomGate is NOT generic, so this is fine
     // and safe since it's sync!
     fn static_description() -> &'static Self {
@@ -79,6 +81,10 @@ impl GateEquation for Rescue5CustomGate {
 
             VALUE.as_ref().unwrap()
         }
+    }
+
+    fn output_constant_coefficients<E: Engine>() -> Vec<E::Fr> {
+        vec![]
     }
 }
 
@@ -95,6 +101,7 @@ impl Rescue5CustomGate {
         // constant
         term_square.push(
             PolynomialMultiplicativeTerm(
+                Coefficient::PlusOne,
                 vec![
                     PolynomialInConstraint::VariablesPolynomial(0, TimeDilation(0)),
                     PolynomialInConstraint::VariablesPolynomial(0, TimeDilation(0))
@@ -104,6 +111,7 @@ impl Rescue5CustomGate {
 
         term_square.push(
             PolynomialMultiplicativeTerm(
+                Coefficient::MinusOne,
                 vec![
                     PolynomialInConstraint::VariablesPolynomial(1, TimeDilation(0))
                 ]
@@ -114,6 +122,7 @@ impl Rescue5CustomGate {
         // constant
         term_quad.push(
             PolynomialMultiplicativeTerm(
+                Coefficient::PlusOne,
                 vec![
                     PolynomialInConstraint::VariablesPolynomial(1, TimeDilation(0)),
                     PolynomialInConstraint::VariablesPolynomial(1, TimeDilation(0))
@@ -123,6 +132,7 @@ impl Rescue5CustomGate {
 
         term_quad.push(
             PolynomialMultiplicativeTerm(
+                Coefficient::MinusOne,
                 vec![
                     PolynomialInConstraint::VariablesPolynomial(2, TimeDilation(0))
                 ]
@@ -133,6 +143,7 @@ impl Rescue5CustomGate {
         // constant
         term_fifth.push(
             PolynomialMultiplicativeTerm(
+                Coefficient::PlusOne,
                 vec![
                     PolynomialInConstraint::VariablesPolynomial(0, TimeDilation(0)),
                     PolynomialInConstraint::VariablesPolynomial(2, TimeDilation(0))
@@ -142,6 +153,7 @@ impl Rescue5CustomGate {
 
         term_fifth.push(
             PolynomialMultiplicativeTerm(
+                Coefficient::MinusOne,
                 vec![
                     PolynomialInConstraint::VariablesPolynomial(3, TimeDilation(0))
                 ]
@@ -202,7 +214,7 @@ pub fn apply_5th_power<E: Engine, CS: ConstraintSystem<E>>(
     // we take a value and make 5th power from it
     cs.new_single_gate_for_trace_step(
         Rescue5CustomGate::static_description(), 
-        &[one, minus_one, one, minus_one, one, minus_one], 
+        &[], 
         &[el.get_variable(), squared.get_variable(), quad.get_variable(), fifth.get_variable()], 
         &[]
     )?;
