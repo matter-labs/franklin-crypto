@@ -14,6 +14,7 @@ crate-type = ["lib", "staticlib"]
 [features]
 default = ["multicore"]
 multicore = ["bellman_ce/multicore"]
+derive_serde = ["bellman_ce/derive_serde"]
  
 [dependencies]
 rand = "0.4"
@@ -26,8 +27,8 @@ bit-vec = "0.6"
 sha2 = "0.8.0"
 hmac = "0.7.1"
 
-#bellman_ce = { path = "../bellman"}
-bellman_ce = { version = "=0.3.0", default-features = false}
+# bellman_ce = { path = "../bellman" }
+bellman_ce = { git = "https://github.com/matter-labs/bellman", branch = "plonk" }
 blake2-rfc_bellman_edition = "0.0.1"
 
 [dev-dependencies]
