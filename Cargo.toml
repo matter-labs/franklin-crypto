@@ -14,7 +14,6 @@ crate-type = ["lib", "staticlib"]
 [features]
 default = ["multicore"]
 multicore = ["bellman/multicore"]
-derive_serde = ["bellman/derive_serde"]
 plonk = ["bellman/plonk"]
  
 [dependencies]

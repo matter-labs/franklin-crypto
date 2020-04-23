@@ -71,7 +71,7 @@ pub fn rescue_hash_to_scalar<E: RescueEngine + JubjubEngine>(
     s1_le_bits.reverse();
 
     let mut fs_bits = s0_le_bits;
-    fs_bits.drain(take_bits..);
+    fs_bits.truncate(take_bits);
     fs_bits.extend_from_slice(&s1_le_bits[0..take_bits]);
     assert!(fs_bits.len() == E::Fs::CAPACITY as usize);
 
