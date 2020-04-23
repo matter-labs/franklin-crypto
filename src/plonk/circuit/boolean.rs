@@ -1755,7 +1755,7 @@ mod test {
                            second_operand.is_constant() &&
                            third_operand.is_constant()
                         {
-                            assert_eq!(cs.n, 0);
+                            assert_eq!(cs.n(), 0);
                         }
                     }
                     else
@@ -1824,7 +1824,7 @@ mod test {
                            second_operand.is_constant() &&
                            third_operand.is_constant()
                         {
-                            assert_eq!(cs.n, 0);
+                            assert_eq!(cs.n(), 0);
                         }
                     }
                     else

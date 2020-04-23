@@ -131,6 +131,17 @@ impl<E: Engine> LinearCombination<E> {
         self.constant.add_assign(&other.constant);
     }
 
+    pub fn add_assign_scaled(
+        &mut self,
+        other: &Self,
+        scale: E::Fr
+    ) {
+        let mut other_scaled = other.clone();
+        other_scaled.scale(&scale);
+
+        self.add_assign(&other_scaled);
+    }
+
     pub fn add_assign_number_with_coeff(
         &mut self,
         number: &Num<E>,
@@ -612,7 +623,7 @@ mod test {
         use crate::bellman::pairing::bn256::{Bn256, Fr};
 
         let mut assembly = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
-        let before = assembly.n;
+        let before = assembly.n();
 
         let variables: Vec<_> = (0..9).map(|_| AllocatedNum::alloc(
             &mut assembly, 
@@ -633,17 +644,13 @@ mod test {
         println!("result = {}", result.get_value().unwrap());
 
         assert!(assembly.constraints.len() == 1);
-        assert_eq!(assembly.n, 3);
+        assert_eq!(assembly.n(), 3);
         // let num_gates = assembly.n - before;
         // println!("Single rescue r = 2, c = 1, alpha = 5 invocation takes {} gates", num_gates);
 
         // for (gate, density) in assembly.gate_density.0.into_iter() {
         //     println!("Custom gate {:?} selector = {:?}", gate, density);
         // }
-
-        println!("Assembly state polys = {:?}", assembly.storage.state_map);
-
-        println!("Assembly setup polys = {:?}", assembly.storage.setup_map);
 
         assert!(assembly.is_satisfied());
     }
@@ -653,7 +660,7 @@ mod test {
         use crate::bellman::pairing::bn256::{Bn256, Fr};
 
         let mut assembly = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
-        let before = assembly.n;
+        let before = assembly.n();
 
         let variables: Vec<_> = (0..5).map(|_| AllocatedNum::alloc(
             &mut assembly, 
@@ -674,17 +681,7 @@ mod test {
         println!("result = {}", result.get_value().unwrap());
 
         assert!(assembly.constraints.len() == 1);
-        assert_eq!(assembly.n, 2);
-        // let num_gates = assembly.n - before;
-        // println!("Single rescue r = 2, c = 1, alpha = 5 invocation takes {} gates", num_gates);
-
-        // for (gate, density) in assembly.gate_density.0.into_iter() {
-        //     println!("Custom gate {:?} selector = {:?}", gate, density);
-        // }
-
-        println!("Assembly state polys = {:?}", assembly.storage.state_map);
-
-        println!("Assembly setup polys = {:?}", assembly.storage.setup_map);
+        assert_eq!(assembly.n(), 2);
 
         assert!(assembly.is_satisfied());
     }

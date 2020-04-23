@@ -3,7 +3,7 @@
 extern crate rand;
 extern crate test;
 extern crate bellman;
-extern crate sapling_crypto_ce as franklin_crypto;
+extern crate franklin_crypto;
 
 use rand::{Rand, thread_rng};
 use bellman::pairing::bls12_381::Bls12;

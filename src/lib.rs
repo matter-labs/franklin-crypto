@@ -10,6 +10,7 @@ extern crate byteorder;
 extern crate tiny_keccak;
 extern crate sha2;
 extern crate hmac;
+extern crate poseidon_hash;
 
 #[cfg(test)]
 #[macro_use]

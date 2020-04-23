@@ -48,6 +48,14 @@ use crate::rescue::*;
 pub struct Rescue5CustomGate(pub [LinearCombinationOfTerms; 3]);
 
 impl GateEquationInternal for Rescue5CustomGate {
+    fn can_include_public_inputs(&self) -> bool {
+        false
+    }
+
+    fn put_public_inputs_into_selector_id(&self) -> Option<usize> {
+        None
+    }
+
     fn degree(&self) -> usize {
         2
     }

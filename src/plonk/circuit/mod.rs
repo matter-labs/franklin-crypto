@@ -6,3 +6,5 @@ pub mod boolean;
 pub mod uint32;
 pub mod multieq;
 pub mod sha256;
+pub mod blake2s;
+pub mod poseidon;

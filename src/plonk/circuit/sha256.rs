@@ -374,7 +374,7 @@ mod test {
         let out_bits: Vec<_> = out.into_iter().flat_map(|e| e.into_bits_be()).collect();
 
         assert!(cs.is_satisfied());
-        assert_eq!(cs.n, 0);
+        assert_eq!(cs.n(), 0);
 
         let expected = hex!("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
 
@@ -411,7 +411,7 @@ mod test {
         ).unwrap();
 
         assert!(cs.is_satisfied());
-        assert_eq!(cs.n - 512, 25840);
+        assert_eq!(cs.n() - 512, 25840);
     }
 
     #[test]

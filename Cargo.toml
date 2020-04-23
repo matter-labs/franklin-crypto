@@ -34,6 +34,7 @@ bellman = { package = "bellman_ce", path = "../bellman" }
 # bellman = { package = "bellman_ce", git = "https://github.com/matter-labs/bellman", rev = "d37cf517bcfa0793adeb43f22af658ad41a664dd" }
 # bellman = { package = "bellman_ce", git = "https://github.com/matter-labs/bellman", branch = "circuit_description" }
 blake2-rfc_bellman_edition = "0.0.1"
+poseidon_hash = { path = "../poseidon_hash" }
 
 [dev-dependencies]
 hex-literal = "0.1"
