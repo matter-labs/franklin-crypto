@@ -93,7 +93,8 @@ impl Bn256RescueParams {
             // Create an RNG based on the outcome of the random beacon
             let mut rng = {
                 // This tag is a first one in a sequence of b"ResMxxxx"
-                // that produces MDS matrix without eigenvalues
+                // that produces MDS matrix without eigenvalues for rate = 2,
+                // capacity = 1 variant over Bn254 curve
                 let tag = b"ResM0003";
                 let mut h = H::new(&tag[..]);
                 h.update(constants::GH_FIRST_BLOCK);
