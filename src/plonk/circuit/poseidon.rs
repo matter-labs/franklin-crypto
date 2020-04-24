@@ -481,7 +481,8 @@ mod test {
 
         struct TestCircuit;
 
-        const DEPTH: usize = 160;
+        const DEPTH: usize = 160*16;
+        // const DEPTH: usize = 1;
 
         impl Circuit<Bn256> for TestCircuit {
             fn synthesize<CS: ConstraintSystem<Bn256>>(&self, cs: &mut CS) -> Result<(), SynthesisError> {
@@ -523,9 +524,15 @@ mod test {
             }
         }
 
-        use crate::bellman::plonk::better_better_cs::cs::prove_with_poseidon_bn256;
+        use crate::bellman::plonk::better_better_cs::cs::{prove_with_poseidon_bn256, prove_with_hash_counting_bn256};
 
-        let _ = prove_with_poseidon_bn256::<
+        // let _ = prove_with_poseidon_bn256::<
+        //     Width4WithCustomGates,
+        //     Width4MainGateWithDNextEquation,
+        //     _
+        // >(&TestCircuit).unwrap();
+
+        let _ = prove_with_hash_counting_bn256::<
             Width4WithCustomGates,
             Width4MainGateWithDNextEquation,
             _

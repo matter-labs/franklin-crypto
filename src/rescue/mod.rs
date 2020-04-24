@@ -152,6 +152,7 @@ fn sponge<E: RescueEngine>(
     params: &E::Params,
     input: &[E::Fr]
 ) -> Vec<E::Fr> {
+    assert!(input.len() > 0);
     let mut state = vec![E::Fr::zero(); params.state_width() as usize];
     let rate = params.rate() as usize;
     let mut absorbtion_cycles = input.len() / rate;
@@ -429,6 +430,7 @@ impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
         &mut self,
         input: &[E::Fr]
     ) {
+        assert!(input.len() > 0);
         let rate = self.params.rate() as usize;
         let mut absorbtion_cycles = input.len() / rate;
         if input.len() % rate != 0 {
