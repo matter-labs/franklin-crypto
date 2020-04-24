@@ -449,6 +449,7 @@ impl<E: RescueEngine + JubjubEngine> PrivateKey<E> {
         rescue_params: &<E as RescueEngine>::Params,
         jubjub_params: &<E as JubjubEngine>::Params,
     ) -> Signature<E> {
+        assert!(msg.len() <= 32);
         let pk = PublicKey::from_private(&self, p_g, jubjub_params);
         let order_check = pk.0.mul(E::Fs::char(), jubjub_params);
         assert!(order_check.eq(&Point::zero()));
@@ -863,7 +864,7 @@ impl<E: RescueEngine + JubjubEngine> PublicKey<E> {
 #[cfg(test)]
 mod baby_tests {
     use bellman::pairing::bn256::Bn256;
-    use rand::thread_rng;
+    use rand::{XorShiftRng, SeedableRng, thread_rng};
 
     use alt_babyjubjub::{AltJubjubBn256, fs::Fs, edwards, FixedGenerators};
 
@@ -1160,5 +1161,73 @@ mod baby_tests {
         let vk = PublicKey::from_private(&sk, p_g, params);
         let (x, y) = vk.0.into_xy();
         println!("Public generator x = {}, y = {}", x, y);
+    }
+
+    #[test]
+    fn random_signatures_for_rescue_musig() {
+        let rng = &mut thread_rng();
+        let p_g = FixedGenerators::SpendingKeyGenerator;
+        let params = &AltJubjubBn256::new();
+        let rescue_params = &crate::rescue::bn256::Bn256RescueParams::new_checked_2_into_1();
+
+        for _ in 0..1000 {
+            let sk = PrivateKey::<Bn256>(rng.gen());
+            let vk = PublicKey::from_private(&sk, p_g, params);
+
+            let msg1 = b"Foo bar";
+            let msg2 = b"Spam eggs";
+
+            let max_message_size: usize = 16;
+
+            let seed1 = Seed::random_seed(rng, msg1);
+            let seed2 = Seed::random_seed(rng, msg2);
+
+            let sig1 = sk.musig_rescue_sign(msg1, &seed1, p_g, rescue_params, params);
+            let sig2 = sk.musig_rescue_sign(msg2, &seed2, p_g, rescue_params, params);
+
+            assert!(vk.verify_musig_rescue(msg1, &sig1, p_g, rescue_params, params));
+            assert!(vk.verify_musig_rescue(msg2, &sig2, p_g, rescue_params, params));
+            assert!(!vk.verify_musig_rescue(msg1, &sig2, p_g, rescue_params, params));
+            assert!(!vk.verify_musig_rescue(msg2, &sig1, p_g, rescue_params, params));
+
+            let alpha = rng.gen();
+            let rsk = sk.randomize(alpha);
+            let rvk = vk.randomize(alpha, p_g, params);
+
+            let sig1 = rsk.musig_rescue_sign(msg1, &seed1, p_g, rescue_params, params);
+            let sig2 = rsk.musig_rescue_sign(msg2, &seed2, p_g, rescue_params, params);
+
+            assert!(rvk.verify_musig_rescue(msg1, &sig1, p_g, rescue_params, params));
+            assert!(rvk.verify_musig_rescue(msg2, &sig2, p_g, rescue_params, params));
+            assert!(!rvk.verify_musig_rescue(msg1, &sig2, p_g, rescue_params, params));
+            assert!(!rvk.verify_musig_rescue(msg2, &sig1, p_g, rescue_params, params));
+        }
+    }
+
+    #[test]
+    fn output_signatures_for_rescue_musig() {
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+        let p_g = FixedGenerators::SpendingKeyGenerator;
+        let params = &AltJubjubBn256::new();
+        let rescue_params = &crate::rescue::bn256::Bn256RescueParams::new_checked_2_into_1();
+
+        let sk = PrivateKey::<Bn256>(rng.gen());
+        let vk = PublicKey::from_private(&sk, p_g, params);
+        
+        println!("SK = {}", sk.0);
+        let (x, y) = vk.0.into_xy();
+        println!("VK.x = {}", x);
+        println!("VK.y = {}", y);
+
+        for msg in vec![vec![], hex::decode("72").unwrap(), hex::decode("af82").unwrap()].into_iter() {
+            let seed = Seed::deterministic_seed(&sk, &msg);
+            let sig = sk.musig_rescue_sign(&msg, &seed, p_g, rescue_params, params);
+
+            let (x, y) = sig.r.into_xy();
+            let s = sig.s;
+            println!("Sig R.x = {}", x);
+            println!("Sig R.y = {}", y);
+            println!("Sig s = {}", s);
+        }
     }
 }

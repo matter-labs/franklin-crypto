@@ -15,6 +15,9 @@ extern crate hmac;
 #[macro_use]
 extern crate hex_literal;
 
+#[cfg(test)]
+extern crate hex;
+
 pub mod babyjubjub;
 pub mod jubjub;
 pub mod alt_babyjubjub;

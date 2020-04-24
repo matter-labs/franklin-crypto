@@ -1,7 +1,7 @@
 use bellman::pairing::bn256;
 use bellman::pairing::ff::{Field, PrimeField, PrimeFieldRepr};
 use super::{RescueEngine, RescueHashParams, RescueParamsInternal, PowerSBox, QuinticSBox, generate_mds_matrix};
-use group_hash::GroupHasher;
+use group_hash::{GroupHasher, BlakeHasher};
 
 extern crate num_bigint;
 extern crate num_integer;
@@ -27,6 +27,15 @@ pub struct Bn256RescueParams {
 }
 
 impl Bn256RescueParams {
+    pub fn new_checked_2_into_1() -> Self {
+        let c = 1u32;
+        let r = 2u32;
+        let rounds = 22u32;
+        let security_level = 126u32;
+
+        Self::new_for_params::<BlakeHasher>(c, r, rounds, security_level)
+    }
+
     pub fn new_2_into_1<H: GroupHasher>() -> Self {
         let c = 1u32;
         let r = 2u32;

@@ -37,4 +37,5 @@ blake2-rfc_bellman_edition = "0.0.1"
 
 [dev-dependencies]
 hex-literal = "0.1"
+hex = "*"
 
