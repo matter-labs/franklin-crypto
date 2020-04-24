@@ -254,6 +254,7 @@ pub fn rescue_hash<E: RescueEngine, CS>(
     <<E as RescueEngine>::Params as RescueHashParams<E>>::SBox1: CsSBox<E>,
     CS: ConstraintSystem<E>
 {
+    assert!(input.len() > 0);
     let output_len = params.output_len() as usize;
     let absorbtion_len = params.rate() as usize;
     let t = params.state_width();
@@ -557,6 +558,7 @@ impl<E: RescueEngine> StatefulRescueGadget<E> {
         input: &[AllocatedNum<E>],
         params: &E::Params
     ) -> Result<(), SynthesisError>{
+        assert!(input.len() > 0);
         let absorbtion_len = params.rate() as usize;
         let t = params.state_width();
         let rate = params.rate();
