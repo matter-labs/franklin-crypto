@@ -145,15 +145,24 @@ pub fn rescue_hash<E: RescueEngine>(
     params: &E::Params,
     input: &[E::Fr]
 ) -> Vec<E::Fr> {
-    sponge::<E>(params, input)
+    sponge_fixed_length::<E>(params, input)
 }
 
-fn sponge<E: RescueEngine>(
+fn sponge_fixed_length<E: RescueEngine>(
     params: &E::Params,
     input: &[E::Fr]
 ) -> Vec<E::Fr> {
     assert!(input.len() > 0);
+    assert!(input.len() < 256);
+    let input_len = input.len() as u64;
     let mut state = vec![E::Fr::zero(); params.state_width() as usize];
+    // specialized for input length
+    let mut repr = <E::Fr as PrimeField>::Repr::default();
+    repr.as_mut()[0] = input_len;
+    let len_fe = <E::Fr as PrimeField>::from_repr(repr).unwrap();
+    let last_state_elem_idx = state.len() - 1;
+    state[last_state_elem_idx] = len_fe;
+
     let rate = params.rate() as usize;
     let mut absorbtion_cycles = input.len() / rate;
     if input.len() % rate != 0 {
@@ -174,7 +183,6 @@ fn sponge<E: RescueEngine>(
 
     state[..(params.capacity() as usize)].to_vec()
 }   
-
 
 pub fn rescue_mimc<E: RescueEngine>(
     params: &E::Params,
@@ -389,6 +397,26 @@ impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
             internal_state: vec![E::Fr::zero(); params.state_width() as usize],
             mode: op
         }
+    }
+
+    pub fn specialize(
+        &mut self,
+        dst: u8
+    ) {
+        match self.mode {
+            RescueOpMode::AccumulatingToAbsorb(ref into) => {
+                assert_eq!(into.len(), 0, "can not specialize sponge that absorbed something")
+            },
+            _ => {
+                panic!("can not specialized sponge in squeezing state");
+            }
+        }
+        let dst = dst as u64;
+        let mut repr = <E::Fr as PrimeField>::Repr::default();
+        repr.as_mut()[0] = dst;
+        let as_fe = <E::Fr as PrimeField>::from_repr(repr).unwrap();
+        let last_state_elem_idx = self.internal_state.len() - 1;
+        self.internal_state[last_state_elem_idx] = as_fe;
     }
 
     fn absorb_single_value(

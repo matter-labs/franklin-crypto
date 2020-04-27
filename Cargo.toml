@@ -38,4 +38,5 @@ poseidon_hash = { path = "../poseidon_hash" }
 
 [dev-dependencies]
 hex-literal = "0.1"
+hex = "*"
 
