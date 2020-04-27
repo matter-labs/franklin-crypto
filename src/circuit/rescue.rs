@@ -255,6 +255,15 @@ pub fn rescue_hash<E: RescueEngine, CS>(
     CS: ConstraintSystem<E>
 {
     assert!(input.len() > 0);
+    assert!(input.len() < 256);
+    let input_len_as_fe = {
+        let mut repr = <E::Fr as PrimeField>::Repr::default();
+        repr.as_mut()[0] = input.len() as u64;
+        let len_fe = <E::Fr as PrimeField>::from_repr(repr).unwrap();
+
+        len_fe
+    };
+
     let output_len = params.output_len() as usize;
     let absorbtion_len = params.rate() as usize;
     let t = params.state_width();
@@ -278,11 +287,19 @@ pub fn rescue_hash<E: RescueEngine, CS>(
             let as_num = Num::<E>::from(it.next().unwrap());
             state.push(as_num);
         }
-        for _ in rate..t {
+        for _ in rate..(t-1) {
             state.push(Num::<E>::zero());
         }
 
-        debug_assert_eq!(state.len(), t as usize);
+        // specialize into last state element
+        {
+            let mut lc = Num::<E>::zero();
+            lc = lc.add_constant(CS::one(), input_len_as_fe);
+
+            state.push(lc);
+        }
+
+        assert_eq!(state.len(), t as usize);
 
         rescue_mimc_over_lcs(
             cs.namespace(|| "rescue mimc for absorbtion round 0"),
@@ -320,74 +337,6 @@ pub fn rescue_hash<E: RescueEngine, CS>(
 
     Ok(result)
 }
-
-// pub fn rescue_mimc<E: RescueEngine, CS>(
-//     mut cs: CS,
-//     input: &[AllocatedNum<E>],
-//     params: &E::Params
-// ) -> Result<Vec<AllocatedNum<E>>, SynthesisError>
-//     where <<E as RescueEngine>::Params as RescueHashParams<E>>::SBox0: CsSBox<E>, 
-//     <<E as RescueEngine>::Params as RescueHashParams<E>>::SBox1: CsSBox<E>,
-//     CS: ConstraintSystem<E>
-// {
-//     let state_len = params.state_width() as usize;
-
-//     assert_eq!(input.len(), state_len); 
-
-//     let mut state: Vec<AllocatedNum<E>> = Vec::with_capacity(input.len());
-//     for (i, (c, &constant)) in input.iter() 
-//                         .zip(params.round_constants(0).iter())
-//                         .enumerate()
-//     {
-//         let with_constant = c.add_constant(
-//             cs.namespace(|| format!("rescue add first round constant for word {}", i)),
-//             constant
-//         )?;
-
-//         state.push(with_constant);
-//     }
-
-//     let mut linear_transformation_results_scratch = Vec::with_capacity(state_len);
-
-//     // parameters use number of rounds that is number of invocations of each SBox,
-//     // so we double
-//     for round_num in 0..(2*params.num_rounds()) {
-//         // apply corresponding sbox
-//         let state = if round_num & 1u32 == 0 {
-//             params.sbox_0().apply_constraints(
-//                 cs.namespace(|| format!("apply SBox for round {}", round_num)),
-//                 &state
-//             )?
-//         } else {
-//             params.sbox_1().apply_constraints(
-//                 cs.namespace(|| format!("apply SBox for round {}", round_num)),
-//                 &state
-//             )?
-//         };
-
-//         // apply multiplication by MDS
-
-
-//         let round_constants = params.round_constants(round_num + 1);
-//         for row_idx in 0..state_len {
-//             let row = params.mds_matrix_row(row_idx as u32);
-//             let linear_applied = scalar_product(&state[..], row);
-//             let with_round_constant = linear_applied.add_constant(
-//                 CS::one(), 
-//                 round_constants[row_idx]
-//             );
-//             let collapsed = with_round_constant.into_allocated_num(
-//                 cs.namespace(|| format!("collapse after MDS and round constant for word {}", row_idx))
-//             )?;
-//             linear_transformation_results_scratch.push(collapsed);
-//         }
-
-//         state.clone_from_slice(&linear_transformation_results_scratch);
-//         linear_transformation_results_scratch.truncate(0);
-//     }
-
-//     Ok(state)
-// }
 
 pub fn rescue_mimc_over_lcs<E: RescueEngine, CS>(
     mut cs: CS,
@@ -447,16 +396,10 @@ pub fn rescue_mimc_over_lcs<E: RescueEngine, CS>(
                 round_constants[row_idx]
             );
             linear_transformation_results_scratch.push(with_round_constant);
-            // let collapsed = with_round_constant.into_allocated_num(
-            //     cs.namespace(|| format!("collapse after MDS and round constant for word {}", row_idx))
-            // )?;
-            // linear_transformation_results_scratch.push(collapsed);
         }
 
         state = Some(linear_transformation_results_scratch);
 
-        // state.clone_from_slice(&linear_transformation_results_scratch);
-        // linear_transformation_results_scratch.truncate(0);
     }
 
     Ok(state.unwrap())
@@ -509,6 +452,38 @@ impl<E: RescueEngine> StatefulRescueGadget<E> {
         }
     }
 
+    pub fn specialize<CS: ConstraintSystem<E>>(
+        &mut self,
+        cs: CS,
+        dst: u8
+    ) {
+        assert!(dst > 0);
+        let dst_as_fe = {
+            let mut repr = <E::Fr as PrimeField>::Repr::default();
+            repr.as_mut()[0] = dst as u64;
+            let dst_as_fe = <E::Fr as PrimeField>::from_repr(repr).unwrap();
+    
+            dst_as_fe
+        };
+
+        match self.mode {
+            RescueOpMode::AccumulatingToAbsorb(ref into) => {
+                assert_eq!(into.len(), 0, "can not specialize sponge that absorbed something")
+            },
+            _ => {
+                panic!("can not specialized sponge in squeezing state");
+            }
+        }
+
+        let last_state_idx = self.internal_state.len() - 1;
+        assert!(self.internal_state[last_state_idx].is_empty());
+
+        let mut lc = Num::<E>::zero();
+        lc = lc.add_constant(CS::one(), dst_as_fe);
+
+        self.internal_state[last_state_idx] = lc;
+    }
+
     fn absorb_single_value<CS: ConstraintSystem<E>>(
         &mut self,
         mut cs: CS,
@@ -559,6 +534,7 @@ impl<E: RescueEngine> StatefulRescueGadget<E> {
         params: &E::Params
     ) -> Result<(), SynthesisError>{
         assert!(input.len() > 0);
+        assert!(input.len() < 256);
         let absorbtion_len = params.rate() as usize;
         let t = params.state_width();
         let rate = params.rate();
@@ -725,6 +701,39 @@ mod test {
     }
 
     #[test]
+    fn test_rescue_hash_long_gadget() {
+        use crate::rescue::bn256::*;
+        let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+        let params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
+        let input: Vec<Fr> = (0..(params.rate()*5)).map(|_| rng.gen()).collect();
+        let expected = rescue::rescue_hash::<Bn256>(&params, &input[..]);
+
+        {
+            let mut cs = TestConstraintSystem::<Bn256>::new();
+
+            let input_words: Vec<AllocatedNum<Bn256>> = input.iter().enumerate().map(|(i, b)| {
+                AllocatedNum::alloc(
+                    cs.namespace(|| format!("input {}", i)),
+                    || {
+                        Ok(*b)
+                    }).unwrap()
+            }).collect();
+
+            let res = rescue_hash(
+                cs.namespace(|| "rescue hash"),
+                &input_words,
+                &params
+            ).unwrap();
+
+            assert!(cs.is_satisfied());
+            assert!(res.len() == 1);
+            println!("Rescue hash {} to {} taken {} constraints", input.len(), res.len(), cs.num_constraints());
+
+            assert_eq!(res[0].get_value().unwrap(), expected[0]);
+        }
+    }
+
+    #[test]
     fn test_rescue_hash_stateful_gadget() {
         use crate::rescue::bn256::*;
         let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
@@ -761,6 +770,11 @@ mod test {
                 &params
             );
 
+            rescue_gadget.specialize(
+                cs.namespace(|| "specialize rescue hash"), 
+                input_words.len() as u8
+            );
+
             rescue_gadget.absorb(
                 cs.namespace(|| "absorb the input into stateful rescue gadget"), 
                 &input_words, 
@@ -783,6 +797,7 @@ mod test {
             let mut stateful_hasher = rescue::StatefulRescue::<Bn256>::new(
                 &params
             );
+            stateful_hasher.specialize(input.len() as u8);
 
             stateful_hasher.absorb(&input);
 

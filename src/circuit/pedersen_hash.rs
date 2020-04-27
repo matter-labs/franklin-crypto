@@ -151,7 +151,7 @@ mod test {
 
         for length in 0..751 {
             for _ in 0..5 {
-                let mut input: Vec<bool> = (0..length).map(|_| rng.gen()).collect();
+                let input: Vec<bool> = (0..length).map(|_| rng.gen()).collect();
 
                 let mut cs = TestConstraintSystem::<Bls12>::new();
 
@@ -235,7 +235,7 @@ mod baby_test {
 
         for length in 0..739 {
             for _ in 0..5 {
-                let mut input: Vec<bool> = (0..length).map(|_| rng.gen()).collect();
+                let input: Vec<bool> = (0..length).map(|_| rng.gen()).collect();
 
                 let mut cs = TestConstraintSystem::<Bn256>::new();
 

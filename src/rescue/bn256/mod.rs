@@ -288,6 +288,7 @@ mod test {
         assert!(output.len() == 1);
 
         let mut stateful_rescue = super::super::StatefulRescue::<Bn256>::new(&params);
+        stateful_rescue.specialize(input.len() as u8);
         stateful_rescue.absorb(&input);
 
         let first_output = stateful_rescue.squeeze_out_single();
@@ -305,6 +306,7 @@ mod test {
         assert!(output.len() == 1);
 
         let mut stateful_rescue = super::super::StatefulRescue::<Bn256>::new(&params);
+        stateful_rescue.specialize(input.len() as u8);
         stateful_rescue.absorb(&input);
 
         let first_output = stateful_rescue.squeeze_out_single();

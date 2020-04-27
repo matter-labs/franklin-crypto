@@ -330,7 +330,7 @@ mod test {
         let expected = hex!("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
 
         let mut out = out_bits.into_iter();
-        for b in expected.into_iter() {
+        for b in expected.iter() {
             for i in (0..8).rev() {
                 let c = out.next().unwrap().get_value().unwrap();
 
