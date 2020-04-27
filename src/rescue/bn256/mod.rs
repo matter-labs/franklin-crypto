@@ -235,7 +235,7 @@ impl RescueHashParams<bn256::Bn256> for Bn256RescueParams {
 
 #[cfg(test)]
 mod test {
-    use rand::{Rand, Rng, thread_rng};
+    use rand::{Rand, Rng, thread_rng, XorShiftRng, SeedableRng};
     use bellman::pairing::bn256::{Bn256, Fr};
     use bellman::pairing::ff::PrimeField;
     use bellman::pairing::ff::Field;
@@ -277,6 +277,18 @@ mod test {
         let input: Vec<Fr> = (0..params.rate()).map(|_| rng.gen()).collect();
         let output = rescue_hash::<Bn256>(&params, &input[..]);
         assert!(output.len() == 1);
+    }
+
+    #[test]
+    fn output_bn256_rescue_hash() {
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+        let params = Bn256RescueParams::new_checked_2_into_1();
+        for len in 1..=3 {
+            let input: Vec<Fr> = (0..len).map(|_| rng.gen()).collect();
+            println!("Input = {:?}", input);
+            let output = rescue_hash::<Bn256>(&params, &input[..]);
+            println!("Output = {:?}", output);
+        }
     }
 
     #[test]
