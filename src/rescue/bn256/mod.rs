@@ -316,6 +316,29 @@ mod test {
     }
 
     #[test]
+    fn test_bn256_different_specializations() {
+        let rng = &mut thread_rng();
+        let params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
+        let input: Vec<Fr> = (0..((params.rate()*10) + 1)).map(|_| rng.gen()).collect();
+        let output = rescue_hash::<Bn256>(&params, &input[..]);
+        assert!(output.len() == 1);
+
+        let mut stateful_rescue = super::super::StatefulRescue::<Bn256>::new(&params);
+        stateful_rescue.specialize(input.len() as u8);
+        stateful_rescue.absorb(&input);
+
+        let first_output = stateful_rescue.squeeze_out_single();
+        assert_eq!(first_output, output[0]);
+
+        let mut stateful_rescue_other = super::super::StatefulRescue::<Bn256>::new(&params);
+        stateful_rescue_other.specialize((input.len() + 1) as u8);
+        stateful_rescue_other.absorb(&input);
+
+        let first_output_other = stateful_rescue_other.squeeze_out_single();
+        assert!(first_output != first_output_other);
+    }
+
+    #[test]
     #[should_panic]
     fn test_bn256_stateful_rescue_depleted_sponge() {
         let rng = &mut thread_rng();
