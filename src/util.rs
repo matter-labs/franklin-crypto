@@ -58,6 +58,7 @@ pub fn rescue_hash_to_scalar<E: RescueEngine + JubjubEngine>(
     let inputs = multipack::compute_multipacking::<E>(&input_bools);
 
     let mut sponge = rescue::StatefulRescue::<E>::new(&params);
+    sponge.specialize(input.len() as u8);
     sponge.absorb(&inputs);
 
     // draw two values from hash and use lowest bits
