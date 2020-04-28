@@ -78,6 +78,24 @@ impl<E: Engine> AllocatedNum<E> {
         })
     }
 
+    pub fn enforce_equal<CS>(
+        &self,
+        cs: &mut CS,
+        other: &Self
+    ) -> Result<(), SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let self_term = ArithmeticTerm::from_variable(self.variable);
+        let other_term = ArithmeticTerm::from_variable(other.variable);
+        let mut term = MainGateTerm::new();
+        term.add_assign(self_term);
+        term.sub_assign(other_term);
+
+        cs.allocate_main_gate(term)?;
+
+        Ok(())
+    }
+
     pub fn add<CS>(
         &self,
         cs: &mut CS,
@@ -185,5 +203,52 @@ impl<E: Engine> AllocatedNum<E> {
         where CS: ConstraintSystem<E>
     {
         self.mul(cs, &self)
+    }
+}
+
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use rand::{SeedableRng, Rng, XorShiftRng};
+    use super::*;
+    use bellman::pairing::bn256::{Bn256, Fr};
+    use bellman::pairing::ff::PrimeField;
+    use crate::rescue;
+    use crate::bellman::plonk::better_better_cs::cs::{
+        TrivialAssembly, 
+        PlonkCsWidth4WithNextStepParams, 
+        Width4MainGateWithDNextEquation
+    };
+
+    #[test]
+    fn test_multiplication() {
+        let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+        let in_0: Fr = rng.gen();
+        let in_1: Fr = rng.gen();
+
+        let mut out = in_0;
+        out.mul_assign(&in_1);
+
+        {
+            let mut cs = TrivialAssembly::<Bn256, 
+            PlonkCsWidth4WithNextStepParams,
+                Width4MainGateWithDNextEquation
+            >::new();
+
+            let this = AllocatedNum::alloc(&mut cs, 
+                || Ok(in_0)
+            ).unwrap();
+
+            let other = AllocatedNum::alloc(&mut cs, 
+                || Ok(in_1)
+            ).unwrap();
+
+            let result = this.mul(&mut cs, &other).unwrap();
+
+            assert_eq!(result.get_value().unwrap(), out);
+
+            assert!(cs.is_satisfied());
+        }
     }
 }

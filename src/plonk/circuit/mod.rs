@@ -8,3 +8,5 @@ pub mod multieq;
 pub mod sha256;
 pub mod blake2s;
 pub mod poseidon;
+pub mod bigint;
+pub mod simple_term;

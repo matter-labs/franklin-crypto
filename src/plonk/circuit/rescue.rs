@@ -59,7 +59,26 @@ impl<E: Engine> PlonkCsSBox<E> for QuinticSBox<E> {
             return self.apply_custom_gate(cs, el);
         }
 
-        unimplemented!()
+        let ret = match el {
+            Num::Constant(constant) => {
+                let mut result = *constant;
+                result.square();
+                result.square();
+                result.mul_assign(constant);
+
+                Ok(Num::Constant(result))
+            },
+            Num::Variable(el) => {
+                // we take a value and make 5th power from it
+                let square = el.square(cs)?;
+                let quad = square.square(cs)?;
+                let fifth = quad.mul(cs, &el)?;
+
+                Ok(Num::Variable(fifth))
+            }
+        };
+
+        ret
     }
 
     fn apply_constraints_in_reverse<CS: ConstraintSystem<E>>(
@@ -111,7 +130,38 @@ impl<E: Engine> PlonkCsSBox<E> for PowerSBox<E> {
             return self.apply_custom_gate(cs, el);
         }
 
-        unimplemented!()
+        let ret = match el {
+            Num::Constant(constant) => {
+                let result = constant.pow(&self.power);
+
+                Ok(Num::Constant(result))
+            },
+            Num::Variable(el) => {
+                let out = AllocatedNum::<E>::alloc(
+                    cs,
+                    || {
+                        let base = *el.get_value().get()?;
+                        let result = base.pow(&self.power);
+
+                        Ok(result)
+                    }
+                )?;
+
+                // we take a value and make 5th power from it
+                let square = out.square(cs)?;
+                let quad = square.square(cs)?;
+
+                let mut term = MainGateTerm::<E>::new();
+                let fifth_term = ArithmeticTerm::from_variable(quad.get_variable()).mul_by_variable(out.get_variable());
+                let el_term = ArithmeticTerm::from_variable(el.get_variable());
+                term.add_assign(fifth_term);
+                term.sub_assign(el_term);
+
+                Ok(Num::Variable(out))
+            }
+        };
+
+        ret
     }
 
     fn apply_constraints<CS: ConstraintSystem<E>>(
@@ -196,8 +246,7 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
         for (idx, s) in state.as_mut().unwrap().iter_mut().enumerate() {
             s.add_assign_constant(round_constants[idx]);
         }
-        
-        // add round constants
+
         for round in 0..(params.num_rounds() * 2) {
             let mut after_nonlin = Vec::with_capacity(state_len);
 
@@ -247,6 +296,27 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
         }
 
         Ok(state.unwrap())
+    }
+
+    pub fn specizalize(
+        &mut self,
+        dst: u8
+    ) {
+        assert!(dst > 0);
+        match self.mode {
+            RescueOpMode::AccumulatingToAbsorb(ref into) => {
+                assert_eq!(into.len(), 0, "can not specialize sponge that absorbed something")
+            },
+            _ => {
+                panic!("can not specialized sponge in squeezing state");
+            }
+        }
+        let dst = dst as u64;
+        let mut repr = <E::Fr as PrimeField>::Repr::default();
+        repr.as_mut()[0] = dst;
+        let as_fe = <E::Fr as PrimeField>::from_repr(repr).unwrap();
+        let last_state_elem_idx = self.internal_state.len() - 1;
+        self.internal_state[last_state_elem_idx].add_assign_constant(as_fe)
     }
 
     fn absorb_single_value<CS: ConstraintSystem<E>>(
@@ -416,6 +486,8 @@ mod test {
                 &params
             );
 
+            rescue_gadget.specizalize(input_words.len() as u8);
+
             rescue_gadget.absorb(
                 &mut cs,
                 &input_words, 
@@ -438,6 +510,74 @@ mod test {
             let mut stateful_hasher = rescue::StatefulRescue::<Bn256>::new(
                 &params
             );
+
+            stateful_hasher.specialize(input.len() as u8);
+
+            stateful_hasher.absorb(&input);
+
+            let r0 = stateful_hasher.squeeze_out_single();
+            let r1 = stateful_hasher.squeeze_out_single();
+
+            assert_eq!(res_0.get_value().unwrap(), r0);
+            assert_eq!(res_1.get_value().unwrap(), r1);
+
+            assert!(cs.is_satisfied());
+        }
+    }
+
+    #[test]
+    fn test_rescue_hash_plonk_no_custom_gates() {
+        use crate::rescue::bn256::*;
+        let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+        let params = Bn256RescueParams::new_checked_2_into_1();
+        let input: Vec<Fr> = (0..(params.rate())).map(|_| rng.gen()).collect();
+        // let input: Vec<Fr> = (0..(params.rate()+1)).map(|_| rng.gen()).collect();
+        let expected = rescue::rescue_hash::<Bn256>(&params, &input[..]);
+
+        {
+            let mut cs = TrivialAssembly::<Bn256, 
+                PlonkCsWidth4WithNextStepParams,
+                Width4MainGateWithDNextEquation
+            >::new();
+
+            let input_words: Vec<AllocatedNum<Bn256>> = input.iter().enumerate().map(|(i, b)| {
+                AllocatedNum::alloc(
+                    &mut cs,
+                    || {
+                        Ok(*b)
+                    }).unwrap()
+            }).collect();
+
+            let mut rescue_gadget = StatefulRescueGadget::<Bn256>::new(
+                &params
+            );
+
+            rescue_gadget.specizalize(input_words.len() as u8);
+
+            rescue_gadget.absorb(
+                &mut cs,
+                &input_words, 
+                &params
+            ).unwrap();
+
+            let res_0 = rescue_gadget.squeeze_out_single(
+                &mut cs,
+                &params
+            ).unwrap();
+
+            assert_eq!(res_0.get_value().unwrap(), expected[0]);
+            println!("Rescue stateful hash of {} elements taken {} constraints", input.len(), cs.n());
+
+            let res_1 = rescue_gadget.squeeze_out_single(
+                &mut cs,
+                &params
+            ).unwrap();
+
+            let mut stateful_hasher = rescue::StatefulRescue::<Bn256>::new(
+                &params
+            );
+
+            stateful_hasher.specialize(input.len() as u8);
 
             stateful_hasher.absorb(&input);
 
