@@ -32,6 +32,8 @@ use crate::bellman::plonk::better_better_cs::cs::{
 
 use super::super::allocated_num::{AllocatedNum, Num};
 use super::super::linear_combination::LinearCombination;
+use super::super::simple_term::Term;
+use super::super::boolean::Boolean;
 
 use super::*;
 use super::bigint::*;
@@ -52,6 +54,7 @@ pub struct RnsParameters<E: Engine, F: PrimeField>{
     pub num_base_field_limb: usize,
     // convenience
     pub base_field_modulus: BigUint,
+    pub base_field_max_val: BigUint,
     pub binary_representation_max_value: BigUint,
 
     // modulus if the field that we represent
@@ -64,10 +67,12 @@ pub struct RnsParameters<E: Engine, F: PrimeField>{
     pub last_binary_limb_bit_width: usize,
     pub last_binary_limb_max_value: BigUint,
 
-
     // we do modular reductions, so we want to have these for convenience
-    // pub represented_field_modulus_limbs: Vec<E::Fr>,
+    pub represented_field_modulus_negated_limbs_biguints: Vec<BigUint>,
     pub represented_field_modulus_negated_limbs: Vec<E::Fr>,
+
+    // -modulus of represented field in base field
+    pub represented_field_modulus_negated_in_base_field: E::Fr,
 
     pub limb_witness_size: usize,
 
@@ -76,20 +81,22 @@ pub struct RnsParameters<E: Engine, F: PrimeField>{
 
 impl<'a, E: Engine, F: PrimeField> RnsParameters<E, F>{
     pub fn max_representable_value(&self) -> BigUint {
-        let tmp = self.base_field_modulus.clone() * &self.binary_representation_max_value;
-        debug_assert!(&tmp.sqrt() >= &self.represented_field_modulus);
+        let mut tmp = self.base_field_modulus.clone() * &self.binary_representation_max_value;
+        tmp = tmp.sqrt();
+        debug_assert!(&tmp >= &self.represented_field_modulus, 
+            "not sufficient capacity to represent modulus: can represent up to {} bits, modulus is {} bits", 
+            tmp.bits() - 1, 
+            self.represented_field_modulus.bits()
+        );
 
-        println!("Max can represent {} bits up to {}", tmp.bits(), tmp.sqrt().to_str_radix(16));
-
-        tmp.sqrt()
+        tmp
     }
 
-    pub fn new_for_field(limb_size: usize, intermediate_limb_capacity: usize) -> Self {
+    pub fn new_for_field(limb_size: usize, intermediate_limb_capacity: usize, num_binary_limbs:usize) -> Self {
         let binary_limbs_params = LimbedRepresentationParameters::new(limb_size, intermediate_limb_capacity);
-        let mut num_binary_limbs = F::NUM_BITS as usize / limb_size;
-        if F::NUM_BITS as usize % limb_size != 0 {
-            num_binary_limbs += 1;
-        }
+
+        assert!(num_binary_limbs & 1 == 0);
+
         let base_field_limb_params = LimbedRepresentationParameters::new(F::NUM_BITS as usize, F::NUM_BITS as usize);
         let num_base_field_limb = 1;
 
@@ -98,28 +105,50 @@ impl<'a, E: Engine, F: PrimeField> RnsParameters<E, F>{
         let binary_representation_max_value = binary_modulus.clone() - BigUint::from(1u64);
 
         let represented_field_modulus = repr_to_biguint::<F>(&F::char());
-        let binary_limbs_bit_widths = vec![limb_size; num_binary_limbs];
-        let binary_limbs_max_values = vec![binary_limbs_params.limb_max_value.clone(); num_binary_limbs];
-
-        // let mut represented_field_modulus_limbs = vec![];
-        let mut represented_field_modulus_negated_limbs = vec![];
 
         let represented_modulus_negated_modulo_binary = binary_modulus.clone() - &represented_field_modulus;
-        println!("Represented modulus negated = {}", represented_modulus_negated_modulo_binary.to_str_radix(16));
 
         let mask = BigUint::from(1u64) << limb_size;
-        let mut tmp = represented_modulus_negated_modulo_binary.clone();
 
-        let mut bit_width = vec![];
-        let mut modulus_chunks = vec![];
+        let mut modulus_limbs_bit_widths = vec![];
+        let mut modulus_limbs_chunks = vec![];
+
+        let mut tmp = represented_field_modulus.clone();
+
         for _ in 0..num_binary_limbs {
             let chunk = tmp.clone() % &mask;
-            bit_width.push(chunk.bits());
-            modulus_chunks.push(chunk.clone());
+            modulus_limbs_bit_widths.push(chunk.bits());
+            modulus_limbs_chunks.push(chunk.clone());
+            tmp >>= limb_size;
+        }
+
+        let mut last_limb_bits = *modulus_limbs_bit_widths.last().unwrap();
+        if last_limb_bits & 1 == 1 {
+            last_limb_bits += 1;
+        }
+        let mut binary_limbs_bit_widths = vec![limb_size; num_binary_limbs - 1];
+        binary_limbs_bit_widths.push(last_limb_bits);
+        
+        let mut binary_limbs_max_values = vec![binary_limbs_params.limb_max_value.clone(); num_binary_limbs - 1];
+        binary_limbs_max_values.push((BigUint::from(1u64) << last_limb_bits) - BigUint::from(1u64));
+
+        let mut tmp = represented_modulus_negated_modulo_binary.clone();
+
+        let mut negated_modulus_chunks_bit_width = vec![];
+        let mut negated_modulus_chunks = vec![];
+        let mut represented_field_modulus_negated_limbs = vec![];
+
+        for _ in 0..num_binary_limbs {
+            let chunk = tmp.clone() % &mask;
+            negated_modulus_chunks_bit_width.push(chunk.bits());
+            negated_modulus_chunks.push(chunk.clone());
             let fe = biguint_to_fe::<E::Fr>(chunk);
             represented_field_modulus_negated_limbs.push(fe);
             tmp >>= limb_size;
         }
+
+        let repr_modulus_negated = base_field_modulus.clone() - (represented_field_modulus.clone() % &base_field_modulus.clone());
+        let repr_modulus_negated = biguint_to_fe(repr_modulus_negated);
 
         Self {
             binary_limbs_params,
@@ -127,15 +156,18 @@ impl<'a, E: Engine, F: PrimeField> RnsParameters<E, F>{
             binary_modulus,
             base_field_limb_params,
             num_base_field_limb,
-            base_field_modulus,
+            base_field_modulus: base_field_modulus.clone(),
+            base_field_max_val: base_field_modulus - BigUint::from(1u64),
             binary_representation_max_value,
             represented_field_modulus,
-            binary_limbs_bit_widths,
-            binary_limbs_max_values,
+            binary_limbs_bit_widths: binary_limbs_bit_widths.clone(),
+            binary_limbs_max_values: binary_limbs_max_values.clone(),
+            represented_field_modulus_negated_limbs_biguints : negated_modulus_chunks,
             represented_field_modulus_negated_limbs,
             limb_witness_size: 2,
-            last_binary_limb_bit_width: bit_width.pop().unwrap(),
-            last_binary_limb_max_value: modulus_chunks.pop().unwrap(),
+            last_binary_limb_bit_width: binary_limbs_bit_widths.pop().unwrap(),
+            last_binary_limb_max_value: binary_limbs_max_values.pop().unwrap(),
+            represented_field_modulus_negated_in_base_field: repr_modulus_negated,
             _marker: std::marker::PhantomData
         }
     }
@@ -144,40 +176,24 @@ impl<'a, E: Engine, F: PrimeField> RnsParameters<E, F>{
 #[derive(Clone, Debug)]
 pub struct FieldElement<'a, E: Engine, F: PrimeField>{
     // this is kind-of normal UintX limbs
-    binary_limbs: Vec<Limb<E>>,
+    pub(crate) binary_limbs: Vec<Limb<E>>,
     // we can not multiply by power of modulus of our base field E,
     // so we keep only one single limb
-    base_field_limb: Limb<E>,
+    pub(crate) base_field_limb: Term<E>,
 
-    representation_params: &'a RnsParameters<E, F>,
-    value: F,
-    may_need_reduction: bool
+    pub(crate) representation_params: &'a RnsParameters<E, F>,
+    pub(crate) value: F,
 }
 
-fn required_u16_limbs<F: PrimeField>() -> usize {
-    let limbs = (F::NUM_BITS + 16) / 16;
-
-    limbs as usize
-}
-
-fn field_into_le_limbs<F: PrimeField>(el: &F) -> Vec<u16> {
-    let required = required_u16_limbs::<F>();
-    let mut result = Vec::with_capacity(required);
-
-    let repr = el.into_raw_repr();
-
-    for &limb in repr.as_ref().iter() {
-        for i in 0..4 {
-            let l = (limb >> (16*i)) as u16;
-            result.push(l);
-
-            if result.len() == required {
-                break;
-            }
-        }
+impl<'a, E: Engine, F: PrimeField> std::fmt::Display for FieldElement<'a, E, F> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "FieldElement {{ ")?;
+        write!(f, "Modulus = {}, ", F::char())?;
+        write!(f, "Value = {}, ", self.value)?;
+        write!(f, "Value from binary limbs = {}, ", self.get_value().to_str_radix(16))?;
+        write!(f, "Value from field limbs = {:?} ", self.base_field_limb.get_value())?;
+        writeln!(f, "}}")
     }
-
-    result
 }
 
 impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
@@ -190,45 +206,45 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         let binary_limb_values = split_into_fixed_number_of_limbs(value_as_biging, params.binary_limbs_params.limb_size_bits, params.num_binary_limbs);
         assert_eq!(binary_limb_values.len(), params.num_binary_limbs);
 
-        let base_limb = fe_to_raw_biguint(&value) % &params.base_field_modulus;
+        let base_limb = fe_to_biguint(&value) % &params.base_field_modulus;
+        let base_limb = biguint_to_fe::<E::Fr>(base_limb);
 
-        let binary_limbs: Vec<_> = binary_limb_values.into_iter().map(|el| biguint_to_fe(el)).collect();
+        let binary_limbs: Vec<E::Fr> = binary_limb_values.into_iter().map(|el| biguint_to_fe::<E::Fr>(el)).collect();
         assert_eq!(binary_limbs.len(), params.num_binary_limbs);
-        let base_limb = biguint_to_fe(base_limb);
 
         let mut binary_limbs_allocated = Vec::with_capacity(binary_limbs.len());
 
-        for ((l, width), max_val) in binary_limbs.into_iter()
+        for ((l, &width), max_val) in binary_limbs.into_iter()
             .zip(params.binary_limbs_bit_widths.iter())
-            .zip(params.binary_limbs_max_values.iter()) 
+            .zip(params.binary_limbs_max_values.iter().cloned()) 
         {
-            let a = AllocatedLimb::alloc(cs, l)?;
-            let limb_type = LimbType::Variable(a);
-            let limb = Limb::<E>::new_from_type(
-                limb_type,
-                max_val.clone(),
-                *width
+            let a = AllocatedNum::alloc(cs, || {
+                Ok(l)
+            })?;
+
+            let _ = create_range_constraint_chain(cs, &a, width);
+            let term = Term::from_allocated_num(a);
+
+            let limb = Limb::<E>::new(
+                term,
+                max_val
             );
 
             binary_limbs_allocated.push(limb);
         }
 
-        let limb_type = LimbType::Variable(AllocatedLimb::alloc(cs, base_limb)?);
-        let base_limb = Limb::<E>::new_from_type(
-            limb_type,
-            params.base_field_modulus.clone(),
-            params.base_field_modulus.bits()
-        );
+        let a = AllocatedNum::alloc(cs, || {
+            Ok(base_limb)
+        })?;
+
+        let base_limb = Term::from_allocated_num(a);
 
         let new = Self {
             binary_limbs: binary_limbs_allocated,
             base_field_limb: base_limb,
             representation_params: params,
             value,
-            may_need_reduction: false,
         };
-
-        println!("Max value = {:?}", new.get_max_value().to_str_radix(16));
 
         Ok(new)
     }
@@ -239,6 +255,11 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         top_limb_may_overflow: bool,
         params: &'a RnsParameters<E, F>
     ) -> Result<Self, SynthesisError> {
+        // println!("Creating field element from double limb witness");
+        // for w in witnesses.iter() {
+        //     println!("Double limb witness = {}", w.get_value().unwrap());
+        // }
+
         assert!(params.num_binary_limbs == params.limb_witness_size * witnesses.len());
 
         let mut binary_limbs_allocated = Vec::with_capacity(params.num_binary_limbs);
@@ -260,23 +281,18 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                     assert!(limb_values.len() == params.limb_witness_size);
                     for (j, l) in limb_values.into_iter().enumerate() {
                         let limb_idx = i*params.limb_witness_size + j;
-
-                        let limb_type = LimbType::Constant(biguint_to_fe(l));
-                        let width = if limb_idx == params.num_binary_limbs && top_limb_may_overflow {
-                            params.last_binary_limb_bit_width
-                        } else {
-                            params.binary_limbs_params.limb_size_bits
-                        };
-
                         let max_value = if limb_idx == params.num_binary_limbs && top_limb_may_overflow {
                             params.last_binary_limb_max_value.clone()
                         } else {
                             params.binary_limbs_params.limb_max_value.clone()
                         };
-                        let limb = Limb::<E>::new_from_type( 
-                            limb_type,
-                            max_value,
-                            width
+
+                        assert!(&l <= &max_value);
+
+                        let term = Term::<E>::from_constant(biguint_to_fe(l));
+                        let limb = Limb::<E>::new( 
+                            term,
+                            max_value
                         );
 
                         binary_limbs_allocated.push(limb);
@@ -285,137 +301,106 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                 Num::Variable(var) => {
                     let v = var.get_value().unwrap();
                     this_value += fe_to_biguint(&v) << (i*2*params.binary_limbs_params.limb_size_bits);
-                    let limb_values = split_into_fixed_width_limbs(fe_to_biguint(&v), params.binary_limbs_params.limb_size_bits);
-                    assert!(limb_values.len() == params.limb_witness_size);
+                    let limb_values = split_into_fixed_number_of_limbs(fe_to_biguint(&v), params.binary_limbs_params.limb_size_bits, params.limb_witness_size);
 
                     let expected_high_width = if (i+1)*params.limb_witness_size == params.num_binary_limbs {
-                        (params.limb_witness_size - 1) * params.binary_limbs_params.limb_size_bits + params.last_binary_limb_bit_width
+                        params.last_binary_limb_bit_width
                     } else {
-                        params.limb_witness_size * params.binary_limbs_params.limb_size_bits
+                        params.binary_limbs_params.limb_size_bits
                     };
 
-                    let expected_high_max_value = if (i+1)*params.limb_witness_size == params.num_binary_limbs{
+                    let expected_high_max_value = if (i+1)*params.limb_witness_size == params.num_binary_limbs {
                         params.last_binary_limb_max_value.clone()
                     } else {
                         params.binary_limbs_params.limb_max_value.clone()
                     };
 
+                    assert!(expected_high_width & 1 == 0);
+                    // if expected_high_width & 1 == 1 {
+                    //     expected_high_width += 1;
+                    // }
+
                     let expected_width = expected_high_width + params.binary_limbs_params.limb_size_bits;
                     let chain = create_range_constraint_chain(cs, var, expected_width)?;
                     assert!(expected_width % chain.len() == 0);
                     let constrained_bits_per_element = expected_width / chain.len();
-                    let half_idx = params.binary_limbs_params.limb_size_bits / constrained_bits_per_element;
+                    let half_idx = params.binary_limbs_params.limb_size_bits / constrained_bits_per_element - 1;
                     let low_limb_element = chain[half_idx].clone();
 
-                    let a = AllocatedLimb::<E> { 
-                        value: low_limb_element.get_value().unwrap(),
-                        variable: low_limb_element.get_variable()
-                    };
+                    // println!("Low limb element = {}", low_limb_element.get_value().unwrap());
 
-                    let limb_type = LimbType::Variable(a);
+                    let low_term = Term::<E>::from_allocated_num(low_limb_element);
 
-                    let limb = Limb::<E>::new_from_type( 
-                        limb_type,
+                    let low_limb = Limb::<E>::new( 
+                        low_term.clone(),
                         params.binary_limbs_params.limb_max_value.clone(),
-                        params.binary_limbs_params.limb_size_bits
                     );
 
-                    binary_limbs_allocated.push(limb);
+                    binary_limbs_allocated.push(low_limb);
 
-                    let mut new_var_value = v;
-                    new_var_value.sub_assign(&low_limb_element.get_value().unwrap());
-                    new_var_value.mul_assign(&params.binary_limbs_params.shift_right_by_limb_constant);
+                    let full_term = Term::<E>::from_allocated_num(var.clone());
 
-                    let high_limb = AllocatedNum::alloc(
-                        cs, 
-                        || {
-                            Ok(new_var_value)
-                        }
-                    )?;
+                    let mut tmp = low_term;
+                    tmp.negate();
 
-                    let a = AllocatedLimb::<E> { 
-                        value: high_limb.get_value().unwrap(),
-                        variable: high_limb.get_variable()
-                    };
+                    let mut high_term = full_term.add(cs, &tmp)?;
+                    high_term.scale(&params.binary_limbs_params.shift_right_by_limb_constant);
 
-                    let limb_type = LimbType::Variable(a);
+                    let high_term = high_term.collapse_into_num(cs)?;
 
-                    let limb = Limb::<E>::new_from_type( 
-                        limb_type,
-                        expected_high_max_value,
-                        expected_high_width
+                    let high_term = Term::<E>::from_num(high_term);
+
+                    // println!("High limb element = {}", high_term.get_value().unwrap());
+
+                    let high_limb = Limb::<E>::new( 
+                        high_term,
+                        limb_values[1].clone()
                     );
 
-                    binary_limbs_allocated.push(limb);
+                    binary_limbs_allocated.push(high_limb);
                 }
             }
 
-            base_field_lc.add_assign_number_with_coeff(w, current_constant);
+            // keep track of base field limb
+            base_field_lc.add_assign_number_with_coeff(&w, current_constant);
             current_constant.mul_assign(&shift_constant);
         }
 
         let base_field_limb_num = base_field_lc.into_num(cs)?;
 
-        let base_field_limb = match base_field_limb_num {
-            Num::Constant(value) => {
-                let limb_type = LimbType::Constant(value);
-                let limb = Limb::<E>::new_from_type( 
-                    limb_type,
-                    params.base_field_limb_params.limb_max_value.clone(),
-                    params.base_field_limb_params.limb_size_bits
-                );
-
-                limb
-            },
-            Num::Variable(var) => {
-                let a = AllocatedLimb::<E> { 
-                    value: var.get_value().unwrap(),
-                    variable: var.get_variable()
-                };
-
-                let limb_type = LimbType::Variable(a);
-                let limb = Limb::<E>::new_from_type( 
-                    limb_type,
-                    params.base_field_limb_params.limb_max_value.clone(),
-                    params.base_field_limb_params.limb_size_bits
-                );
-
-                limb
-            }
-        };
+        let base_field_term = Term::<E>::from_num(base_field_limb_num);
 
         let this_value = biguint_to_fe::<F>(this_value);
 
-        Ok(Self {
+        let new = Self {
             binary_limbs: binary_limbs_allocated,
-            base_field_limb: base_field_limb,
+            base_field_limb: base_field_term,
             representation_params: params,
             value: this_value,
-            may_need_reduction: false,
-        })
+        };
+
+        Ok(new)
     }
 
     pub fn new_constant(
         value: BigUint,
         params: &'a RnsParameters<E, F>
     ) -> Result<Self, SynthesisError> {
+        assert!(&value < &params.represented_field_modulus);
         let binary_limb_values = split_into_fixed_width_limbs(value.clone(), params.binary_limbs_params.limb_size_bits);
         assert!(binary_limb_values.len() <= params.num_binary_limbs);
-        let base_limb = value.clone() % &params.base_field_modulus;
+        let base_limb_value = value.clone() % &params.base_field_modulus;
 
-        let binary_limbs: Vec<_> = binary_limb_values.into_iter().map(|el| biguint_to_fe(el)).collect();
-        let base_limb = biguint_to_fe(base_limb);
+        let base_limb = biguint_to_fe(base_limb_value.clone());
 
-        let mut binary_limbs_allocated = Vec::with_capacity(binary_limbs.len());
-        for ((l, width), max_val) in binary_limbs.into_iter()
-            .zip(params.binary_limbs_bit_widths.iter())
-            .zip(params.binary_limbs_max_values.iter()) 
+        let mut binary_limbs_allocated = Vec::with_capacity(binary_limb_values.len());
+        for l in  binary_limb_values.into_iter()
         {
-            let limb_type = LimbType::Constant(l);
-            let limb = Limb::<E>::new_from_type(
-                limb_type,
-                max_val.clone(),
-                *width
+            let f = biguint_to_fe(l.clone());
+            let term = Term::<E>::from_constant(f);
+            let limb = Limb::<E>::new(
+                term,
+                l
             );
 
             binary_limbs_allocated.push(limb);
@@ -424,11 +409,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         let zero_limb = Self::zero_limb();
         binary_limbs_allocated.resize(params.num_binary_limbs, zero_limb);
 
-        let base_limb = Limb::<E>::new_from_type(
-            LimbType::Constant(base_limb),
-            params.base_field_modulus.clone(),
-            params.base_field_modulus.bits()
-        );
+        let base_limb = Term::<E>::from_constant(base_limb);
 
         let val = biguint_to_fe(value);
 
@@ -437,27 +418,26 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             base_field_limb: base_limb,
             representation_params: params,
             value: val,
-            may_need_reduction: false,
         })
     }
 
     fn zero_limb() -> Limb<E> {
-        let l = LimbType::Constant(E::Fr::zero());
-        let limb = Limb::<E>::new_from_type(
-            l,
-            BigUint::from(0u64),
-            0
+        let term = Term::<E>::from_constant(E::Fr::zero());
+
+        let limb = Limb::<E>::new(
+            term,
+            BigUint::from(0u64)
         );
 
         limb
     }
 
     fn one_limb() -> Limb<E> {
-        let one_limb = LimbType::Constant(E::Fr::one());
-        let limb = Limb::<E>::new_from_type(
-            one_limb,
-            BigUint::from(1u64),
-            1
+        let term = Term::<E>::from_constant(E::Fr::one());
+
+        let limb = Limb::<E>::new(
+            term,
+            BigUint::from(1u64)
         );
 
         limb
@@ -472,10 +452,9 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
     
         Self {
             binary_limbs: binary_limbs,
-            base_field_limb: zero_limb,
+            base_field_limb: Term::<E>::from_constant(E::Fr::zero()),
             representation_params: params,
             value: F::zero(),
-            may_need_reduction: false,
         }
     }
 
@@ -486,15 +465,14 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         let zero_limb = Self::zero_limb();
 
         let mut binary_limbs = Vec::with_capacity(params.num_binary_limbs);
-        binary_limbs.push(one_limb.clone());
+        binary_limbs.push(one_limb);
         binary_limbs.resize(params.num_binary_limbs, zero_limb.clone());
     
         Self {
             binary_limbs: binary_limbs,
-            base_field_limb: one_limb,
+            base_field_limb: Term::<E>::from_constant(E::Fr::one()),
             representation_params: params,
             value: F::one(),
-            may_need_reduction: false,
         }
     }
 
@@ -528,22 +506,12 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
     fn is_constant(&self) -> bool {
         for l in self.binary_limbs.iter() {
-            match l.limb_type {
-                LimbType::Variable(..) => {
-                    return false;
-                }
-                _ => {}
-            }
-        }
-
-        match &self.base_field_limb.limb_type {
-            LimbType::Variable(..) => {
+            if !l.is_constant() {
                 return false;
             }
-            _ => {}
         }
 
-        true
+        self.base_field_limb.is_constant()
     }
 
     pub fn reduce_if_necessary<CS: ConstraintSystem<E>>(
@@ -556,11 +524,9 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         }
 
         // let's see if we ever need to reduce individual limbs into the default ranges
-        println!("Self value = {}", self.get_max_value().to_str_radix(16));
-        println!("Max representable = {}", self.representation_params.max_representable_value().to_str_radix(16));
         // first trivial check
         let mut needs_reduction = self.get_max_value() > self.representation_params.max_representable_value();
-        println!("Needs reduction = {}", needs_reduction);
+        // let mut needs_reduction = self.get_max_value() > self.representation_params.max_representable_value() * self.representation_params.max_representable_value();
         let max_limb_value = &self.representation_params.binary_limbs_params.limb_max_intermediate_value;
         for binary_limb in self.binary_limbs.iter() {
             needs_reduction = needs_reduction || &binary_limb.get_value() > max_limb_value;
@@ -579,42 +545,113 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
     ) -> Result<Self, SynthesisError> {
         // first perform actual reduction in the field that we try to represent
         let (q, rem) = self.get_value().div_rem(&self.representation_params.represented_field_modulus);
-        let q_fe = biguint_to_fe::<F>(q.clone());
-        // calculate metaparaters for later on
 
-        let max_q_bits = (self.get_max_value() / &self.representation_params.represented_field_modulus).bits() + 1;
-        assert!(max_q_bits <= self.representation_params.binary_limbs_params.limb_intermediate_value_capacity);
+        let mut max_q_bits = (self.get_max_value() / &self.representation_params.represented_field_modulus).bits() + 1;
+        if max_q_bits & 1 == 1 {
+            max_q_bits += 1;
+        }
+        assert!(max_q_bits <= E::Fr::CAPACITY as usize, "for no quotient size can not overflow capacity");
 
-        let limb = AllocatedLimb::alloc_with_bit_limit(cs, q, max_q_bits)?;
-        let max_value = BigUint::from(1u64) << max_q_bits;
-        let q_limb = Limb::<E>::new_from_type(
-            LimbType::Variable(limb),
-            max_value,
-            max_q_bits
-        );
+        let q_fe = biguint_to_fe::<E::Fr>(q.clone());
+        let q_represented_field_value = biguint_to_fe::<F>(q.clone());
+       
+        let q_as_field_repr = if max_q_bits <= self.representation_params.binary_limbs_params.limb_size_bits {
+            let q_max_value = (BigUint::from(1u64) << max_q_bits) - BigUint::from(1u64);
 
-        // other limbs are zeroes
-        let q_empty_limb = Limb::<E>::new_from_type(
-            LimbType::Constant(E::Fr::zero()),
-            BigUint::from(0u64),
-            0,
-        );
+            let allocated = AllocatedNum::alloc(
+                cs, 
+                || {
+                    Ok(q_fe)
+                }
+            )?;
+    
+            let _ = create_range_constraint_chain(cs, &allocated, max_q_bits)?;
+            let term = Term::<E>::from_allocated_num(allocated);
+            let q_limb = Limb::new(term.clone(), q_max_value);
+    
+            let q_empty_limb = Self::zero_limb();
+    
+            let mut q_new_binary_limbs = Vec::with_capacity(self.binary_limbs.len());
+            q_new_binary_limbs.push(q_limb.clone());
+            q_new_binary_limbs.resize(self.representation_params.num_binary_limbs, q_empty_limb);
+    
+            let q_base_field_term = term;
+    
+            let q_as_field_repr = Self{
+                base_field_limb: q_base_field_term,
+                binary_limbs: q_new_binary_limbs,
+                representation_params: self.representation_params,
+                value: q_represented_field_value
+            };
 
-        let mut q_new_binary_limbs = Vec::with_capacity(self.binary_limbs.len());
-        q_new_binary_limbs.push(q_limb.clone());
-        q_new_binary_limbs.resize(self.binary_limbs.len(), q_empty_limb);
+            q_as_field_repr
+        } else {
+            // we need more limbs for quotient
+            let mut num_limbs = max_q_bits / self.representation_params.binary_limbs_params.limb_size_bits;
+            if max_q_bits % self.representation_params.binary_limbs_params.limb_size_bits != 0 {
+                num_limbs += 1;
+            }
 
-        let q_base_field_limb = q_limb;
+            // let q_max_value = (BigUint::from(1u64) << max_q_bits) - BigUint::from(1u64);
 
-        let q_as_field_repr = Self {
-            binary_limbs: q_new_binary_limbs,
-            base_field_limb: q_base_field_limb,
-            representation_params: self.representation_params,
-            value: q_fe,
-            may_need_reduction: false,
+            let allocated = AllocatedNum::alloc(
+                cs, 
+                || {
+                    Ok(q_fe)
+                }
+            )?;
+    
+            let chain = create_range_constraint_chain(cs, &allocated, max_q_bits)?;
+            let term = Term::<E>::from_allocated_num(allocated);
+
+            let mut q_new_binary_limbs = Vec::with_capacity(self.binary_limbs.len());
+
+            assert!(max_q_bits % chain.len() == 0);
+            let constraint_bits_per_step = max_q_bits / chain.len();
+
+            let mut shift = 0;
+
+            for l in 0..num_limbs {
+                let bits = if max_q_bits >= self.representation_params.binary_limbs_params.limb_size_bits {
+                    max_q_bits -= self.representation_params.binary_limbs_params.limb_size_bits;
+
+                    self.representation_params.binary_limbs_params.limb_size_bits
+                } else {
+                    max_q_bits
+                };
+
+                let max_limb_value = (BigUint::from(1u64) << bits) - BigUint::from(1u64);
+
+                let subvalue_index = bits / constraint_bits_per_step - 1;
+
+                let allocated = chain[subvalue_index + shift].clone();
+                let term = Term::<E>::from_allocated_num(allocated);
+                let q_limb = Limb::new(term.clone(), max_limb_value);
+
+                q_new_binary_limbs.push(q_limb);
+
+                shift += subvalue_index + 1;
+            }
+
+            let q_empty_limb = Self::zero_limb();
+            q_new_binary_limbs.resize(self.representation_params.num_binary_limbs, q_empty_limb);
+    
+            let q_base_field_term = term;
+    
+            let q_as_field_repr = Self{
+                base_field_limb: q_base_field_term,
+                binary_limbs: q_new_binary_limbs,
+                representation_params: self.representation_params,
+                value: q_represented_field_value
+            };
+
+            q_as_field_repr
+
         };
 
-        println!("Quotient value = {}", q_as_field_repr.get_value().to_str_radix(16));
+        assert!(max_q_bits <= self.representation_params.binary_limbs_params.limb_size_bits, 
+            "during requction q has {} bits, limb size is {}", max_q_bits, self.representation_params.binary_limbs_params.limb_size_bits);
+        
 
         // create remainder
 
@@ -626,14 +663,10 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             self.representation_params
         )?;
 
-        println!("remainder value = {}", r_as_field_repr.get_value().to_str_radix(16));
-
         // perform constraining by implementing multiplication
         // x = q*p + r
 
         let one = Self::one(self.representation_params);
-        println!("One = {}", one.get_value().to_str_radix(16));
-        println!("One max = {}", one.get_max_value().to_str_radix(16));
 
         Self::constraint_fma_with_multiple_additions(
             cs,
@@ -642,7 +675,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             &[],
             &q_as_field_repr, 
             &r_as_field_repr,
-            self.representation_params
         )?;
 
         Ok(r_as_field_repr)
@@ -670,13 +702,199 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         Ok(witnesses)
     }
 
+    pub fn add<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+        oth: &Self
+    ) -> Result<Self, SynthesisError> {
+        let this = self.reduce_if_necessary(cs)?;
+        let other = oth.reduce_if_necessary(cs)?;
+
+        // perform addition without reduction, so it will eventually be reduced later on
+
+        let mut new_binary_limbs = vec![];
+
+        for (l, r) in this.binary_limbs.iter()
+                        .zip(other.binary_limbs.iter()) 
+        {
+            let new_term = l.term.add(cs, &r.term)?;
+            let new_max_value = l.max_value.clone() + &r.max_value;
+
+            let limb = Limb::<E>::new(new_term, new_max_value);
+            new_binary_limbs.push(limb);
+        }
+
+        let new_base_limb = this.base_field_limb.add(cs, &other.base_field_limb)?;
+
+        let mut new_value = this.value;
+        new_value.add_assign(&other.value);
+
+        let new = Self {
+            binary_limbs: new_binary_limbs,
+            base_field_limb: new_base_limb,
+            value: new_value,
+            representation_params: self.representation_params
+        };
+
+        Ok(new)
+    }
+
+    pub fn sub<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+        oth: &Self
+    ) -> Result<Self, SynthesisError> {
+        let this = self.reduce_if_necessary(cs)?;
+        let other = oth.reduce_if_necessary(cs)?;
+
+        // subtraction is a little more involved
+
+        // first do the constrant propagation
+        if this.is_constant() && other.is_constant() {
+            let mut tmp = self.representation_params.represented_field_modulus.clone() + this.get_value() - other.get_value();
+            tmp = tmp % & self.representation_params.represented_field_modulus;
+
+            return Self::new_constant(tmp, self.representation_params);
+        }
+
+        if other.is_constant() {
+            let mut tmp = self.representation_params.represented_field_modulus.clone() - other.get_value();
+            tmp = tmp % & self.representation_params.represented_field_modulus;
+
+            let other_negated =  Self::new_constant(tmp, self.representation_params)?;
+
+            // do the constant propagation in addition
+
+            return this.add(cs, &other_negated);
+        }
+
+        // keep track for potential borrows and subtract binary limbs
+
+        let params = self.representation_params;
+
+        // construct data on from what positions we would borrow
+
+        let mut borrow_max_values = vec![];
+        let mut borrow_bit_widths = vec![];
+
+        let mut previous = None;
+
+        for l in other.binary_limbs.iter() {
+            let mut max_value = l.max_value();
+            if let Some(previous_shift) = previous.take() {
+                max_value += BigUint::from(1u64) << (previous_shift - params.binary_limbs_params.limb_size_bits);
+            }
+
+            let borrow_bits = std::cmp::max(params.binary_limbs_params.limb_size_bits, max_value.bits());
+
+            borrow_max_values.push(max_value);
+            borrow_bit_widths.push(borrow_bits);
+
+            previous = Some(borrow_bits);
+        }
+
+        // now we can determine how many moduluses of the represented field 
+        // we have to add to never underflow
+
+        let shift = params.binary_limbs_params.limb_size_bits * (params.num_binary_limbs - 1);
+
+        let mut multiples_to_add_at_least = borrow_max_values.last().unwrap().clone() << shift;
+        multiples_to_add_at_least = multiples_to_add_at_least / &params.represented_field_modulus;
+
+        let mut multiples = multiples_to_add_at_least * &params.represented_field_modulus;
+
+        loop {
+            let slices = split_into_fixed_number_of_limbs(multiples.clone(), params.binary_limbs_params.limb_size_bits, params.num_binary_limbs);
+            if slices.last().unwrap() <= borrow_max_values.last().unwrap() {
+                multiples += &params.represented_field_modulus;
+            } else {
+                break;
+            }
+        }
+
+        let multiple_slices = split_into_fixed_number_of_limbs(multiples.clone(), params.binary_limbs_params.limb_size_bits, params.num_binary_limbs);
+
+        // create new limbs
+
+        let mut previous = None;
+
+        let last_idx = this.binary_limbs.len() - 1;
+
+        let mut new_binary_limbs = vec![];
+
+        for (idx, (((l, r), &bits), multiple)) in this.binary_limbs.iter()
+                                            .zip(other.binary_limbs.iter())
+                                            .zip(borrow_bit_widths.iter())
+                                            .zip(multiple_slices.iter())
+                                            .enumerate()
+        {
+            let mut tmp = BigUint::from(1u64) << bits;
+            if let Some(previous_bits) = previous.take() {
+                if idx != last_idx {
+                    tmp -= BigUint::from(1u64) << (previous_bits - params.binary_limbs_params.limb_size_bits);
+                } else {
+                    tmp = BigUint::from(1u64) << (previous_bits - params.binary_limbs_params.limb_size_bits);
+                }
+            }
+            let constant = if idx != last_idx {
+                tmp + multiple
+            } else {
+                multiple.clone() - tmp
+            };
+
+            let constant_as_fe = biguint_to_fe::<E::Fr>(constant.clone());
+
+            let mut tmp = l.term.clone();
+            tmp.add_constant(&constant_as_fe);
+
+            let mut other_negated = r.term.clone();
+            other_negated.negate();
+
+            let r = tmp.add(cs, &other_negated)?;
+
+            let new_max_value = l.max_value() + constant;
+
+            let limb = Limb::<E>::new(
+                r,
+                new_max_value
+            );
+
+            new_binary_limbs.push(limb);
+
+            previous = Some(bits);
+        }
+
+        let tmp = multiples % &params.base_field_modulus;
+        let constant_as_fe = biguint_to_fe::<E::Fr>(tmp);
+
+        let mut tmp = this.base_field_limb.clone();
+        tmp.add_constant(&constant_as_fe);
+
+        let mut other_negated = other.base_field_limb.clone();
+        other_negated.negate();
+
+        let new_base_limb = tmp.add(cs, &other_negated)?;
+
+        let mut new_value = this.value;
+        new_value.sub_assign(&other.value);
+
+        let new = Self {
+            binary_limbs: new_binary_limbs,
+            base_field_limb: new_base_limb,
+            value: new_value,
+            representation_params: self.representation_params
+        };
+
+        Ok(new)
+    }
+
     pub fn mul<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,
-        other: &Self
+        oth: &Self
     ) -> Result<Self, SynthesisError> {
         let this = self.reduce_if_necessary(cs)?;
-        let other = other.reduce_if_necessary(cs)?;
+        let other = oth.reduce_if_necessary(cs)?;
 
         let value = this.get_value() * other.get_value();
         let (q, r) = value.div_rem(&self.representation_params.represented_field_modulus);
@@ -686,7 +904,55 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         }
 
         let q_wit = Self::slice_into_double_limb_witnesses(q, cs, &*self.representation_params)?;
+
+        let q_elem = Self::from_double_size_limb_witnesses(
+            cs, 
+            &q_wit, 
+            true, 
+            self.representation_params
+        )?;
+
+        let r_wit = Self::slice_into_double_limb_witnesses(r, cs, &*self.representation_params)?;
     
+        let r_elem = Self::from_double_size_limb_witnesses(
+            cs, 
+            &r_wit, 
+            false, 
+            self.representation_params
+        )?;
+
+        // we constraint a * b = q*p + rem
+
+        Self::constraint_fma_with_multiple_additions(
+            cs, 
+            &this,
+            &other,
+            &[],
+            &q_elem,
+            &r_elem,
+        )?;
+
+        Ok(r_elem)
+    }
+
+    pub fn fma<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+        to_mul: &Self,
+        to_add: &Self
+    ) -> Result<Self, SynthesisError> {
+        let this = self.reduce_if_necessary(cs)?;
+        let to_mul = to_mul.reduce_if_necessary(cs)?;
+
+        let value = this.get_value() * to_mul.get_value() + to_add.get_value();
+        let (q, r) = value.div_rem(&self.representation_params.represented_field_modulus);
+
+        if this.is_constant() && to_mul.is_constant() && to_add.is_constant() {
+            return Self::new_constant(r, &*self.representation_params);
+        }
+
+        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, &*self.representation_params)?;
+
         let q_elem = Self::from_double_size_limb_witnesses(
             cs, 
             &q_wit, 
@@ -706,14 +972,138 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         Self::constraint_fma_with_multiple_additions(
             cs, 
             &this,
-            &other,
-            &[],
+            &to_mul,
+            &[to_add.clone()],
             &q_elem,
             &r_elem,
-            &*self.representation_params
         )?;
 
         Ok(r_elem)
+    }
+
+    pub fn div<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+        den: &Self,
+    ) -> Result<Self, SynthesisError> {
+        // we do self/den = result mod p
+        // so we constraint result * den = q * p + self
+
+        let this = self.reduce_if_necessary(cs)?;
+        let den = den.reduce_if_necessary(cs)?;
+
+        let inv = mod_inverse(&den.get_value(), &self.representation_params.represented_field_modulus);
+        let result = this.get_value() * &inv % &self.representation_params.represented_field_modulus;
+
+        let value = den.get_value() * &result - &this.get_value();
+        let (q, rem) = value.div_rem(&self.representation_params.represented_field_modulus);
+
+        use crate::num_traits::Zero;
+        assert!(rem.is_zero(), "remainder = {}", rem.to_str_radix(16));
+
+        if this.is_constant() && den.is_constant() {
+            return Self::new_constant(result, &*self.representation_params);
+        }
+
+        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, &*self.representation_params)?;
+
+        let q_elem = Self::from_double_size_limb_witnesses(
+            cs, 
+            &q_wit, 
+            true, 
+            self.representation_params
+        )?;
+
+        let inv_wit = Self::slice_into_double_limb_witnesses(result, cs, &*self.representation_params)?;
+    
+        let inv_wit = Self::from_double_size_limb_witnesses(
+            cs, 
+            &inv_wit, 
+            false, 
+            self.representation_params
+        )?;
+
+        // a / den = 1 mod p => a / den = q*p + 1
+        // den - 
+
+        Self::constraint_fma_with_multiple_additions(
+            cs, 
+            &den,
+            &inv_wit,
+            &[],
+            &q_elem,
+            &this,
+        )?;
+
+        Ok(inv_wit)
+    }
+
+
+    // returns first if true and second if false
+    fn select<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        flag: &Boolean,
+        first: &Self,
+        second: &Self
+    ) -> Result<Self, SynthesisError> {
+        let first = first.reduce_if_necessary(cs)?;
+
+        match flag {
+            Boolean::Constant(c) => {
+                if *c {
+                    return Ok(first.clone());
+                } else {
+                    return Ok(second.clone());
+                }
+            },
+            _ => {}
+        }
+
+        let flag_as_term = Term::<E>::from_boolean(flag);
+
+        // flag * a + (1-flag)*b = flag * (a-b) + b
+
+        let mut new_binary_limbs = vec![];
+
+        for (l, r) in first.binary_limbs.iter()
+                    .zip(second.binary_limbs.iter()) 
+        {
+            let mut minus_b = r.term.clone();
+            minus_b.negate();
+            let a_minus_b = l.term.add(cs, &minus_b)?;
+
+            let n = Term::<E>::fma(cs, &flag_as_term, &a_minus_b, &r.term)?;
+
+            let new_max = std::cmp::max(l.max_value(), r.max_value());
+
+            let new_limb = Limb::new(
+                n,
+                new_max
+            );
+
+            new_binary_limbs.push(new_limb);
+        }
+
+        let mut minus_b = first.base_field_limb.clone();
+        minus_b.negate();
+        let a_minus_b = second.base_field_limb.add(cs, &minus_b)?;
+
+        let new_base_limb = Term::<E>::fma(cs, &flag_as_term, &a_minus_b, &second.base_field_limb)?;
+
+        let new_value = if flag.get_value().unwrap() {
+        first.value
+        } else {
+            second.value
+        };
+
+        let new = Self {
+            binary_limbs: new_binary_limbs,
+            base_field_limb: new_base_limb,
+            value: new_value,
+            representation_params: first.representation_params
+        };
+
+        Ok(new)
     }
 
     fn constraint_fma_with_multiple_additions<CS: ConstraintSystem<E>>(
@@ -723,7 +1113,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         addition_elements: &[Self],
         result_quotient: &Self,
         result_remainder: &Self,
-        params: &RnsParameters<E, F>
     ) -> Result<(), SynthesisError> {
         // remember the schoolbook multiplication
 
@@ -755,14 +1144,16 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         // a{1} * b{0} + a{0} * b{1} + \sum addition_elements{1} - q{1} * p{0} - q{0} * p{1} - r{1}
         // what saves us is that p{i} are constants, so in principle we only have less multiplications
 
-        // we also should keep in mind that we work not just with "limb",
-        // but in RNS, so we "wrap around", so if we have e.g. 2 limbs, then
-        // combination like a{2} * b{1} will wrap and go into result{0}
+        // we also should keep in mind that single pair of limbs addition can NOT overflow two limb width
+        // and we assume that all parameters are normalized, so we will later on check that "double carry"
+        // is not longer than some expected value
+        let params = mul_a.representation_params;
 
-        // each result limb will have uncollapsed set of intermediate limbs
         let mut result_limbs = vec![vec![]; params.num_binary_limbs];
 
         let target_limbs = params.num_binary_limbs;
+
+        let mut expected_binary_max_values = vec![vec![]; params.num_binary_limbs];
 
         for target in 0..target_limbs {
             let mut pairs = vec![];
@@ -776,21 +1167,63 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
             for (i, j) in pairs.into_iter() {
                 // we take a and b limbs plus quotient and modulus limbs
-                let mut q_limb = result_quotient.binary_limbs[i].clone();
+                let mut q_limb = result_quotient.binary_limbs[i].term.clone();
                 q_limb.scale(&params.represented_field_modulus_negated_limbs[j]);
-                let tmp = Self::dirty_limb_fma(cs, &mul_a.binary_limbs[i], &mul_b.binary_limbs[j], &q_limb)?;
+                let tmp = Term::<E>::fma(cs, &mul_a.binary_limbs[i].term, &mul_b.binary_limbs[j].term, &q_limb)?;
+                // also keep track of the length
+                let mut max_value = mul_a.binary_limbs[i].max_value() * mul_b.binary_limbs[j].max_value();
+                max_value += params.represented_field_modulus_negated_limbs_biguints[j].clone() << params.binary_limbs_params.limb_size_bits;
 
                 result_limbs[target].push(tmp);
+                expected_binary_max_values[target].push(max_value);
             }
         }
 
         // now we need to process over additions and remainder
         let mut collapsed_limbs = vec![];
-        for (limb_idx, components) in result_limbs.into_iter().enumerate() {
+        let mut collapsed_max_values = vec![];
+        for (components, max_values_components) in result_limbs.into_iter()
+                                                    .zip(expected_binary_max_values.into_iter()) 
+        {
             assert!(components.len() > 0);
-            let r = Self::collapse_contributions(cs, components)?;
-            println!("Collapsed limb value without remainder and additions = {}", r.get_value().to_str_radix(16));
+            let r = if components.len() == 1 {
+                components[0].clone()
+            } else {
+                let (base, other) = components.split_first().unwrap();
+                let r = base.add_multiple(cs, &other)?;
+
+                r
+            };
+
             collapsed_limbs.push(r);
+
+            let mut max_value = BigUint::from(0u64);
+            for c in max_values_components.into_iter() {
+                max_value += c;
+            }
+
+            collapsed_max_values.push(max_value);
+        }
+
+        // also add max value contributions from additions
+        // we do not add max values from remainder cause we expect it to cancel exactly
+        let mut double_limb_max_bits = vec![];
+        for i in (0..target_limbs).step_by(2) {
+            let mut max_value = BigUint::from(0u64);
+            max_value += &collapsed_max_values[i];
+            max_value += &collapsed_max_values[i+1] << params.binary_limbs_params.limb_size_bits;
+            for a in addition_elements.iter() {
+                max_value += a.binary_limbs[i].max_value();
+                max_value += a.binary_limbs[i+1].max_value() << params.binary_limbs_params.limb_size_bits;
+            }
+
+            let mut max_bits = max_value.bits() + 1;
+            if max_bits & 1 == 1 {
+                // we expect to constraint by two bits only
+                max_bits += 1;
+            }
+
+            double_limb_max_bits.push(max_bits);
         }
 
         let shift_right_one_limb_constant = params.binary_limbs_params.shift_right_by_limb_constant;
@@ -807,144 +1240,180 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         let mut minus_one = E::Fr::one();
         minus_one.negate();
 
-        let mut to_range_check = vec![];
+        let mut double_limb_carries = vec![];
 
-        for t in 2..target_limbs {
+        let mut chunk_of_previous_carry = None;
+
+        let last_idx = target_limbs - 1;
+
+        for i in (0..target_limbs).step_by(2) {
             let mut contributions = vec![];
-            for (shift, i) in ((t-2)..t).enumerate() {
-                let c = if shift == 0 {
-                    shift_right_two_limb_constant
-                } else if shift == 1 {
-                    shift_right_one_limb_constant
+
+            let tmp = collapsed_limbs[i].clone();
+            contributions.push(tmp);
+
+            let mut tmp = collapsed_limbs[i+1].clone();
+            tmp.scale(&shift_left_one_limb_constant);
+            contributions.push(tmp);
+
+            let mut tmp = result_remainder.binary_limbs[i].term.clone();
+            tmp.negate();
+            contributions.push(tmp);
+
+            let mut tmp = result_remainder.binary_limbs[i+1].term.clone();
+            tmp.scale(&shift_left_one_limb_constant);
+            tmp.negate();
+            contributions.push(tmp);
+
+            for addition_element in addition_elements.iter() {
+                let tmp = addition_element.binary_limbs[i].term.clone();
+                contributions.push(tmp);
+
+                let mut tmp = addition_element.binary_limbs[i+1].term.clone();
+                tmp.scale(&shift_left_one_limb_constant);
+                contributions.push(tmp);
+            }
+
+            if let Some(previous) = chunk_of_previous_carry.take() {
+                contributions.push(previous);
+            }
+
+            // collapse contributions
+            let (base, other) = contributions.split_first().unwrap();
+            let mut r = base.add_multiple(cs, &other)?;
+
+            r.scale(&shift_right_two_limb_constant);
+
+            if i+1 != last_idx {
+                chunk_of_previous_carry = Some(r.clone());
+            };
+
+            double_limb_carries.push(r);
+        }
+
+        assert!(chunk_of_previous_carry.is_none());
+
+        assert_eq!(double_limb_carries.len(), double_limb_max_bits.len());
+
+        let mut previous_chunk: Option<(Num<E>, usize)> = None;
+
+        let last_idx = double_limb_carries.len() - 1;
+
+        // now we have to take each "double carry" and propagate it into other
+        for (idx, (r, max_bits)) in double_limb_carries.into_iter()
+            .zip(double_limb_max_bits.into_iter())
+            .enumerate() 
+        {
+            let this_carry_value = r.collapse_into_num(cs)?;
+
+            assert!(max_bits >= 2*params.binary_limbs_params.limb_size_bits);
+
+            let mut carry_max_bits = max_bits - 2*params.binary_limbs_params.limb_size_bits;
+            if carry_max_bits & 1 == 1 {
+                carry_max_bits += 1;
+            }
+
+            // TODO: Combine by more than two, write proper multipack + constraint function
+            if let Some((previous_carry_value, previous_max_bits)) = previous_chunk.take() {
+                // we have some bits to constraint from the previous step
+                let mut shift_constant = E::Fr::one();
+                for _ in 0..previous_max_bits {
+                    shift_constant.double();
+                }
+                let mut this_combined_with_previous = Term::<E>::from_num(this_carry_value);
+                let previous_term = Term::<E>::from_num(previous_carry_value.clone());
+                this_combined_with_previous.scale(&shift_constant);
+                let combined_carry_value = this_combined_with_previous.add(cs, &previous_term)?.collapse_into_num(cs)?;
+
+                let max_bits_from_both = carry_max_bits + previous_max_bits;
+
+                match combined_carry_value {
+                    Num::Constant(val) => {
+                        let f = fe_to_biguint(&val);
+                        assert!(f.bits() <= max_bits);
+                    },
+                    Num::Variable(var) => {
+                        let chain = create_range_constraint_chain(cs, &var, max_bits_from_both)?;
+                        assert!(max_bits_from_both % chain.len() == 0);
+                        let constraint_bits_per_step = max_bits_from_both / chain.len();
+                        let idx_for_lower_part = previous_max_bits / constraint_bits_per_step - 1;
+
+                        let low_part_in_chain = chain[idx_for_lower_part].clone();
+
+                        let v = match previous_carry_value {
+                            Num::Variable(p) => p,
+                            _ => {unreachable!()}
+                        };
+
+                        low_part_in_chain.enforce_equal(cs, &v)?;
+                    }
+                }
+            } else {
+                if idx == last_idx {
+                    // this is a last chunk, so we have to enforce right away
+                    match this_carry_value {
+                        Num::Constant(val) => {
+                            let f = fe_to_biguint(&val);
+                            assert!(f.bits() <= carry_max_bits);
+                        },
+                        Num::Variable(var) => {
+                            let _ = create_range_constraint_chain(cs, &var, carry_max_bits)?;
+                        }
+                    }
                 } else {
-                    unreachable!()
-                };
-
-                let mut tmp = collapsed_limbs[i].clone();
-                println!("Limb {} = {}", i, tmp.get_value().to_str_radix(16));
-                tmp.scale(&c);
-                println!("Tmp shifted by {} = {}", 2-shift, tmp.get_value().to_str_radix(16));
-
-                contributions.push(tmp);
-
-                let mut tmp = result_remainder.binary_limbs[i].clone();
-                println!("Remainder {} = {}", i, tmp.get_value().to_str_radix(16));
-                tmp.scale(&c);
-                tmp.unsafe_negate();
-                println!("Tmp shifted by {} and negated = {}", 2-shift, tmp.get_value().to_str_radix(16));
-                contributions.push(tmp);
-
-                for addition_element in addition_elements.iter() {
-                    let mut tmp = addition_element.binary_limbs[i].clone();
-                    tmp.scale(&c);
-                    println!("Tmp from addition shifted by {} = {}", 2-shift, tmp.get_value());
-                    contributions.push(tmp);
-                }
-            }
-
-            println!("Combining contributions for t = {}", t);
-            // now collapse contributions
-            let r = Self::collapse_contributions(cs, contributions)?;
-
-            to_range_check.push(r);
-        }
-
-        // TODO: perform multipacking 
-        for r in to_range_check.into_iter() {
-            let expected_bits = r.max_bits();
-            let value = r.collapse_into_num(cs)?;
-
-            match value {
-                Num::Constant(val) => {
-                    let f = fe_to_biguint(&val);
-                    assert!(f.bits() <= expected_bits);
-                },
-                Num::Variable(var) => {
-                    constraint_num_bits(cs, var.get_variable(), expected_bits)?;
-                }
+                    // combine with next
+                    previous_chunk = Some((this_carry_value, carry_max_bits));
+                }   
+                
             }
         }
 
-        unimplemented!();
+        // now much more trivial part - multiply base field basis
+
+        let mut minus_qp_in_base_field = result_quotient.base_field_limb.clone();
+        minus_qp_in_base_field.scale(&params.represented_field_modulus_negated_in_base_field);
+
+        let ab_in_base_field = Term::<E>::fma(cs, &mul_a.base_field_limb, &mul_b.base_field_limb, &minus_qp_in_base_field)?;
+
+        let mut negated_remainder_in_base_field = result_remainder.base_field_limb.clone();
+        negated_remainder_in_base_field.negate();
+
+        let mut addition_chain = vec![];
+        for a in addition_elements.iter() {
+            addition_chain.push(a.base_field_limb.clone());
+        }
+        addition_chain.push(negated_remainder_in_base_field);
+
+        let must_be_zero = ab_in_base_field.add_multiple(cs, &addition_chain)?;
+        let must_be_zero = must_be_zero.collapse_into_num(cs)?;
+
+        match must_be_zero {
+            Num::Constant(c) => {
+                assert!(c.is_zero());
+            },
+            Num::Variable(var) => {
+                // var.assert_equal_to_constant(cs, E::Fr::zero())?;
+            }
+        }
+
+        Ok(())
     }
 
-    // TODO: Move such functionality into Num and LC
     fn dirty_limb_addition<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         x: &Limb<E>,
         y: &Limb<E>,
     ) -> Result<Limb<E>, SynthesisError> {
-        let x_is_constant = x.is_constant();
-        let y_is_constant = y.is_constant();
+        let new_max_value = x.max_value() + y.max_value();
 
-        match (x_is_constant, y_is_constant) {
-            (true, true) => {
-                let mut result = x.collapse_into_constant();
-                result.add_assign(&y.collapse_into_constant());
+        let new_term = x.term.add(cs, &y.term)?;
 
-                let limb = Limb::<E>::new_from_type(
-                    LimbType::Constant(result),
-                    fe_to_biguint(&result),
-                    get_num_bits(&result)
-                );
+        let new = Limb::<E> {
+            term: new_term,
+            max_value: new_max_value
+        };
 
-                return Ok(limb);
-            },
-            (false, true) | (true, false) => {
-                let constant = if x_is_constant {
-                    x.collapse_into_constant()
-                } else {
-                    y.collapse_into_constant()
-                };
-
-                let mut result = if x_is_constant {
-                    y.clone()
-                } else {
-                    x.clone()
-                };
-
-                result.add_assign_constant(&constant);
-
-                return Ok(result);
-            },
-            (false, false) => {
-                let mut constant_term = x.constant_term;
-                constant_term.add_assign(&y.constant_term);
-
-                let mut new_var_value = x.get_field_value();
-                new_var_value.add_assign(&y.get_field_value());
-
-                let allocated_limb = AllocatedLimb::alloc(cs, new_var_value)?;
-
-                let mut term = MainGateTerm::<E>::new();
-                let t0 = ArithmeticTerm::from_variable_and_coeff(x.get_variable(), x.coeff);
-                let t2 = ArithmeticTerm::from_variable_and_coeff(y.get_variable(), y.coeff);
-                let c = ArithmeticTerm::constant(constant_term);
-                let n = ArithmeticTerm::from_variable(allocated_limb.variable);
-
-                term.add_assign(t0);
-                term.add_assign(t2);
-                term.add_assign(c);
-                term.sub_assign(n);
-
-                cs.allocate_main_gate(term)?;
-
-                let mut max_bits = std::cmp::max(x.max_bits(), y.max_bits());
-                max_bits += 1; // addition
-
-                assert!(max_bits <= E::Fr::CAPACITY as usize);
-
-                let max_value = x.max_value() + &y.max_value();
-
-                let limb = Limb::new_from_type(
-                    LimbType::Variable(allocated_limb), 
-                    max_value, 
-                    max_bits
-                );
-
-                return Ok(limb);
-            }
-        }
+        Ok(new)
     }
 
     fn dirty_three_limb_addition<CS: ConstraintSystem<E>>(
@@ -955,405 +1424,41 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
     ) -> Result<Limb<E>, SynthesisError> {
         assert!(CS::Params::STATE_WIDTH >= 4);
 
-        let x_is_constant = x.is_constant();
-        let y_is_constant = y.is_constant();
-        let z_is_constant = z.is_constant();
+        let new_max_value = x.max_value() + y.max_value() + z.max_value();
 
-        match (x_is_constant, y_is_constant, z_is_constant) {
-            (true, true, true) => {
-                let mut result = x.collapse_into_constant();
-                result.add_assign(&y.collapse_into_constant());
-                result.add_assign(&z.collapse_into_constant());
+        let new_term = x.term.add_multiple(cs, &[y.term.clone(), z.term.clone()])?;
 
-                let limb = Limb::<E>::new_from_type(
-                    LimbType::Constant(result),
-                    fe_to_biguint(&result),
-                    get_num_bits(&result)
-                );
+        let new = Limb::<E> {
+            term: new_term,
+            max_value: new_max_value
+        };
 
-                return Ok(limb);
-            },
-            (true, true, false) | (false, true, true) | (true, false, true)=> {
-                let result = if !x_is_constant {
-                    let mut value = y.collapse_into_constant();
-                    value.add_assign(&z.collapse_into_constant());
-
-                    let mut result = x.clone();
-                    result.add_assign_constant(&value);
-
-                    result
-                } else if !y_is_constant {
-                    let mut value = x.collapse_into_constant();
-                    value.add_assign(&z.collapse_into_constant());
-
-                    let mut result = y.clone();
-                    result.add_assign_constant(&value);
-
-                    result
-                } else {
-                    let mut value = x.collapse_into_constant();
-                    value.add_assign(&y.collapse_into_constant());
-
-                    let mut result = z.clone();
-                    result.add_assign_constant(&value);
-
-                    result
-                };
-
-                return Ok(result);
-            },
-            (true, false, false) | (false, true, false) | (false, false, true) => {
-                let (a, b, value) = if x_is_constant {
-                    (y, z, x.collapse_into_constant())
-                } else if y_is_constant {
-                    (x, z, y.collapse_into_constant())
-                } else {
-                    (x, y, z.collapse_into_constant())
-                };
-
-                let mut constant_value = a.constant_term;
-                constant_value.add_assign(&b.constant_term);
-                constant_value.add_assign(&value);
-
-                let mut new_var_value = a.get_field_value();
-                new_var_value.add_assign(&b.get_field_value());
-                new_var_value.add_assign(&value);
-
-                let allocated_limb = AllocatedLimb::alloc(cs, new_var_value)?;
-
-                let mut term = MainGateTerm::<E>::new();
-                let t0 = ArithmeticTerm::from_variable_and_coeff(a.get_variable(), a.coeff);
-                let t1 = ArithmeticTerm::from_variable_and_coeff(b.get_variable(), b.coeff);
-                let c = ArithmeticTerm::constant(constant_value);
-                let n = ArithmeticTerm::from_variable(allocated_limb.variable);
-
-                term.add_assign(t0);
-                term.add_assign(t1);
-                term.add_assign(c);
-                term.sub_assign(n);
-
-                cs.allocate_main_gate(term)?;
-
-                let mut max_bits = std::cmp::max(a.max_bits(), b.max_bits());
-                max_bits += 2; // two additions
-
-                assert!(max_bits <= E::Fr::CAPACITY as usize);
-
-                let max_value = a.max_value() + &b.max_value() + fe_to_biguint(&value);
-
-                let limb = Limb::new_from_type(
-                    LimbType::Variable(allocated_limb), 
-                    max_value, 
-                    max_bits
-                );
-
-                return Ok(limb);
-            },
-
-            (false, false, false) => {
-                let mut constant_value = x.constant_term;
-                constant_value.add_assign(&y.constant_term);
-                constant_value.add_assign(&z.constant_term);
-
-                let mut new_var_value = x.get_field_value();
-                new_var_value.add_assign(&y.get_field_value());
-                new_var_value.add_assign(&z.get_field_value());
-
-                let allocated_limb = AllocatedLimb::alloc(cs, new_var_value)?;
-
-                let mut term = MainGateTerm::<E>::new();
-                let t0 = ArithmeticTerm::from_variable_and_coeff(x.get_variable(), x.coeff);
-                let t1 = ArithmeticTerm::from_variable_and_coeff(y.get_variable(), y.coeff);
-                let t2 = ArithmeticTerm::from_variable_and_coeff(z.get_variable(), z.coeff);
-                let c = ArithmeticTerm::constant(constant_value);
-                let n = ArithmeticTerm::from_variable(allocated_limb.variable);
-
-                term.add_assign(t0);
-                term.add_assign(t1);
-                term.add_assign(t2);
-                term.add_assign(c);
-                term.sub_assign(n);
-
-                cs.allocate_main_gate(term)?;
-
-                let mut max_bits = std::cmp::max(x.max_bits(), y.max_bits());
-                max_bits = std::cmp::max(max_bits, z.max_bits());
-                max_bits += 2; // two additions
-
-                assert!(max_bits <= E::Fr::CAPACITY as usize);
-
-                let max_value = x.max_value() + &y.max_value() + &z.max_value();
-
-                let limb = Limb::new_from_type(
-                    LimbType::Variable(allocated_limb), 
-                    max_value, 
-                    max_bits
-                );
-
-                return Ok(limb);
-            }
-        }
+        Ok(new)
     }
 
-    // TODO: Move such functionality into Num and LC
     fn dirty_limb_fma<CS: ConstraintSystem<E>>(
         cs: &mut CS,
-        mul_x: &Limb<E>,
-        mul_y: &Limb<E>,
-        add_z: &Limb<E>
+        x: &Limb<E>,
+        y: &Limb<E>,
+        z: &Limb<E>
     ) -> Result<Limb<E>, SynthesisError> {
-        let x_is_constant = mul_x.is_constant();
-        let y_is_constant = mul_y.is_constant();
-        let z_is_constant = add_z.is_constant();
+        assert!(CS::Params::STATE_WIDTH >= 4);
 
-        match (x_is_constant, y_is_constant, z_is_constant) {
-            (true, true, true) => {
-                let mut result = mul_x.collapse_into_constant();
-                result.mul_assign(&mul_y.collapse_into_constant());
-                result.add_assign(&add_z.collapse_into_constant());
+        let new_max_value = x.max_value() * y.max_value() + z.max_value();
 
-                let limb = Limb::<E>::new_from_type(
-                    LimbType::Constant(result),
-                    fe_to_biguint(&result),
-                    get_num_bits(&result)
-                );
+        let new_term = Term::<E>::fma(
+            cs,
+            &x.term,
+            &y.term,
+            &z.term
+        )?;
 
-                return Ok(limb);
-            },
-            (true, true, false) => {
-                let mut value = mul_x.collapse_into_constant();
-                value.mul_assign(&mul_y.collapse_into_constant());
+        let new = Limb::<E> {
+            term: new_term,
+            max_value: new_max_value
+        };
 
-                let mut result = add_z.clone();
-                result.add_assign_constant(&value);
-
-                return Ok(result);
-            },
-            (true, false, true) | (false, true, true)=> {
-                let additive_constant = add_z.collapse_into_constant();
-                let multiplicative_constant = if x_is_constant {
-                    mul_x.collapse_into_constant()
-                } else {
-                    mul_y.collapse_into_constant()
-                };
-
-                let mut result = if x_is_constant {
-                    mul_y.clone()
-                } else {
-                    mul_x.clone()
-                };
-
-                result.scale(&multiplicative_constant);
-                result.add_assign_constant(&additive_constant);
-
-                return Ok(result);
-            },
-            (true, false, false) | (false, true, false) => {
-                let multiplicative_constant = if x_is_constant {
-                    mul_x.collapse_into_constant()
-                } else {
-                    mul_y.collapse_into_constant()
-                };
-
-                let mut tmp = if x_is_constant {
-                    mul_y.clone()
-                } else {
-                    mul_x.clone()
-                };
-
-                tmp.scale(&multiplicative_constant);
-
-                let mut constant_term = tmp.constant_term;
-                constant_term.add_assign(&add_z.constant_term);
-
-                let mut new_var_value = tmp.get_field_value();
-                new_var_value.add_assign(&add_z.get_field_value());
-
-                let allocated_limb = AllocatedLimb::alloc(cs, new_var_value)?;
-
-                let mut term = MainGateTerm::<E>::new();
-                let t0 = ArithmeticTerm::from_variable_and_coeff(tmp.get_variable(), tmp.coeff);
-                let t2 = ArithmeticTerm::from_variable_and_coeff(add_z.get_variable(), add_z.coeff);
-                let c = ArithmeticTerm::constant(constant_term);
-                let n = ArithmeticTerm::from_variable(allocated_limb.variable);
-
-                term.add_assign(t0);
-                term.add_assign(t2);
-                term.add_assign(c);
-                term.sub_assign(n);
-
-                cs.allocate_main_gate(term)?;
-
-                let mut max_bits = std::cmp::max(tmp.max_bits(), add_z.max_bits());
-                max_bits += 1; // addition
-
-                assert!(max_bits <= E::Fr::CAPACITY as usize);
-
-                let max_value = tmp.max_value() + &add_z.max_value();
-
-                let limb = Limb::new_from_type(
-                    LimbType::Variable(allocated_limb), 
-                    max_value, 
-                    max_bits
-                );
-
-                return Ok(limb);
-            },
-            (false, false, true) => {
-                let mut mul_coeff = mul_x.coeff;
-                mul_coeff.mul_assign(&mul_y.coeff);
-
-                let mut x_coeff = mul_x.coeff;
-                x_coeff.mul_assign(&mul_y.constant_term);
-
-                let mut y_coeff = mul_y.coeff;
-                y_coeff.mul_assign(&mul_x.constant_term);
-
-                let mut constant_coeff = mul_x.constant_term;
-                constant_coeff.add_assign(&mul_y.constant_term);
-                constant_coeff.add_assign(&add_z.collapse_into_constant());
-
-                let x_var = mul_x.get_variable();
-                let y_var = mul_y.get_variable();
-
-                let x_value = mul_x.get_field_value();
-                let y_value = mul_y.get_field_value();
-                let z_value = add_z.get_field_value();
-
-                let mut new_value = x_value;
-                new_value.mul_assign(&y_value);
-                new_value.add_assign(&z_value);
-
-                let allocated_limb = AllocatedLimb::alloc(cs, new_value)?;
-
-                let mut term = MainGateTerm::<E>::new();
-                let mul_term = ArithmeticTerm::<E>::from_variable_and_coeff(x_var, mul_coeff).mul_by_variable(y_var);
-                let x_term = ArithmeticTerm::<E>::from_variable_and_coeff(x_var, x_coeff);
-                let y_term = ArithmeticTerm::<E>::from_variable_and_coeff(y_var, y_coeff);
-                let n_term = ArithmeticTerm::<E>::from_variable(allocated_limb.variable);
-                let const_term = ArithmeticTerm::constant(constant_coeff);
-
-                term.add_assign(mul_term);
-                term.add_assign(x_term);
-                term.add_assign(y_term);
-                term.add_assign(const_term);
-                term.sub_assign(n_term);
-
-                let mut max_bits = std::cmp::max(mul_x.max_bits() * mul_y.max_bits(), add_z.max_bits());
-                max_bits += 1;
-
-                let max_value = (mul_x.max_value() * & mul_y.max_value()) + &add_z.max_value();
-
-                let limb = Limb::new_from_type(
-                    LimbType::Variable(allocated_limb), 
-                    max_value, 
-                    max_bits
-                );
-
-                return Ok(limb);
-            },
-            (false, false, false) => {
-                // each limb is something like a*X + b
-                // in this case we have do manually unroll it
-
-                // a_0 * X * a_1 * Y + (a_0 * X * b_1 + a_1 * Y * b_0 + a_2 * Z) + (b_0 + b_1 + b_2)
-
-                let mut mul_coeff = mul_x.coeff;
-                mul_coeff.mul_assign(&mul_y.coeff);
-
-                let mut x_coeff = mul_x.coeff;
-                x_coeff.mul_assign(&mul_y.constant_term);
-
-                let mut y_coeff = mul_y.coeff;
-                y_coeff.mul_assign(&mul_x.constant_term);
-
-                let mut constant_coeff = mul_x.constant_term;
-                constant_coeff.add_assign(&mul_y.constant_term);
-                constant_coeff.add_assign(&add_z.constant_term);
-
-                let x_var = mul_x.get_variable();
-                let y_var = mul_y.get_variable();
-                let z_var = add_z.get_variable();
-
-                let x_value = mul_x.get_field_value();
-                let y_value = mul_y.get_field_value();
-                let z_value = add_z.get_field_value();
-
-                let mut new_value = x_value;
-                new_value.mul_assign(&y_value);
-                new_value.add_assign(&z_value);
-
-                let allocated_limb = AllocatedLimb::alloc(cs, new_value)?;
-
-                let mut term = MainGateTerm::<E>::new();
-                let mul_term = ArithmeticTerm::<E>::from_variable_and_coeff(x_var, mul_coeff).mul_by_variable(y_var);
-                let x_term = ArithmeticTerm::<E>::from_variable_and_coeff(x_var, x_coeff);
-                let y_term = ArithmeticTerm::<E>::from_variable_and_coeff(y_var, y_coeff);
-                let z_term = ArithmeticTerm::<E>::from_variable_and_coeff(z_var, add_z.coeff);
-                let n_term = ArithmeticTerm::<E>::from_variable(allocated_limb.variable);
-                let const_term = ArithmeticTerm::constant(constant_coeff);
-
-                term.add_assign(mul_term);
-                term.add_assign(x_term);
-                term.add_assign(y_term);
-                term.add_assign(z_term);
-                term.add_assign(const_term);
-                term.sub_assign(n_term);
-
-                let mut max_bits = std::cmp::max(mul_x.max_bits() * mul_y.max_bits(), add_z.max_bits());
-                max_bits += 1;
-
-                let max_value = (mul_x.max_value() * & mul_y.max_value()) + &add_z.max_value();
-
-                let limb = Limb::new_from_type(
-                    LimbType::Variable(allocated_limb), 
-                    max_value, 
-                    max_bits
-                );
-
-                return Ok(limb);
-            }
-        }
-    }
-
-    fn collapse_contributions<CS: ConstraintSystem<E>>(
-        cs: &mut CS,
-        components: Vec<Limb<E>>
-    ) -> Result<Limb<E>, SynthesisError> {
-        if components.len() == 1 {
-            return Ok(components[0].clone());
-        } else if components.len() & 1 == 0 {
-            let len = components.len();
-            let mut i = 0;
-            let mut tmp = Self::dirty_limb_addition(cs, &components[i], &components[i+1])?;
-            println!("tmp value = {}", tmp.get_value());
-            println!("tmp value = {}, field value = {}", tmp.get_value(), tmp.get_field_value());
-            i += 2;
-            let rounds = (len / 2) - 1;
-            for _ in 0..rounds {
-                tmp = Self::dirty_three_limb_addition(cs, &tmp, &components[i], &components[i+1])?;
-                println!("tmp value = {}, field value = {}", tmp.get_value(), tmp.get_field_value());
-                i += 2;
-            }
-            
-            return Ok(tmp);
-        } else {
-            let len = components.len();
-            let mut i = 0;
-            let mut tmp = Self::dirty_limb_addition(cs, &components[i], &components[i+1])?;
-            println!("tmp value = {}, field value = {}", tmp.get_value(), tmp.get_field_value());
-            i += 2;
-            let rounds = (len-1) / 2 - 1;
-            for _ in 0..rounds {
-                tmp = Self::dirty_three_limb_addition(cs, &tmp, &components[i], &components[i+1])?;
-                println!("tmp value = {}, field value = {}", tmp.get_value(), tmp.get_field_value());
-                i += 2;
-            }
-            tmp = Self::dirty_limb_addition(cs, &tmp, &components[i])?;
-            println!("tmp value = {}, field value = {}", tmp.get_value(), tmp.get_field_value());
-            
-            return Ok(tmp);
-        }
+        Ok(new)
     }
 }
 
@@ -1367,7 +1472,7 @@ mod test {
     fn test_constant_propagation() {
         let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
 
-        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110);
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         let a = Fq::from_str("1234").unwrap();
         let b = Fq::from_str("5678").unwrap();
@@ -1386,7 +1491,7 @@ mod test {
     fn test_witness_propagation() {
         let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
 
-        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110);
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         let a = Fq::from_str("1234").unwrap();
         let b = Fq::from_str("5678").unwrap();
@@ -1396,6 +1501,7 @@ mod test {
             Fq::from_str("1234").unwrap(), 
             &params
         ).unwrap();
+
         let b = FieldElement::new_allocated(
             &mut cs, 
             Fq::from_str("5678").unwrap(), 
@@ -1405,6 +1511,373 @@ mod test {
         let result = a.mul(&mut cs, &b).unwrap();
 
         assert_eq!(result.get_value(), BigUint::from(1234u64) * BigUint::from(5678u64));
+
+        println!("Single multiplication taken {} constraints", cs.n());
+    }
+
+    #[test]
+    fn test_mul_on_random_witnesses(){
+        use rand::{XorShiftRng, SeedableRng, Rng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
+
+        for i in 0..100 {
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+
+            let a_f: Fq = rng.gen();
+            let b_f: Fq = rng.gen();
+            let a = FieldElement::new_allocated(
+                &mut cs, 
+                a_f, 
+                &params
+            ).unwrap();
+
+            let a_base = biguint_to_fe::<Fr>(fe_to_biguint(&a_f) % repr_to_biguint::<Fr>(&Fr::char()));
+            assert_eq!(a_base, a.base_field_limb.get_value().unwrap());
+
+            let b = FieldElement::new_allocated(
+                &mut cs, 
+                b_f,
+                &params
+            ).unwrap();
+
+            let b_base = biguint_to_fe::<Fr>(fe_to_biguint(&b_f) % repr_to_biguint::<Fr>(&Fr::char()));
+            assert_eq!(b_base, b.base_field_limb.get_value().unwrap());
+    
+            let result = a.mul(&mut cs, &b).unwrap();
+
+            assert!(cs.is_satisfied());
+
+            let mut m = a_f;
+            m.mul_assign(&b_f);
+
+            assert_eq!(result.value, m);
+
+            assert_eq!(result.get_value(), fe_to_biguint(&m));
+
+            // let mut ab_in_base_field = a_base;
+            // ab_in_base_field.mul_assign(&b_base);
+
+            // assert_eq!(result.base_field_limb.get_value().unwrap(), ab_in_base_field);
+
+            if i == 0 {
+                let a = a.reduce_if_necessary(&mut cs).unwrap();
+                let b = b.reduce_if_necessary(&mut cs).unwrap();
+                let base = cs.n();
+                use std::sync::atomic::Ordering;
+                let k = super::super::RANGE_GATES_COUNTER.load(Ordering::SeqCst);
+                let _ = result.mul(&mut cs, &result).unwrap();
+                let k = super::super::RANGE_GATES_COUNTER.load(Ordering::SeqCst) - k;
+                println!("Single multiplication taken {} gates", cs.n() - base);
+                println!("Range checks take {} gates", k);
+            }
+        }
+    }
+
+    #[test]
+    fn test_bls12_mul_on_random_witnesses(){
+        use rand::{XorShiftRng, SeedableRng, Rng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        use crate::bellman::pairing::bls12_381::{Bls12, Fr, Fq};
+        // let params = RnsParameters::<Bls12, Fq>::new_for_field(68, 110, 8);
+        let params = RnsParameters::<Bls12, Fq>::new_for_field(88, 120, 6);
+
+        println!("Max representable = {}, with {} bits", params.max_representable_value().to_str_radix(16), params.max_representable_value().bits());
+
+        for i in 0..100 {
+            let mut cs = TrivialAssembly::<Bls12, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+
+            let a_f: Fq = rng.gen();
+            let b_f: Fq = rng.gen();
+            let a = FieldElement::new_allocated(
+                &mut cs, 
+                a_f, 
+                &params
+            ).unwrap();
+
+            let a_base = biguint_to_fe::<Fr>(fe_to_biguint(&a_f) % repr_to_biguint::<Fr>(&Fr::char()));
+            assert_eq!(a_base, a.base_field_limb.get_value().unwrap());
+
+            let b = FieldElement::new_allocated(
+                &mut cs, 
+                b_f,
+                &params
+            ).unwrap();
+
+            let b_base = biguint_to_fe::<Fr>(fe_to_biguint(&b_f) % repr_to_biguint::<Fr>(&Fr::char()));
+            assert_eq!(b_base, b.base_field_limb.get_value().unwrap());
+    
+            let result = a.mul(&mut cs, &b).unwrap();
+
+            assert!(cs.is_satisfied());
+
+            let mut m = a_f;
+            m.mul_assign(&b_f);
+
+            assert_eq!(result.value, m);
+
+            assert_eq!(result.get_value(), fe_to_biguint(&m));
+
+            // let mut ab_in_base_field = a_base;
+            // ab_in_base_field.mul_assign(&b_base);
+
+            // assert_eq!(result.base_field_limb.get_value().unwrap(), ab_in_base_field);
+
+            if i == 0 {
+                let a = a.reduce_if_necessary(&mut cs).unwrap();
+                let b = b.reduce_if_necessary(&mut cs).unwrap();
+                let base = cs.n();
+                use std::sync::atomic::Ordering;
+                let k = super::super::RANGE_GATES_COUNTER.load(Ordering::SeqCst);
+                let _ = result.mul(&mut cs, &result).unwrap();
+                let k = super::super::RANGE_GATES_COUNTER.load(Ordering::SeqCst) - k;
+                println!("Single multiplication taken {} gates", cs.n() - base);
+                println!("Range checks take {} gates", k);
+            }
+        }
+    }
+
+    #[test]
+    fn test_add_on_random_witnesses(){
+        use rand::{XorShiftRng, SeedableRng, Rng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
+        println!("Representing field for modulus {}", Fq::char());
+
+        for i in 0..100 {
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+
+            let a_f: Fq = rng.gen();
+            let b_f: Fq = rng.gen();
+            let a = FieldElement::new_allocated(
+                &mut cs, 
+                a_f, 
+                &params
+            ).unwrap();
+
+            let b = FieldElement::new_allocated(
+                &mut cs, 
+                b_f,
+                &params
+            ).unwrap();
+
+            let a_base = biguint_to_fe::<Fr>(fe_to_biguint(&a_f) % repr_to_biguint::<Fr>(&Fr::char()));
+            let b_base = biguint_to_fe::<Fr>(fe_to_biguint(&b_f) % repr_to_biguint::<Fr>(&Fr::char()));
+
+            assert_eq!(a_base, a.base_field_limb.get_value().unwrap());
+            assert_eq!(b_base, b.base_field_limb.get_value().unwrap());
+    
+            let result = a.add(&mut cs, &b).unwrap();
+
+            assert!(cs.is_satisfied());
+
+            let mut m = a_f;
+            m.add_assign(&b_f);
+
+            let res = result.get_value() % repr_to_biguint::<Fq>(&Fq::char());
+            assert_eq!(res, fe_to_biguint(&m));
+
+            assert_eq!(result.value, m);
+
+            // let mut ab_in_base_field = a_base;
+            // ab_in_base_field.add_assign(&b_base);
+
+            // assert_eq!(result.base_field_limb.get_value().unwrap(), ab_in_base_field);
+
+            if i == 0 {
+                let t0 = a.reduce_if_necessary(&mut cs).unwrap();
+                let t1 = result.reduce_if_necessary(&mut cs).unwrap();
+                let base = cs.n();
+                let _ = t0.add(&mut cs, &t1).unwrap();
+                println!("Single addition taken {} gates", cs.n() - base);
+            }
+        }
+    }
+
+    #[test]
+    fn test_sub_on_random_witnesses(){
+        use rand::{XorShiftRng, SeedableRng, Rng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
+        println!("Representing field for modulus {}", Fq::char());
+
+        for i in 0..100 {
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+
+            let a_f: Fq = rng.gen();
+            let b_f: Fq = rng.gen();
+            let a = FieldElement::new_allocated(
+                &mut cs, 
+                a_f, 
+                &params
+            ).unwrap();
+
+            let b = FieldElement::new_allocated(
+                &mut cs, 
+                b_f,
+                &params
+            ).unwrap();
+
+            let a_base = biguint_to_fe::<Fr>(fe_to_biguint(&a_f) % repr_to_biguint::<Fr>(&Fr::char()));
+            let b_base = biguint_to_fe::<Fr>(fe_to_biguint(&b_f) % repr_to_biguint::<Fr>(&Fr::char()));
+
+            assert_eq!(a_base, a.base_field_limb.get_value().unwrap());
+            assert_eq!(b_base, b.base_field_limb.get_value().unwrap());
+    
+            let result = a.sub(&mut cs, &b).unwrap();
+
+            assert!(cs.is_satisfied());
+
+            let mut m = a_f;
+            m.sub_assign(&b_f);
+
+            let res = result.get_value() % repr_to_biguint::<Fq>(&Fq::char());
+            assert_eq!(res, fe_to_biguint(&m));
+
+            assert_eq!(result.value, m);
+
+            if i == 0 {
+                let t0 = a.reduce_if_necessary(&mut cs).unwrap();
+                let t1 = result.reduce_if_necessary(&mut cs).unwrap();
+                let base = cs.n();
+                let _ = t0.sub(&mut cs, &t1).unwrap();
+                println!("Single subtraction taken {} gates", cs.n() - base);
+            }
+        }
+    }
+
+    #[test]
+    fn test_select_on_random_witnesses(){
+        use rand::{XorShiftRng, SeedableRng, Rng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
+        println!("Representing field for modulus {}", Fq::char());
+
+        for i in 0..100 {
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+
+            let flag: bool = rng.gen();
+
+            use crate::plonk::circuit::boolean::AllocatedBit;
+
+            let bit = AllocatedBit::alloc(
+                &mut cs,
+                Some(flag)
+            ).unwrap();
+
+            let bit = Boolean::Not(bit);
+            // let bit = Boolean::Is(bit);
+
+            let a_f: Fq = rng.gen();
+            let b_f: Fq = rng.gen();
+            let a = FieldElement::new_allocated(
+                &mut cs, 
+                a_f, 
+                &params
+            ).unwrap();
+
+            let b = FieldElement::new_allocated(
+                &mut cs, 
+                b_f,
+                &params
+            ).unwrap();
+
+            let a_base = biguint_to_fe::<Fr>(fe_to_biguint(&a_f) % repr_to_biguint::<Fr>(&Fr::char()));
+            let b_base = biguint_to_fe::<Fr>(fe_to_biguint(&b_f) % repr_to_biguint::<Fr>(&Fr::char()));
+
+            assert_eq!(a_base, a.base_field_limb.get_value().unwrap());
+            assert_eq!(b_base, b.base_field_limb.get_value().unwrap());
+    
+            let result = FieldElement::select(&mut cs, &bit, &a, &b).unwrap();
+
+            assert!(cs.is_satisfied());
+
+            let m = if !flag {
+                a_f
+            }  else {
+                b_f
+            };
+
+            let res = result.get_value() % repr_to_biguint::<Fq>(&Fq::char());
+            assert_eq!(res, fe_to_biguint(&m));
+
+            assert_eq!(result.value, m);
+
+            if i == 0 {
+                let t0 = a.reduce_if_necessary(&mut cs).unwrap();
+                let t1 = result.reduce_if_necessary(&mut cs).unwrap();
+                let base = cs.n();
+                let result = FieldElement::select(&mut cs, &bit, &a, &result).unwrap();
+                println!("Single selection taken {} gates", cs.n() - base);
+            }
+        }
+    }
+
+    #[test]
+    fn test_inv_mul_on_random_witnesses(){
+        use rand::{XorShiftRng, SeedableRng, Rng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
+
+        println!("Max representable = {}, with {} bits", params.max_representable_value().to_str_radix(16), params.max_representable_value().bits());
+
+        for i in 0..100 {
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+
+            let a_f: Fq = rng.gen();
+            let b_f: Fq = rng.gen();
+            let a = FieldElement::new_allocated(
+                &mut cs, 
+                a_f, 
+                &params
+            ).unwrap();
+
+            let a_base = biguint_to_fe::<Fr>(fe_to_biguint(&a_f) % repr_to_biguint::<Fr>(&Fr::char()));
+            assert_eq!(a_base, a.base_field_limb.get_value().unwrap());
+
+            let b = FieldElement::new_allocated(
+                &mut cs, 
+                b_f,
+                &params
+            ).unwrap();
+
+            let b_base = biguint_to_fe::<Fr>(fe_to_biguint(&b_f) % repr_to_biguint::<Fr>(&Fr::char()));
+            assert_eq!(b_base, b.base_field_limb.get_value().unwrap());
+    
+            let result = a.div(&mut cs, &b).unwrap();
+
+            assert!(cs.is_satisfied());
+
+            let mut m = b_f.inverse().unwrap();
+            m.mul_assign(&a_f);
+
+            assert_eq!(result.value, m);
+
+            assert_eq!(result.get_value(), fe_to_biguint(&m));
+
+            // let mut ab_in_base_field = a_base;
+            // ab_in_base_field.mul_assign(&b_base);
+
+            // assert_eq!(result.base_field_limb.get_value().unwrap(), ab_in_base_field);
+
+            // if i == 0 {
+            //     let a = a.reduce_if_necessary(&mut cs).unwrap();
+            //     let b = b.reduce_if_necessary(&mut cs).unwrap();
+            //     let base = cs.n();
+            //     use std::sync::atomic::Ordering;
+            //     let k = super::super::RANGE_GATES_COUNTER.load(Ordering::SeqCst);
+            //     let _ = result.mul(&mut cs, &result).unwrap();
+            //     let k = super::super::RANGE_GATES_COUNTER.load(Ordering::SeqCst) - k;
+            //     println!("Single multiplication taken {} gates", cs.n() - base);
+            //     println!("Range checks take {} gates", k);
+            // }
+        }
     }
 
 

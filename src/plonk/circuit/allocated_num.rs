@@ -30,6 +30,29 @@ pub enum Num<E: Engine> {
     Constant(E::Fr)
 }
 
+impl<E: Engine> std::fmt::Display for Num<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Num {{ ")?;
+        match self {
+            Num::Variable(v) => {
+                write!(f, "Variable({:?})", v.get_variable())?;
+            },
+            Num::Constant(c) => {
+                write!(f, "Constant({}), ", c)?;
+            }
+        }
+        writeln!(f, "}}")
+    }
+}
+
+impl<E: Engine> Num<E> {
+    pub fn get_value(&self) -> Option<E::Fr> {
+        match self {
+            Num::Variable(v) => v.get_value(),
+            Num::Constant(c) => Some(*c)
+        }
+    }
+}
 #[derive(Debug)]
 pub struct AllocatedNum<E: Engine> {
     pub(crate) value: Option<E::Fr>,
@@ -87,6 +110,24 @@ impl<E: Engine> AllocatedNum<E> {
     {
         let self_term = ArithmeticTerm::from_variable(self.variable);
         let other_term = ArithmeticTerm::from_variable(other.variable);
+        let mut term = MainGateTerm::new();
+        term.add_assign(self_term);
+        term.sub_assign(other_term);
+
+        cs.allocate_main_gate(term)?;
+
+        Ok(())
+    }
+
+    pub fn assert_equal_to_constant<CS>(
+        &self,
+        cs: &mut CS,
+        constant: E::Fr
+    ) -> Result<(), SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let self_term = ArithmeticTerm::from_variable(self.variable);
+        let other_term = ArithmeticTerm::constant(constant);
         let mut term = MainGateTerm::new();
         term.add_assign(self_term);
         term.sub_assign(other_term);

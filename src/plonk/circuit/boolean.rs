@@ -600,7 +600,7 @@ impl Boolean {
         }
     }
 
-    pub fn get_value_field<E: Engine>(&self) -> Option<E::Fr> {
+    pub fn get_value_in_field<E: Engine>(&self) -> Option<E::Fr> {
        let value = self.get_value();
        match value{
            None => None,

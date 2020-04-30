@@ -10,3 +10,4 @@ pub mod blake2s;
 pub mod poseidon;
 pub mod bigint;
 pub mod simple_term;
+pub mod curve;

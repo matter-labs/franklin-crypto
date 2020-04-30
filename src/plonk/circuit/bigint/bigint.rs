@@ -34,181 +34,9 @@ use num_bigint::BigUint;
 
 use super::super::allocated_num::{AllocatedNum, Num};
 use super::super::linear_combination::LinearCombination;
+use super::super::simple_term::Term;
 
 use super::{U16RangeConstraintinSystem, constraint_num_bits};
-
-#[derive(Clone, Debug)]
-pub struct Uint16<E: Engine>{
-    var: AllocatedNum<E>,
-    value: Option<u16>
-}
-
-fn two_in_16<F: PrimeField>() -> F {
-    let mut repr = F::Repr::default();
-    repr.as_mut()[0] = 1u64 << 16;
-
-    F::from_repr(repr).unwrap()
-}
-
-impl<E: Engine> Uint16<E> {
-    pub fn new_from_u16<CS: U16RangeConstraintinSystem<E>>(
-        cs: &mut CS,
-        value: Option<u16>
-    ) -> Result<Self, SynthesisError> {
-        
-        let var = AllocatedNum::alloc(
-            cs,
-            || {
-                let v = value.ok_or(SynthesisError::AssignmentMissing)?;
-                let value_as_fr = E::Fr::from_str(&v.to_string()).unwrap();
-                Ok(value_as_fr)
-        })?;
-
-        cs.constraint_u16(var.get_variable())?;
-
-        Ok(Self {
-            var,
-            value
-        })
-    }
-
-    pub fn add<CS: U16RangeConstraintinSystem<E>>(
-        &self,
-        cs: &mut CS,
-        other: &Self,
-    ) -> Result<(Self, Self), SynthesisError> {
-        // first allocate the results
-        let (new_value, carry_value) = match (self.value, other.value) {
-            (Some(this_value), Some(other_value)) => {
-                let result = (this_value as u32) + (other_value as u32);
-
-                let new_value = result as u16;
-                let carry_value = (result >> 16) as u16;
-
-                (Some(new_value), Some(carry_value))
-            },
-            _ => {
-                (None, None)
-            }
-        };
-
-        let result = Self::new_from_u16(
-            cs, 
-            new_value
-        )?;
-
-        let carry = Self::new_from_u16(
-            cs, 
-            carry_value
-        )?;
-
-        // let mut lc = LinearCombination::<E>::zero();
-
-        // first allocate result and carry
-        let mut term = MainGateTerm::<E>::new();
-        term.add_assign(ArithmeticTerm::from_variable(self.var.get_variable()));
-        term.add_assign(ArithmeticTerm::from_variable(other.var.get_variable()));
-
-        term.sub_assign(ArithmeticTerm::from_variable(result.var.get_variable()));
-        term.sub_assign(ArithmeticTerm::from_variable_and_coeff(carry.var.get_variable(), two_in_16::<E::Fr>()));
-
-        cs.allocate_main_gate(term)?;
-
-        Ok((result, carry))
-    }
- 
-    pub fn mul<CS: U16RangeConstraintinSystem<E>>(&self,
-        cs: &mut CS,
-        other: &Self,
-    ) -> Result<(Self, Self), SynthesisError> {
-        // first allocate the results
-        let (new_value, carry_value) = match (self.value, other.value) {
-            (Some(this_value), Some(other_value)) => {
-                let result = (this_value as u32) * (other_value as u32);
-
-                let new_value = result as u16;
-                let carry_value = (result >> 16) as u16;
-
-                (Some(new_value), Some(carry_value))
-            },
-            _ => {
-                (None, None)
-            }
-        };
-
-        let result = Self::new_from_u16(
-            cs, 
-            new_value
-        )?;
-
-        let carry = Self::new_from_u16(
-            cs, 
-            carry_value
-        )?;
-
-        // let mut lc = LinearCombination::<E>::zero();
-
-        // first allocate result and carry
-        let mut term = MainGateTerm::<E>::new();
-        let mul_term = ArithmeticTerm::from_variable(self.var.get_variable()).mul_by_variable(other.var.get_variable());
-        term.add_assign(mul_term);
-
-        term.sub_assign(ArithmeticTerm::from_variable(result.var.get_variable()));
-        term.sub_assign(ArithmeticTerm::from_variable_and_coeff(carry.var.get_variable(), two_in_16::<E::Fr>()));
-
-        cs.allocate_main_gate(term)?;
-
-        Ok((result, carry))
-    }
-
-    pub fn sub<CS: U16RangeConstraintinSystem<E>>(
-        &self,
-        cs: &mut CS,
-        other: &Self,
-    ) -> Result<(Self, Self), SynthesisError> {
-
-        // a - b + borrow = c 
-
-        // first allocate the results
-        let (new_value, borrow_value) = match (self.value, other.value) {
-            (Some(this_value), Some(other_value)) => {
-                let result = 1u32 << 16 + (this_value as u32) - (other_value as u32);
-
-                let new_value = result as u16;
-                let borrow_value = if result >> 16 > 0 { 1u16 } else { 0u16 };
-
-                (Some(new_value), Some(borrow_value))
-            },
-            _ => {
-                (None, None)
-            }
-        };
-
-        let result = Self::new_from_u16(
-            cs, 
-            new_value
-        )?;
-
-        let borrow_value = Self::new_from_u16(
-            cs, 
-            borrow_value
-        )?;
-
-        // let mut lc = LinearCombination::<E>::zero();
-
-        // first allocate result and carry
-        let mut term = MainGateTerm::<E>::new();
-        term.add_assign(ArithmeticTerm::from_variable(self.var.get_variable()));
-        term.add_assign(ArithmeticTerm::from_variable_and_coeff(borrow_value.var.get_variable(), two_in_16::<E::Fr>()));
-
-        term.sub_assign(ArithmeticTerm::from_variable(result.var.get_variable()));
-        term.sub_assign(ArithmeticTerm::from_variable(other.var.get_variable()));
-
-        cs.allocate_main_gate(term)?;
-
-        Ok((result, borrow_value))
-    }
-}
 
 // in principle this is valid for both cases:
 // when we represent some (field) element as a set of limbs
@@ -257,23 +85,11 @@ impl<E: Engine> LimbedRepresentationParameters<E> {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum LimbType<E: Engine> {
-    Constant(E::Fr),
-    Variable(AllocatedLimb<E>)
-}
-
-
-// there is no equivalent yet in other parts of the gadget library,
-// so we create an entity that carries a form a*X + b where
-// X is either constant or variable, and `a` and `b` are constants
+// Simple term and bit counter/max value counter that we can update
 #[derive(Clone, Debug)]
 pub struct Limb<E: Engine> {
-    pub limb_type: LimbType<E>,
+    pub term: Term<E>,
     pub max_value: BigUint,
-    pub max_bits: usize,
-    pub coeff: E::Fr,
-    pub constant_term: E::Fr
 }
 
 pub(crate) fn get_num_bits<F: PrimeField>(el: &F) -> usize {
@@ -292,195 +108,70 @@ pub(crate) fn get_num_bits<F: PrimeField>(el: &F) -> usize {
 }
 
 impl<E: Engine> Limb<E> {
-    pub fn new_from_type(
-        limb_type: LimbType<E>,
+    pub fn new(
+        term: Term<E>,
         max_value: BigUint,
-        max_bits: usize,
     ) -> Self {
         Self {
-            limb_type,
+            term,
             max_value,
-            max_bits,
-            coeff: E::Fr::one(),
-            constant_term: E::Fr::zero()
         }
     }
 
-    pub fn scale(&mut self, factor: &E::Fr) {
-        let coeff_bits = get_num_bits(factor);
-        let coeff_as_bigint = fe_to_biguint(factor);
-
-        self.max_value *= coeff_as_bigint;
-        self.max_bits += coeff_bits;
-        self.coeff.mul_assign(&factor);
-        self.constant_term.mul_assign(&factor);
-    } 
-
-    pub fn unsafe_negate(&mut self) {
-        self.max_value = BigUint::from(0u64);
-        self.max_bits = 0;
-        self.coeff.negate();
-        self.constant_term.negate();
-    } 
-
-    pub fn add_assign_constant(&mut self, constant: &E::Fr) {
-        self.constant_term.add_assign(&constant);
-        self.max_bits += 1;
-        self.max_value += fe_to_biguint(constant);
+    pub fn max_bits(&mut self) -> usize {
+        self.max_value.bits() + 1
     }
 
-    pub fn get_value(&self) -> BigUint {
-        let mut v = match &self.limb_type {
-            LimbType::Constant(v) => {
-                fe_to_biguint(v)
-            },
-            LimbType::Variable(v) => {
-                fe_to_biguint(&v.value)
-            }
-        };
+    pub fn inc_max(&mut self, by: &BigUint) {
+        self.max_value += by;
+    }
 
-        v *= fe_to_biguint(&self.coeff);
-        v += fe_to_biguint(&self.constant_term);
-
-        v
+    pub fn scale_max(&mut self, by: &BigUint) {
+        self.max_value *= by;
     }
 
     pub fn max_value(&self) -> BigUint {
         self.max_value.clone()
     }
 
-    pub fn max_bits(&self) -> usize {
-        self.max_bits
+    pub fn get_value(&self) -> BigUint {
+        fe_to_biguint(&self.term.get_value().unwrap())
+    }
+
+    pub fn scale(&mut self, by: &E::Fr) {
+        self.term.scale(by);
+    }
+
+    pub fn negate(&mut self) {
+        self.term.negate();
+    }
+
+    pub fn add_constant(&mut self, c: &E::Fr) {
+        self.term.add_constant(&c);
     }
 
     pub fn get_field_value(&self) -> E::Fr {
         debug_assert!(self.get_value() < repr_to_biguint::<E::Fr>(&E::Fr::char()), "self value = {}, char = {}", self.get_value().to_str_radix(16), E::Fr::char());
 
-        let v = self.get_value();
+        let v = self.term.get_value().unwrap();
 
-        biguint_to_fe::<E::Fr>(v)
+        v
     }
 
     pub fn is_constant(&self) -> bool {
-        match &self.limb_type {
-            LimbType::Constant(..) => {
-                true
-            },
-            LimbType::Variable(..) => {
-                false
-            }
-        }
+        self.term.is_constant()
     }
 
     pub fn collapse_into_constant(&self) -> E::Fr {
-        match &self.limb_type {
-            LimbType::Constant(v) => {
-                let mut value = *v;
-                value.mul_assign(&self.coeff);
-                value.add_assign(&self.constant_term);
-
-                return value;
-            },
-            LimbType::Variable(..) => {
-                panic!("tried to collapse on variable")
-            }
-        }
+        self.term.get_constant_value()
     }
 
     pub fn collapse_into_num<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS
     ) -> Result<Num<E>, SynthesisError> {
-        match &self.limb_type {
-            LimbType::Constant(v) => {
-                let mut value = *v;
-                value.mul_assign(&self.coeff);
-                value.add_assign(&self.constant_term);
-
-                return Ok(Num::Constant(value));
-            },
-            LimbType::Variable(var) => {
-                let new_var_value = self.get_field_value();
-
-                let allocated = AllocatedNum::alloc(
-                    cs, 
-                    ||{
-                        Ok(new_var_value)
-                    }
-                )?;
-
-                let mut term = MainGateTerm::<E>::new();
-                let t0 = ArithmeticTerm::from_variable_and_coeff(self.get_variable(), self.coeff);
-                let t1 = ArithmeticTerm::from_variable(allocated.get_variable());
-                let c = ArithmeticTerm::constant(self.constant_term);
-
-                term.add_assign(t0);
-                term.sub_assign(t1);
-                term.add_assign(c);
-
-                cs.allocate_main_gate(term)?;
-
-                return Ok(Num::Variable(allocated));
-            }
-        }
+        self.term.collapse_into_num(cs)
     }
-
-    pub fn get_variable(&self) -> Variable {
-        match &self.limb_type {
-            LimbType::Constant(v) => {
-                panic!("tried to get variable on constant")
-            },
-            LimbType::Variable(v) => {
-                return v.variable;
-            }
-        }
-    }
-
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct AllocatedLimb<E: Engine> {
-    pub(crate) variable: Variable,
-    pub(crate) value: E::Fr
-}
-
-impl<E: Engine> AllocatedLimb<E> {
-    pub fn alloc<CS: ConstraintSystem<E>>(
-        cs: &mut CS,
-        value: E::Fr
-    ) -> Result<Self, SynthesisError> {
-        let var = cs.alloc(
-            || {
-                Ok(value)
-            }
-        )?;
-
-        Ok(Self {
-            variable: var,
-            value
-        })
-    }   
-
-    pub fn alloc_with_bit_limit<CS: ConstraintSystem<E>>(
-        cs: &mut CS,
-        value: BigUint,
-        num_bits: usize
-    ) -> Result<Self, SynthesisError> {
-        assert!(value.bits() <= num_bits);
-        let val_as_fe = biguint_to_fe(value);
-        let var = cs.alloc(
-            || {
-                Ok(val_as_fe)
-            }
-        )?;
-
-        constraint_num_bits(cs, var, num_bits)?;
-
-        Ok(Self {
-            variable: var,
-            value: val_as_fe
-        })
-    }   
 }
 
 pub(crate) fn repr_to_biguint<F: PrimeField>(repr: &F::Repr) -> BigUint {
@@ -493,6 +184,35 @@ pub(crate) fn repr_to_biguint<F: PrimeField>(repr: &F::Repr) -> BigUint {
     b
 }
 
+#[inline]
+pub fn mod_inverse(el: &BigUint, modulus: &BigUint) -> BigUint {
+    use crate::num_bigint::BigInt;
+    use crate::num_integer::{Integer, ExtendedGcd};
+    use crate::num_traits::{ToPrimitive, Zero, One};
+
+    if el.is_zero() {
+        panic!("division by zero");
+    }
+
+    let el_signed = BigInt::from(el.clone());
+    let modulus_signed = BigInt::from(modulus.clone());
+
+    let ExtendedGcd{ gcd, x: _, y, .. } = modulus_signed.extended_gcd(&el_signed); 
+    assert!(gcd.is_one());
+    let y = if y < BigInt::zero() {
+        let mut y = y;
+        y += modulus_signed;
+
+        y.to_biguint().expect("must be > 0")
+    } else {
+        y.to_biguint().expect("must be > 0")
+    };
+
+    debug_assert!(&y < modulus);
+
+    y
+}
+
 pub(crate) fn biguint_to_fe<F: PrimeField>(value: BigUint) -> F {
     F::from_str(&value.to_str_radix(10)).unwrap()
 }
@@ -503,11 +223,11 @@ pub(crate) fn fe_to_biguint<F: PrimeField>(el: &F) -> BigUint {
     repr_to_biguint::<F>(&repr)
 }
 
-pub(crate) fn fe_to_raw_biguint<F: PrimeField>(el: &F) -> BigUint {
-    let repr = el.into_raw_repr();
+// pub(crate) fn fe_to_raw_biguint<F: PrimeField>(el: &F) -> BigUint {
+//     let repr = el.into_raw_repr();
 
-    repr_to_biguint::<F>(&repr)
-}
+//     repr_to_biguint::<F>(&repr)
+// }
 
 // pub(crate) fn fe_to_mont_limbs<F: PrimeField>(el: &F, bits_per_limb: usize) -> Vec<BigUint> {
 //     let repr = el.into_raw_repr();
