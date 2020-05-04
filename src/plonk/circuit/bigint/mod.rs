@@ -127,7 +127,7 @@ pub fn create_range_constraint_chain<E: Engine, CS: ConstraintSystem<E>>(
 ) -> Result<Vec<AllocatedNum<E>>, SynthesisError> {
     if let Some(v) = el.get_value() {
         let t = self::bigint::fe_to_biguint(&v);
-        assert!(t.bits() <= num_bits);
+        assert!(t.bits() <= num_bits, "value is {} that is {} bits, while expected {} bits", t.to_str_radix(16), t.bits(), num_bits);
     }
     let num_elements = num_bits / 2;
     let slices: Vec<Option<E::Fr>> = if let Some(v) = el.get_value() {

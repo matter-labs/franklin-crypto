@@ -80,6 +80,10 @@ impl<E: Engine> Term<E> {
         }
     }
 
+    pub fn zero() -> Self {
+        Self::from_num(Num::<E>::Constant(E::Fr::zero()))
+    }
+
     pub fn from_boolean(b: &Boolean) -> Self {
         match b {
             Boolean::Constant(c) => {
@@ -479,6 +483,148 @@ impl<E: Engine> Term<E> {
             }
         }
     }
+
+    pub(crate) fn square_with_factor_and_add<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        x: &Self,
+        z: &Self,
+        factor: &E::Fr
+    ) -> Result<Self, SynthesisError> {
+        let x_is_constant = x.is_constant();
+        let z_is_constant = z.is_constant();
+
+        match (x_is_constant, z_is_constant) {
+            (true, true) => {
+                let mut result = x.get_constant_value();
+                result.square();
+                result.mul_assign(&factor);
+                result.add_assign(&z.get_constant_value());
+
+                let n = Self::from_constant(result);
+
+                return Ok(n);
+            },
+            (true, false) => {
+                let mut value = x.get_constant_value();
+                value.square();
+                value.mul_assign(&factor);
+
+                let mut result = z.clone();
+                result.add_constant(&value);
+
+                return Ok(result);
+            },
+            (false, true) => {
+                let mut mul_coeff = x.coeff;
+                mul_coeff.square();
+                mul_coeff.mul_assign(&factor);
+
+                let mut x_coeff = x.coeff;
+                x_coeff.mul_assign(&x.constant_term);
+                x_coeff.double();
+                x_coeff.mul_assign(&factor);
+
+                let mut constant_coeff = x.constant_term;
+                constant_coeff.square();
+                constant_coeff.mul_assign(&factor);
+                constant_coeff.add_assign(&z.get_constant_value());
+
+                let x_var = x.get_variable().get_variable();
+
+                let new_value = match (x.get_value(), z.get_value()) {
+                    (Some(x), Some(z)) => {
+                        let mut new_value = x;
+                        new_value.square();
+                        new_value.mul_assign(&factor);
+                        new_value.add_assign(&z);
+
+                        Some(new_value)
+                    },
+                    _ => {None}
+                };
+
+                let allocated_num = AllocatedNum::alloc(
+                    cs, 
+                    || {
+                        Ok(*new_value.get()?)
+                    }
+                )?;
+
+                let mut term = MainGateTerm::<E>::new();
+                let mul_term = ArithmeticTerm::<E>::from_variable_and_coeff(x_var, mul_coeff).mul_by_variable(x_var);
+                let x_term = ArithmeticTerm::<E>::from_variable_and_coeff(x_var, x_coeff);
+                let n_term = ArithmeticTerm::<E>::from_variable(allocated_num.get_variable());
+                let const_term = ArithmeticTerm::constant(constant_coeff);
+
+                term.add_assign(mul_term);
+                term.add_assign(x_term);
+                term.add_assign(const_term);
+                term.sub_assign(n_term);
+
+                cs.allocate_main_gate(term)?;
+
+                let new = Self::from_allocated_num(allocated_num);
+
+                return Ok(new);
+            },
+            (false, false) => {
+                let mut mul_coeff = x.coeff;
+                mul_coeff.square();
+                mul_coeff.mul_assign(&factor);
+
+                let mut x_coeff = x.coeff;
+                x_coeff.mul_assign(&x.constant_term);
+                x_coeff.double();
+                x_coeff.mul_assign(&factor);
+
+                let mut constant_coeff = x.constant_term;
+                constant_coeff.square();
+                constant_coeff.mul_assign(&factor);
+                constant_coeff.add_assign(&z.constant_term);
+
+                let x_var = x.get_variable().get_variable();
+                let z_var = z.get_variable().get_variable();
+
+                let new_value = match (x.get_value(), z.get_value()) {
+                    (Some(x), Some(z)) => {
+                        let mut new_value = x;
+                        new_value.square();
+                        new_value.mul_assign(&factor);
+                        new_value.add_assign(&z);
+
+                        Some(new_value)
+                    },
+                    _ => {None}
+                };
+
+                let allocated_num = AllocatedNum::alloc(
+                    cs, 
+                    || {
+                        Ok(*new_value.get()?)
+                    }
+                )?;
+
+                let mut term = MainGateTerm::<E>::new();
+                let mul_term = ArithmeticTerm::<E>::from_variable_and_coeff(x_var, mul_coeff).mul_by_variable(x_var);
+                let x_term = ArithmeticTerm::<E>::from_variable_and_coeff(x_var, x_coeff);
+                let z_term = ArithmeticTerm::<E>::from_variable_and_coeff(z_var, z.coeff);
+                let n_term = ArithmeticTerm::<E>::from_variable(allocated_num.get_variable());
+                let const_term = ArithmeticTerm::constant(constant_coeff);
+
+                term.add_assign(mul_term);
+                term.add_assign(x_term);
+                term.add_assign(z_term);
+                term.add_assign(const_term);
+                term.sub_assign(n_term);
+
+                cs.allocate_main_gate(term)?;
+
+                let new = Self::from_allocated_num(allocated_num);
+
+                return Ok(new);
+            },
+        }
+    }
 }
 
 #[cfg(test)]
@@ -507,7 +653,7 @@ mod test {
     use crate::bellman::pairing::bn256::{Fq, Bn256, Fr};
 
     #[test]
-    fn test_on_random_witness(){
+    fn test_add_on_random_witness(){
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
@@ -557,6 +703,146 @@ mod test {
 
             let mut res = val0;
             res.add_assign(&val1);
+
+            assert!(cs.is_satisfied());
+            assert!(a_b_term.get_value().unwrap() == res);
+        }
+
+    }
+
+    #[test]
+    fn test_square_on_random_witness(){
+        use rand::{XorShiftRng, SeedableRng, Rng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        for _ in 0..100 {
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+
+            let v0 = rng.gen();
+            let v1 = rng.gen();
+
+            let a0 = rng.gen();
+            let a1 = rng.gen();
+
+            let c0 = rng.gen();
+            let c1 = rng.gen();
+
+            let a = AllocatedNum::alloc(
+                &mut cs,
+                || {
+                    Ok(a0)
+                }
+            ).unwrap();
+
+            let b = AllocatedNum::alloc(
+                &mut cs,
+                || {
+                    Ok(a1)
+                }
+            ).unwrap();
+
+            let mut a_term = Term::<Bn256>::from_allocated_num(a);
+            a_term.scale(&v0);
+            a_term.add_constant(&c0);
+
+            let mut b_term = Term::<Bn256>::from_allocated_num(b);
+            b_term.scale(&v1);
+            b_term.add_constant(&c1);
+
+            let factor: Fr = rng.gen();
+
+            let a_b_term = Term::<Bn256>::square_with_factor_and_add(&mut cs, &a_term, &b_term, &factor).unwrap();
+
+            let mut val0 = a0;
+            val0.mul_assign(&v0);
+            val0.add_assign(&c0);
+
+            let mut val1 = a1;
+            val1.mul_assign(&v1);
+            val1.add_assign(&c1);
+
+            let mut res = val0;
+            res.square();
+            res.mul_assign(&factor);
+            res.add_assign(&val1);
+
+            assert!(cs.is_satisfied());
+            assert!(a_b_term.get_value().unwrap() == res);
+        }
+
+    }
+
+
+    #[test]
+    fn test_fma_on_random_witness(){
+        use rand::{XorShiftRng, SeedableRng, Rng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        for _ in 0..100 {
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+
+            let v0 = rng.gen();
+            let v1 = rng.gen();
+            let v2 = rng.gen();
+
+            let a0 = rng.gen();
+            let a1 = rng.gen();
+            let a2 = rng.gen();
+
+            let c0 = rng.gen();
+            let c1 = rng.gen();
+            let c2 = rng.gen();
+
+            let a = AllocatedNum::alloc(
+                &mut cs,
+                || {
+                    Ok(a0)
+                }
+            ).unwrap();
+
+            let b = AllocatedNum::alloc(
+                &mut cs,
+                || {
+                    Ok(a1)
+                }
+            ).unwrap();
+
+            let c = AllocatedNum::alloc(
+                &mut cs,
+                || {
+                    Ok(a2)
+                }
+            ).unwrap();
+
+            let mut a_term = Term::<Bn256>::from_allocated_num(a);
+            a_term.scale(&v0);
+            a_term.add_constant(&c0);
+
+            let mut b_term = Term::<Bn256>::from_allocated_num(b);
+            b_term.scale(&v1);
+            b_term.add_constant(&c1);
+
+            let mut c_term = Term::<Bn256>::from_allocated_num(c);
+            c_term.scale(&v2);
+            c_term.add_constant(&c2);
+
+            let a_b_term = Term::<Bn256>::fma(&mut cs, &a_term, &b_term, &c_term).unwrap();
+
+            let mut val0 = a0;
+            val0.mul_assign(&v0);
+            val0.add_assign(&c0);
+
+            let mut val1 = a1;
+            val1.mul_assign(&v1);
+            val1.add_assign(&c1);
+
+            let mut val2 = a2;
+            val2.mul_assign(&v2);
+            val2.add_assign(&c2);
+
+            let mut res = val0;
+            res.mul_assign(&val1);
+            res.add_assign(&val2);
 
             assert!(cs.is_satisfied());
             assert!(a_b_term.get_value().unwrap() == res);

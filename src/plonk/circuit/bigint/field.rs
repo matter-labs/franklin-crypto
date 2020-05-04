@@ -344,13 +344,22 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                     };
 
                     let expected_high_width = if (i+1)*params.limb_witness_size == params.num_binary_limbs {
-                        params.last_binary_limb_bit_width
+                        if top_limb_may_overflow {
+                            params.binary_limbs_params.limb_size_bits
+                        } else {
+                            params.last_binary_limb_bit_width
+                        }
                     } else {
                         params.binary_limbs_params.limb_size_bits
                     };
 
                     let expected_high_max_value = if (i+1)*params.limb_witness_size == params.num_binary_limbs {
-                        params.last_binary_limb_max_value.clone()
+                        if top_limb_may_overflow {
+                            params.binary_limbs_params.limb_max_value.clone()
+                        } else {
+                            params.last_binary_limb_max_value.clone()
+                        }
+                        
                     } else {
                         params.binary_limbs_params.limb_max_value.clone()
                     };
@@ -540,7 +549,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
     }
 
     // return current value unreduced
-    fn get_field_value(&self) -> Option<F> {
+    pub fn get_field_value(&self) -> Option<F> {
         self.value
     }
 
@@ -854,7 +863,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             // let mut tmp =  params.represented_field_modulus.clone() - other.get_value();
             // tmp = tmp % & params.represented_field_modulus;
 
-            let other_negated =  Self::new_constant(tmp.unwrap(), params)?;
+            let other_negated = Self::new_constant(tmp.unwrap(), params)?;
 
             // do the constant propagation in addition
 
@@ -1040,6 +1049,62 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         Ok((r_elem, (this, other)))
     }
 
+    pub fn square<CS: ConstraintSystem<E>>(
+        self,
+        cs: &mut CS,
+    ) -> Result<(Self, Self), SynthesisError> {
+        let params = self.representation_params;
+
+        let this = self.reduce_if_necessary(cs)?;
+
+        if this.is_constant() {
+            let r = this.get_field_value().mul(&this.get_field_value());
+            let new = Self::new_constant(r.unwrap(), params)?;
+
+            return Ok((new, this));
+        }
+
+        let (q, r) = match this.get_value() {
+            Some(t) => {
+                let value = t.clone() * t;
+                let (q, r) = value.div_rem(&params.represented_field_modulus);
+
+                (Some(q), Some(r))
+            }
+            _ => (None, None)
+        };
+
+        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params)?;
+
+        let q_elem = Self::from_double_size_limb_witnesses(
+            cs, 
+            &q_wit, 
+            true, 
+            params
+        )?;
+
+        let r_wit = Self::slice_into_double_limb_witnesses(r, cs, params)?;
+    
+        let r_elem = Self::from_double_size_limb_witnesses(
+            cs, 
+            &r_wit, 
+            false, 
+            params
+        )?;
+
+        // we constraint a * b = q*p + rem
+
+        Self::constraint_square_with_multiple_additions(
+            cs, 
+            &this,
+            &[],
+            &q_elem,
+            &[r_elem.clone()],
+        )?;
+
+        Ok((r_elem, this))
+    }
+
     pub fn fma_with_addition_chain<CS: ConstraintSystem<E>>(
         self,
         cs: &mut CS,
@@ -1113,6 +1178,78 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         )?;
 
         return Ok((r_elem, (this, to_mul, to_add)));
+    }
+
+    pub fn square_with_addition_chain<CS: ConstraintSystem<E>>(
+        self,
+        cs: &mut CS,
+        to_add: Vec<Self>
+    ) -> Result<(Self, (Self, Vec<Self>)), SynthesisError> {
+        let params = self.representation_params;
+
+        let this = self.reduce_if_necessary(cs)?;
+
+        let mut value_is_none = false;
+        let mut value = BigUint::from(0u64);
+        match this.get_value() {
+            Some(t) => {
+                value += t.clone() * &t;
+            },
+            _ => {
+                value_is_none = true;
+            }
+        }
+        
+        let mut all_constants = this.is_constant();
+        for a in to_add.iter() {
+            if let Some(v) = a.get_value() {
+                value += v;
+            } else {
+                value_is_none = true;
+            }
+            all_constants = all_constants & a.is_constant();
+        } 
+        let (q, r) = value.div_rem(&params.represented_field_modulus);
+
+        if all_constants {
+            let r = biguint_to_fe::<F>(r);
+            let new = Self::new_constant(r, params)?;
+            return Ok((new, (this, to_add)));
+        }
+
+        let (q, r) = if value_is_none {
+            (None, None)
+        } else {
+            (Some(q), Some(r))
+        };
+
+        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params)?;
+
+        let q_elem = Self::from_double_size_limb_witnesses(
+            cs, 
+            &q_wit, 
+            true, 
+            params
+        )?;
+
+        let r_wit = Self::slice_into_double_limb_witnesses(r, cs, params)?;
+    
+        let r_elem = Self::from_double_size_limb_witnesses(
+            cs, 
+            &r_wit, 
+            false, 
+            params
+        )?;
+
+        Self::constraint_square_with_multiple_additions(
+            cs, 
+            &this,
+            &to_add,
+            &q_elem,
+            &[r_elem.clone()],
+        )?;
+
+        return Ok((r_elem, (this, to_add)));
     }
 
     pub fn div<CS: ConstraintSystem<E>>(
@@ -1192,27 +1329,32 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         Ok((inv_wit, (this, den)))
     }
 
-    pub(crate) fn div_from_addition_chain_with_reduced_numerators<CS: ConstraintSystem<E>>(
+    pub(crate) fn div_from_addition_chain<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         nums: Vec<Self>,
         den: Self
     ) -> Result<(Self, (Vec<Self>, Self)), SynthesisError> {
         let params = den.representation_params;
 
-        // we do self/den = result mod p
-        // so we constraint result * den = q * p + self
+        // we do (a1 + a2 + ... + an) /den = result mod p
+        // a1 + a2 + ... + an = result * den mod p
+        // result*den = q*p + (a1 + a2 + ... + an)
+        // so we place nums into the remainders (don't need to negate here)
 
         let den = den.reduce_if_necessary(cs)?;
+
+        let mut value_is_none = false;
 
         let inv = if let Some(den) = den.get_value() {
             let inv = mod_inverse(&den, &params.represented_field_modulus);
 
             Some(inv)
         } else {
+            value_is_none = true;
+
             None
         };
 
-        let mut value_is_none = false;
         let mut num_value = BigUint::from(0u64);
         let mut all_constant = den.is_constant();
 
@@ -1237,7 +1379,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
         let (result, q, rem) = match (num_value, den.get_value(), inv.clone()) {
             (Some(num_value), Some(den), Some(inv)) => {
-                let num_value = num_value % &params.represented_field_modulus;
                 let result = num_value.clone() * &inv % &params.represented_field_modulus;
                 let value = den * &result - num_value;
         
@@ -1268,11 +1409,11 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             den.representation_params
         )?;
 
-        let inv_wit = Self::slice_into_double_limb_witnesses(result, cs, den.representation_params)?;
+        let result_wit = Self::slice_into_double_limb_witnesses(result, cs, den.representation_params)?;
     
-        let inv_wit = Self::from_double_size_limb_witnesses(
+        let result_wit = Self::from_double_size_limb_witnesses(
             cs, 
-            &inv_wit, 
+            &result_wit, 
             false, 
             den.representation_params
         )?;
@@ -1280,13 +1421,13 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         Self::constraint_fma_with_multiple_additions(
             cs, 
             &den,
-            &inv_wit,
+            &result_wit,
             &[],
             &q_elem,
             &reduced_nums,
         )?;
 
-        Ok((inv_wit, (reduced_nums, den)))
+        Ok((result_wit, (reduced_nums, den)))
     }
 
 
@@ -1420,6 +1561,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                 // we take a and b limbs plus quotient and modulus limbs
                 let mut q_limb = result_quotient.binary_limbs[i].term.clone();
                 q_limb.scale(&params.represented_field_modulus_negated_limbs[j]);
+
                 let tmp = Term::<E>::fma(cs, &mul_a.binary_limbs[i].term, &mul_b.binary_limbs[j].term, &q_limb)?;
                 // also keep track of the length
                 let mut max_value = mul_a.binary_limbs[i].max_value() * mul_b.binary_limbs[j].max_value();
@@ -1516,6 +1658,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                 tmp.scale(&shift_left_one_limb_constant);
                 tmp.negate();
                 contributions.push(tmp);
+
             }
 
             for addition_element in addition_elements.iter() {
@@ -1566,7 +1709,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                 carry_max_bits += 1;
             }
 
-            // TODO: Combine by more than two, write proper multipack + constraint function
             if let Some((previous_carry_value, previous_max_bits)) = previous_chunk.take() {
                 // we have some bits to constraint from the previous step
                 let mut shift_constant = E::Fr::one();
@@ -1627,6 +1769,312 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         minus_qp_in_base_field.scale(&params.represented_field_modulus_negated_in_base_field);
 
         let ab_in_base_field = Term::<E>::fma(cs, &mul_a.base_field_limb, &mul_b.base_field_limb, &minus_qp_in_base_field)?;
+
+        let mut addition_chain = vec![];
+        for a in addition_elements.iter() {
+            addition_chain.push(a.base_field_limb.clone());
+        }
+
+        for result_remainder in result_remainder_decomposition.iter() {
+            let mut negated_remainder_in_base_field = result_remainder.base_field_limb.clone();
+            negated_remainder_in_base_field.negate();
+            addition_chain.push(negated_remainder_in_base_field);
+        }
+
+        let must_be_zero = ab_in_base_field.add_multiple(cs, &addition_chain)?;
+        let must_be_zero = must_be_zero.collapse_into_num(cs)?;
+
+        match must_be_zero {
+            Num::Constant(c) => {
+                assert!(c.is_zero());
+            },
+            Num::Variable(var) => {
+                var.assert_equal_to_constant(cs, E::Fr::zero())?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn constraint_square_with_multiple_additions<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        this: &Self,
+        addition_elements: &[Self],
+        result_quotient: &Self,
+        result_remainder_decomposition: &[Self],
+    ) -> Result<(), SynthesisError> {
+        let params = this.representation_params;
+
+        let mut result_limbs = vec![vec![]; params.num_binary_limbs];
+
+        let target_limbs = params.num_binary_limbs;
+
+        let mut expected_binary_max_values = vec![vec![]; params.num_binary_limbs];
+
+        for target in 0..target_limbs {
+            let mut pairs = vec![];
+            let mut factors = vec![];
+            for i in 0..params.num_binary_limbs {
+                for j in 0..params.num_binary_limbs {
+                    if i + j == target {       
+                        if let Some(idx) = pairs.iter().position(|el| el == &(j, i)) {
+                            if i != j {
+                                factors[idx] += 1;
+                            }
+                        } else {
+                            factors.push(1);
+                            pairs.push((i, j));
+                        }
+                    }
+                }
+            }
+
+            let mut two = E::Fr::one();
+            two.double();
+
+            for (f, (i, j)) in factors.into_iter().zip(pairs.into_iter()) {
+                // we take a and b limbs plus quotient and modulus limbs
+                let tmp = if i == j {
+                    assert!(f == 1);
+                    let mut q_limb = result_quotient.binary_limbs[i].term.clone();
+                    q_limb.scale(&params.represented_field_modulus_negated_limbs[j]);
+
+                    let tmp = Term::<E>::square_with_factor_and_add(cs, &this.binary_limbs[i].term, &q_limb, &E::Fr::one())?;
+
+                    tmp
+                } else {
+                    assert!(f == 2);
+                    let factor = two;
+                    let mut q_limb = result_quotient.binary_limbs[i].term.clone();
+                    q_limb.scale(&params.represented_field_modulus_negated_limbs[j]);
+
+                    let mut t = this.binary_limbs[j].term.clone();
+                    t.scale(&factor);
+                    let tmp = Term::<E>::fma(cs, &this.binary_limbs[i].term, &t, &q_limb)?;
+
+                    tmp
+                };
+                result_limbs[target].push(tmp);
+
+                // also keep track of the length
+                let factor = BigUint::from(f as u64);
+                let mut max_value = this.binary_limbs[i].max_value() * this.binary_limbs[j].max_value() * factor;
+                if f == 1 {
+                    max_value += params.represented_field_modulus_negated_limbs_biguints[j].clone() << params.binary_limbs_params.limb_size_bits;
+
+                    expected_binary_max_values[target].push(max_value);
+
+                } else {
+                    let mut q_limb = result_quotient.binary_limbs[j].term.clone();
+                    q_limb.scale(&params.represented_field_modulus_negated_limbs[i]);
+
+                    max_value += params.represented_field_modulus_negated_limbs_biguints[j].clone() << params.binary_limbs_params.limb_size_bits;
+                    max_value += params.represented_field_modulus_negated_limbs_biguints[i].clone() << params.binary_limbs_params.limb_size_bits;
+
+                    result_limbs[target].push(q_limb);
+
+                    expected_binary_max_values[target].push(max_value);
+                }
+            }
+        }
+
+        // now we need to process over additions and remainder
+        let mut collapsed_limbs = vec![];
+        let mut collapsed_max_values = vec![];
+        for (components, max_values_components) in result_limbs.into_iter()
+                                                    .zip(expected_binary_max_values.into_iter()) 
+        {
+            assert!(components.len() > 0);
+            let r = if components.len() == 1 {
+                components[0].clone()
+            } else {
+                let (base, other) = components.split_first().unwrap();
+                let r = base.add_multiple(cs, &other)?;
+
+                r
+            };
+
+            collapsed_limbs.push(r);
+
+            let mut max_value = BigUint::from(0u64);
+            for c in max_values_components.into_iter() {
+                max_value += c;
+            }
+
+            collapsed_max_values.push(max_value);
+        }
+
+        // also add max value contributions from additions
+        // we do not add max values from remainder cause we expect it to cancel exactly
+        let mut double_limb_max_bits = vec![];
+        for i in (0..target_limbs).step_by(2) {
+            let mut max_value = BigUint::from(0u64);
+            max_value += &collapsed_max_values[i];
+            max_value += &collapsed_max_values[i+1] << params.binary_limbs_params.limb_size_bits;
+            for a in addition_elements.iter() {
+                max_value += a.binary_limbs[i].max_value();
+                max_value += a.binary_limbs[i+1].max_value() << params.binary_limbs_params.limb_size_bits;
+            }
+
+            let mut max_bits = max_value.bits() + 1;
+            if max_bits & 1 == 1 {
+                // we expect to constraint by two bits only
+                max_bits += 1;
+            }
+
+            double_limb_max_bits.push(max_bits);
+        }
+
+        let shift_right_one_limb_constant = params.binary_limbs_params.shift_right_by_limb_constant;
+        let mut shift_right_two_limb_constant = shift_right_one_limb_constant;
+        shift_right_two_limb_constant.square();
+
+        let shift_left_one_limb_constant = params.binary_limbs_params.shift_left_by_limb_constant;
+        let mut shift_left_two_limb_constant = shift_left_one_limb_constant;
+        shift_left_two_limb_constant.square();
+
+        // check that multiplications did not overflow
+        // e.g that a[0] * b[0] - q[0] * p[0] - r[0] fits into two limbs max
+
+        let mut minus_one = E::Fr::one();
+        minus_one.negate();
+
+        let mut double_limb_carries = vec![];
+
+        let mut chunk_of_previous_carry = None;
+
+        let last_idx = target_limbs - 1;
+
+        for i in (0..target_limbs).step_by(2) {
+            let mut contributions = vec![];
+
+            let tmp = collapsed_limbs[i].clone();
+            contributions.push(tmp);
+
+            let mut tmp = collapsed_limbs[i+1].clone();
+            tmp.scale(&shift_left_one_limb_constant);
+            contributions.push(tmp);
+
+            for result_remainder in result_remainder_decomposition.iter() {
+                let mut tmp = result_remainder.binary_limbs[i].term.clone();
+                tmp.negate();
+                contributions.push(tmp);
+    
+                let mut tmp = result_remainder.binary_limbs[i+1].term.clone();
+                tmp.scale(&shift_left_one_limb_constant);
+                tmp.negate();
+                contributions.push(tmp);
+
+            }
+
+            for addition_element in addition_elements.iter() {
+                let tmp = addition_element.binary_limbs[i].term.clone();
+                contributions.push(tmp);
+
+                let mut tmp = addition_element.binary_limbs[i+1].term.clone();
+                tmp.scale(&shift_left_one_limb_constant);
+                contributions.push(tmp);
+            }
+
+            if let Some(previous) = chunk_of_previous_carry.take() {
+                contributions.push(previous);
+            }
+
+            // collapse contributions
+            let (base, other) = contributions.split_first().unwrap();
+            let mut r = base.add_multiple(cs, &other)?;
+
+            r.scale(&shift_right_two_limb_constant);
+
+            if i+1 != last_idx {
+                chunk_of_previous_carry = Some(r.clone());
+            };
+
+            double_limb_carries.push(r);
+        }
+
+        assert!(chunk_of_previous_carry.is_none());
+
+        assert_eq!(double_limb_carries.len(), double_limb_max_bits.len());
+
+        let mut previous_chunk: Option<(Num<E>, usize)> = None;
+
+        let last_idx = double_limb_carries.len() - 1;
+
+        // now we have to take each "double carry" and propagate it into other
+        for (idx, (r, max_bits)) in double_limb_carries.into_iter()
+            .zip(double_limb_max_bits.into_iter())
+            .enumerate() 
+        {
+            let this_carry_value = r.collapse_into_num(cs)?;
+
+            assert!(max_bits >= 2*params.binary_limbs_params.limb_size_bits);
+
+            let mut carry_max_bits = max_bits - 2*params.binary_limbs_params.limb_size_bits;
+            if carry_max_bits & 1 == 1 {
+                carry_max_bits += 1;
+            }
+
+            if let Some((previous_carry_value, previous_max_bits)) = previous_chunk.take() {
+                // we have some bits to constraint from the previous step
+                let mut shift_constant = E::Fr::one();
+                for _ in 0..previous_max_bits {
+                    shift_constant.double();
+                }
+                let mut this_combined_with_previous = Term::<E>::from_num(this_carry_value);
+                let previous_term = Term::<E>::from_num(previous_carry_value.clone());
+                this_combined_with_previous.scale(&shift_constant);
+                let combined_carry_value = this_combined_with_previous.add(cs, &previous_term)?.collapse_into_num(cs)?;
+
+                let max_bits_from_both = carry_max_bits + previous_max_bits;
+
+                match combined_carry_value {
+                    Num::Constant(val) => {
+                        let f = fe_to_biguint(&val);
+                        assert!(f.bits() <= max_bits);
+                    },
+                    Num::Variable(var) => {
+                        let chain = create_range_constraint_chain(cs, &var, max_bits_from_both)?;
+                        assert!(max_bits_from_both % chain.len() == 0);
+                        let constraint_bits_per_step = max_bits_from_both / chain.len();
+                        let idx_for_lower_part = previous_max_bits / constraint_bits_per_step - 1;
+
+                        let low_part_in_chain = chain[idx_for_lower_part].clone();
+
+                        let v = match previous_carry_value {
+                            Num::Variable(p) => p,
+                            _ => {unreachable!()}
+                        };
+
+                        low_part_in_chain.enforce_equal(cs, &v)?;
+                    }
+                }
+            } else {
+                if idx == last_idx {
+                    // this is a last chunk, so we have to enforce right away
+                    match this_carry_value {
+                        Num::Constant(val) => {
+                            let f = fe_to_biguint(&val);
+                            assert!(f.bits() <= carry_max_bits);
+                        },
+                        Num::Variable(var) => {
+                            let _ = create_range_constraint_chain(cs, &var, carry_max_bits)?;
+                        }
+                    }
+                } else {
+                    // combine with next
+                    previous_chunk = Some((this_carry_value, carry_max_bits));
+                }   
+                
+            }
+        }
+
+        // now much more trivial part - multiply base field basis
+
+        let mut minus_qp_in_base_field = result_quotient.base_field_limb.clone();
+        minus_qp_in_base_field.scale(&params.represented_field_modulus_negated_in_base_field);
+
+        let ab_in_base_field = Term::<E>::fma(cs, &this.base_field_limb, &this.base_field_limb, &minus_qp_in_base_field)?;
 
         let mut addition_chain = vec![];
         for a in addition_elements.iter() {
@@ -1795,6 +2243,58 @@ mod test {
                 let _ = result.mul(&mut cs, a).unwrap();
                 let k = super::super::RANGE_GATES_COUNTER.load(Ordering::SeqCst) - k;
                 println!("Single multiplication taken {} gates", cs.n() - base);
+                println!("Range checks take {} gates", k);
+            }
+        }
+    }
+
+    #[test]
+    fn test_square_on_random_witnesses(){
+        use rand::{XorShiftRng, SeedableRng, Rng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
+
+        for i in 0..100 {
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+
+            let a_f: Fq = rng.gen();
+            let b_f: Fq = rng.gen();
+            let a = FieldElement::new_allocated(
+                &mut cs, 
+                Some(a_f), 
+                &params
+            ).unwrap();
+
+            let a_base = biguint_to_fe::<Fr>(fe_to_biguint(&a_f) % repr_to_biguint::<Fr>(&Fr::char()));
+            assert_eq!(a_base, a.base_field_limb.get_value().unwrap());
+    
+            // let (result, (a, _)) = a.square_with_addition_chain(&mut cs, vec![]).unwrap();
+
+            let (result, a) = a.square(&mut cs).unwrap();
+
+            assert!(cs.is_satisfied());
+
+            let mut m = a_f;
+            m.square();
+
+            assert_eq!(result.value.unwrap(), m);
+
+            assert_eq!(result.get_value().unwrap(), fe_to_biguint(&m));
+
+            // let mut ab_in_base_field = a_base;
+            // ab_in_base_field.mul_assign(&b_base);
+
+            // assert_eq!(result.base_field_limb.get_value().unwrap(), ab_in_base_field);
+
+            if i == 0 {
+                let a = a.reduce_if_necessary(&mut cs).unwrap();
+                let base = cs.n();
+                use std::sync::atomic::Ordering;
+                let k = super::super::RANGE_GATES_COUNTER.load(Ordering::SeqCst);
+                let _ = a.square_with_addition_chain(&mut cs, vec![]).unwrap();
+                let k = super::super::RANGE_GATES_COUNTER.load(Ordering::SeqCst) - k;
+                println!("Single squaring taken {} gates", cs.n() - base);
                 println!("Range checks take {} gates", k);
             }
         }
@@ -2105,5 +2605,136 @@ mod test {
         }
     }
 
+
+    #[test]
+    fn test_addition_chain_1_inv_mul_on_random_witnesses(){
+        use rand::{XorShiftRng, SeedableRng, Rng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
+
+        println!("Max representable = {}, with {} bits", params.max_representable_value().to_str_radix(16), params.max_representable_value().bits());
+
+        for i in 0..100 {
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+
+            let a_f0: Fq = rng.gen();
+
+            let a_f = a_f0;
+
+            let b_f: Fq = rng.gen();
+            let a_0 = FieldElement::new_allocated(
+                &mut cs, 
+                Some(a_f0), 
+                &params
+            ).unwrap();
+
+            let b = FieldElement::new_allocated(
+                &mut cs, 
+                Some(b_f),
+                &params
+            ).unwrap();
+
+            let mut m = b_f.inverse().unwrap();
+            m.mul_assign(&a_f);
+
+            let (result, (_, b)) = FieldElement::div_from_addition_chain(&mut cs, vec![a_0], b).unwrap();
+
+            assert!(cs.is_satisfied());
+
+            assert_eq!(result.value.unwrap(), m);
+
+            assert_eq!(result.get_value().unwrap(), fe_to_biguint(&m));
+
+            // let mut ab_in_base_field = a_base;
+            // ab_in_base_field.mul_assign(&b_base);
+
+            // assert_eq!(result.base_field_limb.get_value().unwrap(), ab_in_base_field);
+
+            // if i == 0 {
+            //     let a = a.reduce_if_necessary(&mut cs).unwrap();
+            //     let b = b.reduce_if_necessary(&mut cs).unwrap();
+            //     let base = cs.n();
+            //     use std::sync::atomic::Ordering;
+            //     let k = super::super::RANGE_GATES_COUNTER.load(Ordering::SeqCst);
+            //     let _ = result.mul(&mut cs, &result).unwrap();
+            //     let k = super::super::RANGE_GATES_COUNTER.load(Ordering::SeqCst) - k;
+            //     println!("Single multiplication taken {} gates", cs.n() - base);
+            //     println!("Range checks take {} gates", k);
+            // }
+        }
+    }
+
+    #[test]
+    fn test_addition_chain_2_inv_mul_on_random_witnesses(){
+        use rand::{XorShiftRng, SeedableRng, Rng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
+
+        println!("Max representable = {}, with {} bits", params.max_representable_value().to_str_radix(16), params.max_representable_value().bits());
+
+        for i in 0..100 {
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+
+            let a_f0: Fq = rng.gen();
+            let a_f1: Fq = rng.gen();
+
+            let mut a_f = a_f0;
+            a_f.add_assign(&a_f1);
+
+            let b_f: Fq = rng.gen();
+            let a_0 = FieldElement::new_allocated(
+                &mut cs, 
+                Some(a_f0), 
+                &params
+            ).unwrap();
+
+            let a_1 = FieldElement::new_allocated(
+                &mut cs, 
+                Some(a_f1), 
+                &params
+            ).unwrap();
+
+            let b = FieldElement::new_allocated(
+                &mut cs, 
+                Some(b_f),
+                &params
+            ).unwrap();
+
+            let mut m = b_f.inverse().unwrap();
+            m.mul_assign(&a_f);
+    
+            let (result, (_, b)) = FieldElement::div_from_addition_chain(&mut cs, vec![a_0, a_1], b).unwrap();
+
+            assert!(cs.is_satisfied());
+
+            assert_eq!(result.value.unwrap(), m);
+
+            assert_eq!(result.get_value().unwrap(), fe_to_biguint(&m));
+
+            // let mut ab_in_base_field = a_base;
+            // ab_in_base_field.mul_assign(&b_base);
+
+            // assert_eq!(result.base_field_limb.get_value().unwrap(), ab_in_base_field);
+
+            // if i == 0 {
+            //     let a = a.reduce_if_necessary(&mut cs).unwrap();
+            //     let b = b.reduce_if_necessary(&mut cs).unwrap();
+            //     let base = cs.n();
+            //     use std::sync::atomic::Ordering;
+            //     let k = super::super::RANGE_GATES_COUNTER.load(Ordering::SeqCst);
+            //     let _ = result.mul(&mut cs, &result).unwrap();
+            //     let k = super::super::RANGE_GATES_COUNTER.load(Ordering::SeqCst) - k;
+            //     println!("Single multiplication taken {} gates", cs.n() - base);
+            //     println!("Range checks take {} gates", k);
+            // }
+        }
+    }
+
+    //  0*3           0*2           0*1           0*0
+    //  1*2           1*1           1*0
+    //  2*1           2*0
+    //  3*0
 
 }
