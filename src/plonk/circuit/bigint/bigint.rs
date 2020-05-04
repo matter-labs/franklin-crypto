@@ -134,8 +134,8 @@ impl<E: Engine> Limb<E> {
         self.max_value.clone()
     }
 
-    pub fn get_value(&self) -> BigUint {
-        fe_to_biguint(&self.term.get_value().unwrap())
+    pub fn get_value(&self) -> Option<BigUint> {
+        some_fe_to_biguint(&self.term.get_value())
     }
 
     pub fn scale(&mut self, by: &E::Fr) {
@@ -150,10 +150,10 @@ impl<E: Engine> Limb<E> {
         self.term.add_constant(&c);
     }
 
-    pub fn get_field_value(&self) -> E::Fr {
-        debug_assert!(self.get_value() < repr_to_biguint::<E::Fr>(&E::Fr::char()), "self value = {}, char = {}", self.get_value().to_str_radix(16), E::Fr::char());
+    pub fn get_field_value(&self) -> Option<E::Fr> {
+        // debug_assert!(self.get_value() < repr_to_biguint::<E::Fr>(&E::Fr::char()), "self value = {}, char = {}", self.get_value().to_str_radix(16), E::Fr::char());
 
-        let v = self.term.get_value().unwrap();
+        let v = self.term.get_value();
 
         v
     }
@@ -217,25 +217,36 @@ pub(crate) fn biguint_to_fe<F: PrimeField>(value: BigUint) -> F {
     F::from_str(&value.to_str_radix(10)).unwrap()
 }
 
+pub(crate) fn some_biguint_to_fe<F: PrimeField>(value: &Option<BigUint>) -> Option<F> {
+    match value {
+        Some(value) => {
+            let n = F::from_str(&value.to_str_radix(10)).unwrap();
+
+            Some(n)
+        },
+        None => None
+    }
+}
+
 pub(crate) fn fe_to_biguint<F: PrimeField>(el: &F) -> BigUint {
     let repr = el.into_repr();
 
     repr_to_biguint::<F>(&repr)
 }
 
-// pub(crate) fn fe_to_raw_biguint<F: PrimeField>(el: &F) -> BigUint {
-//     let repr = el.into_raw_repr();
+pub(crate) fn some_fe_to_biguint<F: PrimeField>(el: &Option<F>) -> Option<BigUint> {
+    match el {
+        Some(el) => {
+            let repr = el.into_repr();
 
-//     repr_to_biguint::<F>(&repr)
-// }
+            let ret = repr_to_biguint::<F>(&repr);
 
-// pub(crate) fn fe_to_mont_limbs<F: PrimeField>(el: &F, bits_per_limb: usize) -> Vec<BigUint> {
-//     let repr = el.into_raw_repr();
+            Some(ret)
+        },
+        None => None
+    }
 
-//     let fe = repr_to_biguint::<F>(&repr);
-
-//     split_into_fixed_width_limbs(fe, bits_per_limb)
-// }   
+}
 
 pub fn split_into_fixed_width_limbs(mut fe: BigUint, bits_per_limb: usize) -> Vec<BigUint> {
     let mut num_limbs = fe.bits() / bits_per_limb;
@@ -259,6 +270,25 @@ pub fn split_into_fixed_width_limbs(mut fe: BigUint, bits_per_limb: usize) -> Ve
 }
 
 
+pub fn split_some_into_fixed_number_of_limbs(fe: Option<BigUint>, bits_per_limb: usize, num_limbs: usize) -> Vec<Option<BigUint>> {
+    if let Some(fe) = fe {
+        let mut fe = fe;
+        let mut limbs = Vec::with_capacity(num_limbs);
+
+        let modulus = BigUint::from(1u64) << bits_per_limb;
+
+        for _ in 0..num_limbs {
+            let limb = fe.clone() % &modulus;
+            limbs.push(Some(limb));
+            fe >>= bits_per_limb;
+        }
+
+        limbs
+    } else {
+        vec![None; num_limbs]
+    }
+}
+
 pub fn split_into_fixed_number_of_limbs(mut fe: BigUint, bits_per_limb: usize, num_limbs: usize) -> Vec<BigUint> {
     let mut limbs = Vec::with_capacity(num_limbs);
 
@@ -272,37 +302,3 @@ pub fn split_into_fixed_number_of_limbs(mut fe: BigUint, bits_per_limb: usize, n
 
     limbs
 }
-
-pub struct LimbedBigUint<'a, E: Engine> {
-    pub(crate) params: &'a LimbedRepresentationParameters<E>,
-    pub(crate) num_limbs: usize,
-    pub(crate) limbs: Vec<Limb<E>>,
-    pub(crate) is_constant: bool
-}
-
-impl<'a, E: Engine> LimbedBigUint<'a, E> {
-    pub fn get_value(&self) -> BigUint {
-        let shift = self.params.limb_size_bits;
-
-        let mut result = BigUint::from(0u64);
-
-        for l in self.limbs.iter().rev() {
-            result <<= shift;
-            result += l.get_value();
-        }
-
-        result
-    }
-
-    // pub fn reduce_if_necessary<CS: ConstraintSystem<E>>(
-    //     &mut self,
-    //     cs: &mut CS
-    // ) -> Result<(), SynthesisError> {
-    //     if self.is_constant {
-
-    //     }
-    // }
-}
-
-
-

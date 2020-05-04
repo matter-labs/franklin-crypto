@@ -117,21 +117,21 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
     }
 
     pub fn add_unequal<CS: ConstraintSystem<E>>(
-        &self,
+        self,
         cs: &mut CS,
-        other: &Self
+        other: Self
     ) -> Result<Self, SynthesisError> {
         // since we are in a circuit we don't use projective coodinates cause inversions are
         // "cheap" in terms of constraints 
 
         // we also do not want to have branching here,
-        // so this function explicitly requires that 
+        // so this function implicitly requires that 
         // points are not equal
 
         let this_x_negated = self.x.negated(cs)?;
         let this_y_negated = self.y.negated(cs)?;
 
-        let den = other.x.add(cs, &this_x_negated)?;
+        let (den, (other_x_reduced, this_x_negated)) = other.x.add(cs, this_x_negated)?;
 
 
 
