@@ -128,20 +128,23 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         // so this function explicitly requires that 
         // points are not equal
 
-        let this_x = self.x.reduce_if_necessary(cs)?;
-        let this_y = self.y.reduce_if_necessary(cs)?;
+        let this_x_negated = self.x.negated(cs)?;
+        let this_y_negated = self.y.negated(cs)?;
 
-        let other_x = other.x.reduce_if_necessary(cs)?;
-        let other_y = other.y.reduce_if_necessary(cs)?;
-    
-        let num = other_y.sub(cs, &this_y)?;
-        let den = other_x.sub(cs, &this_x)?;
-
-        let minus_this_x : FieldElement<'a, E, G::Base>= FieldElement::<_, _>::zero(self.x.representation_params).sub(cs, &this_x)?;
-        let minus_other_x : FieldElement<'a, E, G::Base>= FieldElement::<_, _>::zero(self.x.representation_params).sub(cs, &other_x)?; 
-        let lambda = num.div(cs, &den)?;
+        let den = other.x.add(cs, &this_x_negated)?;
 
 
+
+        // let lambda = FieldElement::<_, _>::div_from_addition_chain_with_reduced_numerators(
+        //     cs, 
+        //     &[other.y.re, this_y_negated.clone()], 
+        //     &den
+        // )?;
+
+        unimplemented!()
+        // let minus_this_x : FieldElement<'a, E, G::Base>= FieldElement::<_, _>::zero(self.x.representation_params).sub(cs, &this_x)?;
+        // let minus_other_x : FieldElement<'a, E, G::Base>= FieldElement::<_, _>::zero(self.x.representation_params).sub(cs, &other_x)?; 
+        // let lambda = num.div(cs, &den)?;
 
     }
 }

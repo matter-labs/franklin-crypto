@@ -514,13 +514,18 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         self.base_field_limb.is_constant()
     }
 
-    pub fn reduce_if_necessary<CS: ConstraintSystem<E>>(
+    pub fn negated<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS
     ) -> Result<Self, SynthesisError> {
+        Self::zero(&self.representation_params).sub(cs, self)
+    }
+
+    pub fn needs_reduction(
+        &self
+    ) -> bool {
         if self.is_constant() {
-            let value = self.get_value() % &self.representation_params.represented_field_modulus;
-            return Self::new_constant(value, self.representation_params);
+            return false;
         }
 
         // let's see if we ever need to reduce individual limbs into the default ranges
@@ -531,8 +536,20 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         for binary_limb in self.binary_limbs.iter() {
             needs_reduction = needs_reduction || &binary_limb.get_value() > max_limb_value;
         }
-        
-        if needs_reduction {
+
+        needs_reduction
+    }
+
+    pub fn reduce_if_necessary<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS
+    ) -> Result<Self, SynthesisError> {
+        if self.is_constant() {
+            let value = self.get_value() % &self.representation_params.represented_field_modulus;
+            return Self::new_constant(value, self.representation_params);
+        }
+
+        if self.needs_reduction() {
             return self.reduction_impl(cs);
         }
 
@@ -674,7 +691,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             &one,
             &[],
             &q_as_field_repr, 
-            &r_as_field_repr,
+            &[r_as_field_repr.clone()],
         )?;
 
         Ok(r_as_field_repr)
@@ -929,25 +946,30 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             &other,
             &[],
             &q_elem,
-            &r_elem,
+            &[r_elem.clone()],
         )?;
 
         Ok(r_elem)
     }
 
-    pub fn fma<CS: ConstraintSystem<E>>(
+    pub fn fma_with_addition_chain<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,
         to_mul: &Self,
-        to_add: &Self
+        to_add: &[Self]
     ) -> Result<Self, SynthesisError> {
         let this = self.reduce_if_necessary(cs)?;
         let to_mul = to_mul.reduce_if_necessary(cs)?;
 
-        let value = this.get_value() * to_mul.get_value() + to_add.get_value();
+        let mut value = this.get_value() * to_mul.get_value();
+        let mut all_constants = this.is_constant() && to_mul.is_constant();
+        for a in to_add.iter() {
+            value += a.get_value();
+            all_constants = all_constants & a.is_constant();
+        } 
         let (q, r) = value.div_rem(&self.representation_params.represented_field_modulus);
 
-        if this.is_constant() && to_mul.is_constant() && to_add.is_constant() {
+        if  all_constants {
             return Self::new_constant(r, &*self.representation_params);
         }
 
@@ -973,9 +995,9 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             cs, 
             &this,
             &to_mul,
-            &[to_add.clone()],
+            to_add,
             &q_elem,
-            &r_elem,
+            &[r_elem.clone()],
         )?;
 
         Ok(r_elem)
@@ -988,6 +1010,14 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
     ) -> Result<Self, SynthesisError> {
         // we do self/den = result mod p
         // so we constraint result * den = q * p + self
+
+        // Self::div_from_addition_chain(
+        //     cs,
+        //     &[self.clone()],
+        //     den
+        // )
+
+        // code here duplicated a little to avoid reduction mess
 
         let this = self.reduce_if_necessary(cs)?;
         let den = den.reduce_if_necessary(cs)?;
@@ -1023,8 +1053,70 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             self.representation_params
         )?;
 
-        // a / den = 1 mod p => a / den = q*p + 1
-        // den - 
+        Self::constraint_fma_with_multiple_additions(
+            cs, 
+            &den,
+            &inv_wit,
+            &[],
+            &q_elem,
+            &[this],
+        )?;
+
+        Ok(inv_wit)
+    }
+
+    pub(crate) fn div_from_addition_chain_with_reduced_numerators<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        nums: &[Self],
+        den: &Self
+    ) -> Result<Self, SynthesisError> {
+
+        // we do self/den = result mod p
+        // so we constraint result * den = q * p + self
+
+        let den = den.reduce_if_necessary(cs)?;
+
+        let inv = mod_inverse(&den.get_value(), &den.representation_params.represented_field_modulus);
+
+        let mut num_value = BigUint::from(0u64);
+        let mut all_constant = den.is_constant();
+
+        for n in nums.iter() {
+            assert!(n.needs_reduction() == false);
+            num_value += n.get_value();
+            all_constant = all_constant & n.is_constant();
+        }
+        let num_value = num_value % &den.representation_params.represented_field_modulus;
+
+        let result = num_value.clone() * &inv % &den.representation_params.represented_field_modulus;
+        let value = den.get_value() * &result - num_value;
+
+        let (q, rem) = value.div_rem(&den.representation_params.represented_field_modulus);
+
+        use crate::num_traits::Zero;
+        assert!(rem.is_zero(), "remainder = {}", rem.to_str_radix(16));
+
+        if all_constant {
+            return Self::new_constant(result, den.representation_params);
+        }
+
+        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, den.representation_params)?;
+
+        let q_elem = Self::from_double_size_limb_witnesses(
+            cs, 
+            &q_wit, 
+            true, 
+            den.representation_params
+        )?;
+
+        let inv_wit = Self::slice_into_double_limb_witnesses(result, cs, den.representation_params)?;
+    
+        let inv_wit = Self::from_double_size_limb_witnesses(
+            cs, 
+            &inv_wit, 
+            false, 
+            den.representation_params
+        )?;
 
         Self::constraint_fma_with_multiple_additions(
             cs, 
@@ -1032,7 +1124,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             &inv_wit,
             &[],
             &q_elem,
-            &this,
+            nums,
         )?;
 
         Ok(inv_wit)
@@ -1112,7 +1204,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         mul_b: &Self,
         addition_elements: &[Self],
         result_quotient: &Self,
-        result_remainder: &Self,
+        result_remainder_decomposition: &[Self],
     ) -> Result<(), SynthesisError> {
         // remember the schoolbook multiplication
 
@@ -1256,14 +1348,16 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             tmp.scale(&shift_left_one_limb_constant);
             contributions.push(tmp);
 
-            let mut tmp = result_remainder.binary_limbs[i].term.clone();
-            tmp.negate();
-            contributions.push(tmp);
-
-            let mut tmp = result_remainder.binary_limbs[i+1].term.clone();
-            tmp.scale(&shift_left_one_limb_constant);
-            tmp.negate();
-            contributions.push(tmp);
+            for result_remainder in result_remainder_decomposition.iter() {
+                let mut tmp = result_remainder.binary_limbs[i].term.clone();
+                tmp.negate();
+                contributions.push(tmp);
+    
+                let mut tmp = result_remainder.binary_limbs[i+1].term.clone();
+                tmp.scale(&shift_left_one_limb_constant);
+                tmp.negate();
+                contributions.push(tmp);
+            }
 
             for addition_element in addition_elements.iter() {
                 let tmp = addition_element.binary_limbs[i].term.clone();
@@ -1375,14 +1469,16 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
         let ab_in_base_field = Term::<E>::fma(cs, &mul_a.base_field_limb, &mul_b.base_field_limb, &minus_qp_in_base_field)?;
 
-        let mut negated_remainder_in_base_field = result_remainder.base_field_limb.clone();
-        negated_remainder_in_base_field.negate();
-
         let mut addition_chain = vec![];
         for a in addition_elements.iter() {
             addition_chain.push(a.base_field_limb.clone());
         }
-        addition_chain.push(negated_remainder_in_base_field);
+
+        for result_remainder in result_remainder_decomposition.iter() {
+            let mut negated_remainder_in_base_field = result_remainder.base_field_limb.clone();
+            negated_remainder_in_base_field.negate();
+            addition_chain.push(negated_remainder_in_base_field);
+        }
 
         let must_be_zero = ab_in_base_field.add_multiple(cs, &addition_chain)?;
         let must_be_zero = must_be_zero.collapse_into_num(cs)?;
@@ -1392,7 +1488,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                 assert!(c.is_zero());
             },
             Num::Variable(var) => {
-                // var.assert_equal_to_constant(cs, E::Fr::zero())?;
+                var.assert_equal_to_constant(cs, E::Fr::zero())?;
             }
         }
 
