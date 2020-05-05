@@ -24,6 +24,9 @@ pub mod expression;
 pub mod sapling;
 pub mod sprout;
 
+pub mod permutation;
+pub mod hashmap;
+
 use bellman::{
     SynthesisError
 };
