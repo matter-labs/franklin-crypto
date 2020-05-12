@@ -36,7 +36,7 @@ use super::super::allocated_num::{AllocatedNum, Num};
 use super::super::linear_combination::LinearCombination;
 use super::super::simple_term::Term;
 
-use super::{U16RangeConstraintinSystem, constraint_num_bits};
+use super::constraint_num_bits;
 
 // in principle this is valid for both cases:
 // when we represent some (field) element as a set of limbs
@@ -119,7 +119,7 @@ impl<E: Engine> Limb<E> {
     }
 
     pub fn max_bits(&mut self) -> usize {
-        self.max_value.bits() + 1
+        (self.max_value.bits() as usize) + 1
     }
 
     pub fn inc_max(&mut self, by: &BigUint) {
@@ -208,6 +208,8 @@ pub fn mod_inverse(el: &BigUint, modulus: &BigUint) -> BigUint {
         y.to_biguint().expect("must be > 0")
     };
 
+    debug_assert!(el.clone() * &y % modulus == BigUint::from(1u64));
+
     debug_assert!(&y < modulus);
 
     y
@@ -215,6 +217,20 @@ pub fn mod_inverse(el: &BigUint, modulus: &BigUint) -> BigUint {
 
 pub(crate) fn biguint_to_fe<F: PrimeField>(value: BigUint) -> F {
     F::from_str(&value.to_str_radix(10)).unwrap()
+}
+
+pub(crate) fn biguint_to_repr<F: PrimeField>(mut value: BigUint) -> F::Repr {
+    use num_traits::ToPrimitive;
+
+    let mut repr = F::Repr::default();
+    let mask = BigUint::from(1u64) << 64;
+    for l in repr.as_mut().iter_mut() {
+        let limb: BigUint = value.clone() % &mask;
+        *l = limb.to_u64().unwrap();
+        value >>= 64;
+    }
+
+    repr
 }
 
 pub(crate) fn some_biguint_to_fe<F: PrimeField>(value: &Option<BigUint>) -> Option<F> {
@@ -245,12 +261,20 @@ pub(crate) fn some_fe_to_biguint<F: PrimeField>(el: &Option<F>) -> Option<BigUin
         },
         None => None
     }
+}
 
+pub(crate) fn get_bit_slice(v: BigUint, start: usize, end: usize) -> BigUint {
+    let mut tmp = v;
+    tmp >>= start;
+
+    let mask = BigUint::from(1u64) << (end - start);
+
+    tmp % mask
 }
 
 pub fn split_into_fixed_width_limbs(mut fe: BigUint, bits_per_limb: usize) -> Vec<BigUint> {
-    let mut num_limbs = fe.bits() / bits_per_limb;
-    if fe.bits() % bits_per_limb != 0 {
+    let mut num_limbs = (fe.bits() as usize) / bits_per_limb;
+    if (fe.bits() as usize) % bits_per_limb != 0 {
         num_limbs += 1;
     }
 

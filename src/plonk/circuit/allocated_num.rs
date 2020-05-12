@@ -52,6 +52,31 @@ impl<E: Engine> Num<E> {
             Num::Constant(c) => Some(*c)
         }
     }
+
+    pub fn is_constant(&self) -> bool {
+        match self {
+            Num::Variable(..) => false,
+            Num::Constant(..) => true
+        }
+    }
+
+    pub(crate) fn get_constant_value(&self) -> E::Fr {
+        match self {
+            Num::Variable(..) => panic!("is variable"),
+            Num::Constant(c) => *c
+        }
+    }
+
+    pub(crate) fn get_variable(&self) -> AllocatedNum<E> {
+        match self {
+            Num::Constant(..) => {
+                panic!("constant")
+            },
+            Num::Variable(v) => {
+                v.clone()
+            }
+        }
+    }
 }
 #[derive(Debug)]
 pub struct AllocatedNum<E: Engine> {
@@ -115,6 +140,54 @@ impl<E: Engine> AllocatedNum<E> {
         term.sub_assign(other_term);
 
         cs.allocate_main_gate(term)?;
+
+        Ok(())
+    }
+
+    pub fn inverse<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS
+    ) -> Result<Self, SynthesisError> {
+        let new_value = if let Some(value) = self.get_value() {
+            let t = value.inverse().unwrap();
+
+            Some(t)
+        } else {
+            None
+        };
+
+        let new_allocated = Self::alloc(
+            cs,
+            || {
+                Ok(*new_value.get()?)
+            }
+        )?;
+
+        let r = self.mul(cs, &new_allocated)?;
+
+        r.assert_equal_to_constant(cs, E::Fr::one())?;
+
+        Ok(new_allocated)
+    }
+
+    pub fn assert_not_zero<CS>(
+        &self,
+        cs: &mut CS,
+    ) -> Result<(), SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let _ = self.inverse(cs)?;
+
+        Ok(())
+    }
+
+    pub fn assert_is_zero<CS>(
+        &self,
+        cs: &mut CS,
+    ) -> Result<(), SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        self.assert_equal_to_constant(cs, E::Fr::zero())?;
 
         Ok(())
     }

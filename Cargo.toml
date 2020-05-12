@@ -1,11 +1,9 @@
 [package]
 authors = ["Sean Bowe <sean@z.cash>", "Alex Vlasov <alex.m.vlasov@gmail.com>", "Alex Gluchowski <alex@gluchowski.net>"]
 description = "Cryptographic library for SNARK gadgets"
-#documentation = "https://github.com/matter-labs/sapling-crypto"
-homepage = "https://github.com/matter-labs/sapling-crypto"
+homepage = "https://github.com/matter-labs/franklin-crypto"
 license = "MIT/Apache-2.0"
 name = "franklin-crypto"
-#repository = "https://github.com/matter-labs/sapling-crypto"
 version = "0.0.5"
 
 [lib]
@@ -26,7 +24,8 @@ tiny-keccak = "1.4.2"
 bit-vec = "0.6"
 sha2 = "0.8.0"
 hmac = "0.7.1"
-num-bigint = "0.2"
+# num-bigint = "0.2"
+num-bigint = {git = "https://github.com/rust-num/num-bigint.git"}
 num-integer = "0.1"
 num-traits = "0.2"
 

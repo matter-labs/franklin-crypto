@@ -132,7 +132,7 @@ impl Bn256RescueParams {
         p_minus_one_biguint -= BigUint::one();
 
         fn biguint_to_u64_array(mut v: BigUint) -> [u64; 4] {
-            let m = BigUint::from(1u64) << 64;
+            let m: BigUint = BigUint::from(1u64) << 64;
             let mut ret = [0; 4];
 
             for idx in 0..4 {

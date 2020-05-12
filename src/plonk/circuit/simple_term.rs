@@ -296,6 +296,14 @@ impl<E: Engine> Term<E> {
         return Ok(Self::from_num(num));
     }
 
+    pub(crate) fn mul<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+        other: &Self
+    ) -> Result<Self, SynthesisError> {
+        Self::fma(cs, self, other, &Self::zero())
+    }
+
     pub(crate) fn fma<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         mul_x: &Self,
@@ -624,6 +632,37 @@ impl<E: Engine> Term<E> {
                 return Ok(new);
             },
         }
+    }
+
+    // returns first if true and second if false
+    pub fn select<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        flag: &Boolean,
+        first: &Self,
+        second: &Self
+    ) -> Result<Self, SynthesisError> {
+        match flag {
+            Boolean::Constant(c) => {
+                if *c {
+                    return Ok(first.clone());
+                } else {
+                    return Ok(second.clone());
+                }
+            },
+            _ => {}
+        }
+
+        let flag_as_term = Term::<E>::from_boolean(flag);
+
+        // flag * a + (1-flag)*b = flag * (a-b) + b
+
+        let mut minus_b = second.clone();
+        minus_b.negate();
+        let a_minus_b = first.add(cs, &minus_b)?;
+
+        let new = Term::<E>::fma(cs, &flag_as_term, &a_minus_b, &second)?;
+
+        Ok(new)
     }
 }
 
