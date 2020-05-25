@@ -132,6 +132,7 @@ pub fn create_range_constraint_chain<E: Engine, CS: ConstraintSystem<E>>(
     to_constraint: &AllocatedNum<E>, 
     num_bits: usize
 ) -> Result<Vec<AllocatedNum<E>>, SynthesisError> {
+    assert!(num_bits > 0);
     assert!(num_bits & 1 == 0);
     assert_eq!(CS::Params::STATE_WIDTH, 4, "this only works for a state of width 4 for now");
     if let Some(v) = to_constraint.get_value() {
@@ -243,4 +244,52 @@ pub fn create_range_constraint_chain<E: Engine, CS: ConstraintSystem<E>>(
     RANGE_GATES_COUNTER.fetch_add(num_gates+1, Ordering::SeqCst);
 
     Ok(result)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RangeConstraintInfo {
+    pub minimal_multiple: usize,
+    pub optimal_multiple: usize,
+    pub multiples_per_gate: usize,
+}
+
+pub fn get_range_constraint_info<E: Engine, CS: ConstraintSystem<E>>(cs: &CS) -> RangeConstraintInfo {
+    const MULTIAPPLICATION_TABLE_NAME: &'static str = "Range check table";
+    const SINGLE_APPLICATION_TABLE_NAME: &'static str = "Range check table for a single column";
+
+    if let Ok(multi) = cs.get_multitable(MULTIAPPLICATION_TABLE_NAME) {
+        let width = crate::log2_floor(multi.size());
+        let multiples = multi.applies_over().len();
+        assert!(multiples <= 3);
+
+        return RangeConstraintInfo {
+            minimal_multiple: width as usize,
+            optimal_multiple: (width as usize) * multiples,
+            multiples_per_gate: multiples,
+        };
+    }
+
+    if let Ok(single) = cs.get_table(SINGLE_APPLICATION_TABLE_NAME) {
+        let width = crate::log2_floor(single.size());
+
+        return RangeConstraintInfo {
+            minimal_multiple: width as usize,
+            optimal_multiple: width as usize,
+            multiples_per_gate: 1,
+        };
+    }
+
+    if CS::Params::STATE_WIDTH == 4 && CS::Params::HAS_CUSTOM_GATES {
+        return RangeConstraintInfo {
+            minimal_multiple: 2,
+            optimal_multiple: 8,
+            multiples_per_gate: 4,
+        };
+    }
+
+    return RangeConstraintInfo {
+        minimal_multiple: 1,
+        optimal_multiple: 1,
+        multiples_per_gate: 1,
+    };
 }

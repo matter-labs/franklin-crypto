@@ -322,28 +322,70 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         for (witness_idx, w) in witnesses.iter().enumerate() {
             match w {
                 Num::Constant(value) => {
-                    unimplemented!();
-                    // this_value += fe_to_biguint(value) << (i*2*params.binary_limbs_params.limb_size_bits);
-                    // let limb_values = split_into_fixed_width_limbs(fe_to_biguint(value), params.binary_limbs_params.limb_size_bits);
-                    // assert!(limb_values.len() == params.limb_witness_size);
-                    // for (j, l) in limb_values.into_iter().enumerate() {
-                    //     let limb_idx = i*params.limb_witness_size + j;
-                    //     let max_value = if limb_idx == params.num_binary_limbs && top_limb_may_overflow {
-                    //         params.last_binary_limb_max_value.clone()
-                    //     } else {
-                    //         params.binary_limbs_params.limb_max_value.clone()
-                    //     };
+                    let v = fe_to_biguint(value);
+                    this_value += v.clone() << (witness_idx*2*params.binary_limbs_params.limb_size_bits);
 
-                    //     assert!(&l <= &max_value);
+                    let limb_values = split_into_fixed_number_of_limbs(
+                        v, 
+                        params.binary_limbs_params.limb_size_bits, 
+                        params.limb_witness_size
+                    );
 
-                    //     let term = Term::<E>::from_constant(biguint_to_fe(l));
-                    //     let limb = Limb::<E>::new( 
-                    //         term,
-                    //         max_value
-                    //     );
+                    assert!(limb_values.len() == 2);
 
-                    //     binary_limbs_allocated.push(limb);
-                    // }
+                    let low_idx = witness_idx*2;
+                    let high_idx = witness_idx*2+1;
+
+                    // there are two cases:
+                    // - can not overflow and indexes are in range for in-range field element
+                    // - can not overflow and indexes are NOT in range for in-range field element
+                    // - can overflow
+
+                    // we can merge first and third, so handle second first
+
+                    if low_idx < params.num_limbs_for_in_field_representation {
+                        assert!(high_idx < params.num_limbs_for_in_field_representation)
+                    }
+
+                    // if the element must fit into the field than pad with zeroes
+                    if top_limb_may_overflow == false &&
+                        low_idx >= params.num_limbs_for_in_field_representation && 
+                        high_idx >= params.num_limbs_for_in_field_representation {
+
+                        assert!(limb_values[0].is_zero());
+                        assert!(limb_values[1].is_zero());
+
+                        binary_limbs_allocated.push(Self::zero_limb());
+                        binary_limbs_allocated.push(Self::zero_limb());
+
+                        continue;
+                    }
+
+                    let (expected_low_width, expected_low_max_value) = if top_limb_may_overflow {
+                        (params.binary_limbs_params.limb_size_bits, params.binary_limbs_params.limb_max_value.clone())
+                    } else {
+                        (params.binary_limbs_bit_widths[low_idx], params.binary_limbs_max_values[low_idx].clone())
+                    };
+
+                    let (expected_high_width, expected_high_max_value) = if top_limb_may_overflow {
+                        (params.binary_limbs_params.limb_size_bits, params.binary_limbs_params.limb_max_value.clone())
+                    } else {
+                        (params.binary_limbs_bit_widths[high_idx], params.binary_limbs_max_values[high_idx].clone())
+                    };
+
+                    assert!(expected_low_width > 0);
+                    assert!(expected_high_width > 0);
+
+                    assert!(limb_values[0].bits() as usize <= expected_low_width);
+                    assert!(limb_values[1].bits() as usize <= expected_high_width);
+
+                    for v in limb_values.into_iter() {
+                        let limb = Limb::<E>::new_constant(
+                            v
+                        );
+
+                        binary_limbs_allocated.push(limb);
+                    }
                 },
                 Num::Variable(var) => {
                     let limb_values = if let Some(v) = var.get_value() {
@@ -377,38 +419,48 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                         assert!(high_idx < params.num_limbs_for_in_field_representation)
                     }
 
+                    // if the element must fit into the field than pad with zeroes
                     if top_limb_may_overflow == false &&
                         low_idx >= params.num_limbs_for_in_field_representation && 
                         high_idx >= params.num_limbs_for_in_field_representation {
-                        let zero_term = Term::<E>::zero();
-                        let zero_limb = Limb::new(
-                            zero_term,
-                            BigUint::from(0u64)
-                        );
 
-                        binary_limbs_allocated.push(zero_limb.clone());
-                        binary_limbs_allocated.push(zero_limb);
+                        unreachable!("should not try to allocated value in a field with non-constant higher limbs");
+
+                        // binary_limbs_allocated.push(Self::zero_limb());
+                        // binary_limbs_allocated.push(Self::zero_limb());
+
+                        // // also check that the variable is zero
+                        // var.assert_equal_to_constant(cs, E::Fr::zero())?;
+
+                        // continue;
                     }
 
-                    let expected_low_width = params.binary_limbs_bit_widths[low_idx];
-                    let expected_low_max_value = params.binary_limbs_max_values[low_idx].clone();
+                    let (expected_low_width, expected_low_max_value) = if top_limb_may_overflow {
+                        (params.binary_limbs_params.limb_size_bits, params.binary_limbs_params.limb_max_value.clone())
+                    } else {
+                        (params.binary_limbs_bit_widths[low_idx], params.binary_limbs_max_values[low_idx].clone())
+                    };
 
-                    if expected_low_width == 0 {
-                        // high limb must be also zero
+                    // // perform redundant check through the params
+                    // if expected_low_width == 0 {
+                    //     // high limb must be also zero
 
-                        var.assert_equal_to_constant(cs, E::Fr::zero())?;
+                    //     var.assert_equal_to_constant(cs, E::Fr::zero())?;
 
-                        binary_limbs_allocated.push(Self::zero_limb());
-                        binary_limbs_allocated.push(Self::zero_limb());
+                    //     binary_limbs_allocated.push(Self::zero_limb());
+                    //     binary_limbs_allocated.push(Self::zero_limb());
 
-                        continue;
-                    }
+                    //     continue;
+                    // }
 
                     let (expected_high_width, expected_high_max_value) = if top_limb_may_overflow {
                         (params.binary_limbs_params.limb_size_bits, params.binary_limbs_params.limb_max_value.clone())
                     } else {
                         (params.binary_limbs_bit_widths[high_idx], params.binary_limbs_max_values[high_idx].clone())
                     };
+
+                    assert!(expected_low_width > 0);
+                    assert!(expected_high_width > 0);
 
                     assert_eq!(params.binary_limbs_params.limb_max_value.clone(), expected_low_max_value);
 
@@ -918,26 +970,60 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         value: Option<BigUint>,
         cs: &mut CS,
         params: &RnsParameters<E, F>,
+        can_overflow: bool
     ) -> Result<Vec<Num<E>>, SynthesisError> {
-        let num_witness = params.num_binary_limbs / 2;
-        let witness_limbs = split_some_into_fixed_number_of_limbs(
-            value, 
-            params.binary_limbs_params.limb_size_bits * 2, 
-            num_witness
-        );
+        assert!(params.num_binary_limbs % 2 == 0);
 
-        let mut witnesses = vec![];
-        for l in witness_limbs.into_iter() {
-            let v = some_biguint_to_fe::<E::Fr>(&l);
-            let w = AllocatedNum::alloc(cs, 
-            || {
-                Ok(*v.get()?)
-            })?;
+        if can_overflow {
+            let num_witness = params.num_binary_limbs / 2;
+            let witness_limbs = split_some_into_fixed_number_of_limbs(
+                value, 
+                params.binary_limbs_params.limb_size_bits * 2, 
+                num_witness
+            );
 
-            witnesses.push(Num::Variable(w));
+            let mut witnesses = vec![];
+            for l in witness_limbs.into_iter() {
+                let v = some_biguint_to_fe::<E::Fr>(&l);
+                let w = AllocatedNum::alloc(cs, 
+                || {
+                    Ok(*v.get()?)
+                })?;
+
+                witnesses.push(Num::Variable(w));
+            }
+
+            Ok(witnesses)
+        } else {
+            let mut num_witness = params.num_limbs_for_in_field_representation / 2;
+            if params.num_limbs_for_in_field_representation % 2 != 0 {
+                num_witness += 1;
+            }
+
+            let witness_limbs = split_some_into_fixed_number_of_limbs(
+                value, 
+                params.binary_limbs_params.limb_size_bits * 2, 
+                num_witness
+            );
+
+            let mut witnesses = vec![];
+            for l in witness_limbs.into_iter() {
+                let v = some_biguint_to_fe::<E::Fr>(&l);
+                let w = AllocatedNum::alloc(cs, 
+                || {
+                    Ok(*v.get()?)
+                })?;
+
+                witnesses.push(Num::Variable(w));
+            }
+
+            witnesses.resize(
+                params.num_binary_limbs / 2,
+                Num::Constant(E::Fr::zero())
+            );
+
+            Ok(witnesses)
         }
-
-        Ok(witnesses)
     }
 
     pub fn add<CS: ConstraintSystem<E>>(
@@ -1270,7 +1356,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             _ => (None, None)
         };
 
-        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params)?;
+        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
 
         let q_elem = Self::from_double_size_limb_witnesses(
             cs, 
@@ -1335,7 +1421,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             _ => (None, None)
         };
 
-        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params)?;
+        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
 
         let q_elem = Self::from_double_size_limb_witnesses(
             cs, 
@@ -1423,7 +1509,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             (Some(q), Some(r))
         };
 
-        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params)?;
+        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
 
         let q_elem = Self::from_double_size_limb_witnesses(
             cs, 
@@ -1509,7 +1595,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             (Some(q), Some(r))
         };
 
-        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params)?;
+        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
 
         let q_elem = Self::from_double_size_limb_witnesses(
             cs, 
@@ -1593,7 +1679,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             }
         };
 
-        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params)?;
+        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
 
         let q_elem = Self::from_double_size_limb_witnesses(
             cs, 
@@ -1722,7 +1808,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             return Ok((new, (reduced_nums, den)));
         }
 
-        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params)?;
+        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
 
         let q_elem = Self::from_double_size_limb_witnesses(
             cs, 

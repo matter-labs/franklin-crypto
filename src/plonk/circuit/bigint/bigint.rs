@@ -118,6 +118,19 @@ impl<E: Engine> Limb<E> {
         }
     }
 
+    pub fn new_constant(
+        value: BigUint
+    ) -> Self {
+        let v = biguint_to_fe(value.clone());
+
+        let term = Term::<E>::from_constant(v);
+
+        Self {
+            term,
+            max_value: value
+        }
+    }
+
     pub fn max_bits(&mut self) -> usize {
         (self.max_value.bits() as usize) + 1
     }
