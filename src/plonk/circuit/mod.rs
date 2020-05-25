@@ -11,6 +11,7 @@ pub mod poseidon;
 pub mod bigint;
 pub mod simple_term;
 pub mod curve;
+pub mod verifier_circuit;
 
 
 use crate::bellman::pairing::Engine;

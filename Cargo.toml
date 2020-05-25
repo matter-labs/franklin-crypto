@@ -12,7 +12,6 @@ crate-type = ["lib", "staticlib"]
 [features]
 default = ["multicore"]
 multicore = ["bellman/multicore"]
-plonk = ["bellman/plonk"]
  
 [dependencies]
 rand = "0.4"
@@ -29,11 +28,8 @@ num-bigint = {git = "https://github.com/rust-num/num-bigint.git"}
 num-integer = "0.1"
 num-traits = "0.2"
 
-bellman = { package = "bellman_ce", path = "../bellman" }
-# bellman = { package = "bellman_ce", git = "https://github.com/matter-labs/bellman", rev = "d37cf517bcfa0793adeb43f22af658ad41a664dd" }
-# bellman = { package = "bellman_ce", git = "https://github.com/matter-labs/bellman", branch = "circuit_description" }
+bellman = { package = "bellman_ce", path = "C:/Users/Konstantce/Desktop/bellman/bellman" }
 blake2-rfc_bellman_edition = "0.0.1"
-poseidon_hash = { path = "../poseidon_hash" }
 
 [dev-dependencies]
 hex-literal = "0.1"
