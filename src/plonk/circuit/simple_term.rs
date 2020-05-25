@@ -675,10 +675,10 @@ mod test {
         ConstraintSystem,
         ArithmeticTerm,
         MainGateTerm,
-        Width4MainGateWithDNextEquation,
-        MainGateEquation,
-        GateEquationInternal,
-        GateEquation,
+        Width4MainGateWithDNext,
+        MainGate,
+        GateInternal,
+        Gate,
         LinearCombinationOfTerms,
         PolynomialMultiplicativeTerm,
         PolynomialInConstraint,
@@ -697,7 +697,7 @@ mod test {
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for _ in 0..100 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let v0 = rng.gen();
             let v1 = rng.gen();
@@ -755,7 +755,7 @@ mod test {
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for _ in 0..100 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let v0 = rng.gen();
             let v1 = rng.gen();
@@ -818,7 +818,7 @@ mod test {
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for _ in 0..100 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let v0 = rng.gen();
             let v1 = rng.gen();

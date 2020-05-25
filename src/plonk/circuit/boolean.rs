@@ -18,10 +18,10 @@ use crate::bellman::plonk::better_better_cs::cs::{
     ConstraintSystem,
     ArithmeticTerm,
     MainGateTerm,
-    Width4MainGateWithDNextEquation,
-    MainGateEquation,
-    GateEquationInternal,
-    GateEquation,
+    Width4MainGateWithDNext,
+    MainGate,
+    GateInternal,
+    Gate,
     LinearCombinationOfTerms,
     PolynomialMultiplicativeTerm,
     PolynomialInConstraint,
@@ -1178,7 +1178,7 @@ mod test {
     fn test_xor() {
         for a_val in [false, true].iter() {
             for b_val in [false, true].iter() {
-                let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+                let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
                 let a = AllocatedBit::alloc(&mut cs, Some(*a_val)).unwrap();
                 let b = AllocatedBit::alloc(&mut cs, Some(*b_val)).unwrap();
                 let c = AllocatedBit::xor(&mut cs, &a, &b).unwrap();
@@ -1193,7 +1193,7 @@ mod test {
     fn test_and() {
         for a_val in [false, true].iter() {
             for b_val in [false, true].iter() {
-                let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+                let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
                 let a = AllocatedBit::alloc(&mut cs, Some(*a_val)).unwrap();
                 let b = AllocatedBit::alloc(&mut cs, Some(*b_val)).unwrap();
                 let c = AllocatedBit::and(&mut cs, &a, &b).unwrap();
@@ -1208,7 +1208,7 @@ mod test {
     fn test_and_not() {
         for a_val in [false, true].iter() {
             for b_val in [false, true].iter() {
-                let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+                let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
                 let a = AllocatedBit::alloc(&mut cs, Some(*a_val)).unwrap();
                 let b = AllocatedBit::alloc(&mut cs, Some(*b_val)).unwrap();
                 let c = AllocatedBit::and_not(&mut cs, &a, &b).unwrap();
@@ -1223,7 +1223,7 @@ mod test {
     fn test_nor() {
         for a_val in [false, true].iter() {
             for b_val in [false, true].iter() {
-                let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+                let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
                 let a = AllocatedBit::alloc(&mut cs, Some(*a_val)).unwrap();
                 let b = AllocatedBit::alloc(&mut cs, Some(*b_val)).unwrap();
                 let c = AllocatedBit::nor(&mut cs, &a, &b).unwrap();
@@ -1241,7 +1241,7 @@ mod test {
                 for a_neg in [false, true].iter().cloned() {
                     for b_neg in [false, true].iter().cloned() {
                         {
-                            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+                            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
                             let mut a = Boolean::from(AllocatedBit::alloc(&mut cs, Some(a_bool)).unwrap());
                             let mut b = Boolean::from(AllocatedBit::alloc(&mut cs, Some(b_bool)).unwrap());
@@ -1261,7 +1261,7 @@ mod test {
                             );
                         }
                         {
-                            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+                            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
                             let mut a = Boolean::Constant(a_bool);
                             let mut b = Boolean::from(AllocatedBit::alloc(&mut cs, Some(b_bool)).unwrap());
@@ -1281,7 +1281,7 @@ mod test {
                             );
                         }
                         {
-                            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+                            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
                             let mut a = Boolean::from(AllocatedBit::alloc(&mut cs, Some(a_bool)).unwrap());
                             let mut b = Boolean::Constant(b_bool);
@@ -1301,7 +1301,7 @@ mod test {
                             );
                         }
                         {
-                            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+                            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
                             let mut a = Boolean::Constant(a_bool);
                             let mut b = Boolean::Constant(b_bool);
@@ -1330,7 +1330,7 @@ mod test {
 
     #[test]
     fn test_boolean_negation() {
-        let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+        let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
         let mut b = Boolean::from(AllocatedBit::alloc(&mut cs, Some(true)).unwrap());
 
@@ -1423,7 +1423,7 @@ mod test {
 
         for first_operand in variants.iter().cloned() {
             for second_operand in variants.iter().cloned() {
-                let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+                let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
                 let a;
                 let b;
@@ -1542,7 +1542,7 @@ mod test {
 
         for first_operand in variants.iter().cloned() {
             for second_operand in variants.iter().cloned() {
-                let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+                let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
                 let a;
                 let b;
@@ -1653,7 +1653,7 @@ mod test {
 
     #[test]
     fn test_u64_into_boolean_vec_le() {
-        let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+        let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
         let bits = u64_into_boolean_vec_le(&mut cs, Some(17234652694787248421)).unwrap();
 
@@ -1675,7 +1675,7 @@ mod test {
     #[test]
     fn test_field_into_allocated_bits_le() {
         use crate::bellman::pairing::bls12_381;
-        let mut cs = TrivialAssembly::<bls12_381::Bls12, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+        let mut cs = TrivialAssembly::<bls12_381::Bls12, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
         let r = bls12_381::Fr::from_str("9147677615426976802526883532204139322118074541891858454835346926874644257775").unwrap();
 
@@ -1713,7 +1713,7 @@ mod test {
         for first_operand in variants.iter().cloned() {
             for second_operand in variants.iter().cloned() {
                 for third_operand in variants.iter().cloned() {
-                    let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+                    let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
                     let a;
                     let b;
@@ -1781,7 +1781,7 @@ mod test {
         for first_operand in variants.iter().cloned() {
             for second_operand in variants.iter().cloned() {
                 for third_operand in variants.iter().cloned() {
-                    let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+                    let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
                     let a;
                     let b;

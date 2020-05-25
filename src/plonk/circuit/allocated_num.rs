@@ -332,7 +332,7 @@ mod test {
     use crate::bellman::plonk::better_better_cs::cs::{
         TrivialAssembly, 
         PlonkCsWidth4WithNextStepParams, 
-        Width4MainGateWithDNextEquation
+        Width4MainGateWithDNext
     };
 
     #[test]
@@ -347,7 +347,7 @@ mod test {
         {
             let mut cs = TrivialAssembly::<Bn256, 
             PlonkCsWidth4WithNextStepParams,
-                Width4MainGateWithDNextEquation
+                Width4MainGateWithDNext
             >::new();
 
             let this = AllocatedNum::alloc(&mut cs, 

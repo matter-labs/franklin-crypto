@@ -399,19 +399,10 @@ mod test {
     use crate::bellman::plonk::better_better_cs::cs::{
         TrivialAssembly, 
         PlonkCsWidth4WithNextStepParams, 
-        Width4MainGateWithDNextEquation
+        Width4MainGateWithDNext
     };
 
-    #[derive(Clone, Copy)]
-    struct Width4WithCustomGates;
-
-    impl<E: Engine> PlonkConstraintSystemParams<E> for Width4WithCustomGates {
-        const STATE_WIDTH: usize =  4;
-        const WITNESS_WIDTH: usize = 0;
-        const HAS_WITNESS_POLYNOMIALS: bool = false;
-        const HAS_CUSTOM_GATES: bool = true;
-        const CAN_ACCESS_NEXT_TRACE_STEP: bool = true;
-    }
+    use crate::plonk::circuit::Width4WithCustomGates;
 
     #[test]
     fn test_poseidon_hash_plonk_gadget() {
@@ -424,7 +415,7 @@ mod test {
         {
             let mut cs = TrivialAssembly::<Bn256, 
                 Width4WithCustomGates,
-                Width4MainGateWithDNextEquation
+                Width4MainGateWithDNext
             >::new();
 
             let input_words: Vec<AllocatedNum<Bn256>> = input.iter().enumerate().map(|(i, b)| {
@@ -470,72 +461,73 @@ mod test {
             assert_eq!(res_0.get_value().unwrap(), r0);
             assert_eq!(res_1.get_value().unwrap(), r1);
 
+            cs.finalize();
             assert!(cs.is_satisfied());
         }
     }
 
-    #[test]
-    fn test_poseidon_hash_redshift_gadget() {
-        use crate::bellman::plonk::better_better_cs::cs::{ConstraintSystem, Circuit};
-        use crate::bellman::{SynthesisError};
+    // #[test]
+    // fn test_poseidon_hash_redshift_gadget() {
+    //     use crate::bellman::plonk::better_better_cs::cs::{ConstraintSystem, Circuit};
+    //     use crate::bellman::{SynthesisError};
 
-        struct TestCircuit;
+    //     struct TestCircuit;
 
-        const DEPTH: usize = 160*16;
-        // const DEPTH: usize = 1;
+    //     const DEPTH: usize = 160*16;
+    //     // const DEPTH: usize = 1;
 
-        impl Circuit<Bn256> for TestCircuit {
-            fn synthesize<CS: ConstraintSystem<Bn256>>(&self, cs: &mut CS) -> Result<(), SynthesisError> {
-                let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-                let params = Bn256PoseidonParams::new_checked_2_into_1();
-                let input: Vec<Fr> = (0..(params.rate())).map(|_| rng.gen()).collect();
+    //     impl Circuit<Bn256> for TestCircuit {
+    //         fn synthesize<CS: ConstraintSystem<Bn256>>(&self, cs: &mut CS) -> Result<(), SynthesisError> {
+    //             let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+    //             let params = Bn256PoseidonParams::new_checked_2_into_1();
+    //             let input: Vec<Fr> = (0..(params.rate())).map(|_| rng.gen()).collect();
 
-                for _ in 0..DEPTH {
-                    let input_words: Vec<AllocatedNum<Bn256>> = input.iter().enumerate().map(|(i, b)| {
-                        AllocatedNum::alloc(
-                            cs,
-                            || {
-                                Ok(*b)
-                            }).unwrap()
-                    }).collect();
+    //             for _ in 0..DEPTH {
+    //                 let input_words: Vec<AllocatedNum<Bn256>> = input.iter().enumerate().map(|(i, b)| {
+    //                     AllocatedNum::alloc(
+    //                         cs,
+    //                         || {
+    //                             Ok(*b)
+    //                         }).unwrap()
+    //                 }).collect();
         
-                    let mut rescue_gadget = StatefulPoseidonGadget::<Bn256>::new(
-                        &params
-                    );
+    //                 let mut rescue_gadget = StatefulPoseidonGadget::<Bn256>::new(
+    //                     &params
+    //                 );
         
-                    rescue_gadget.absorb(
-                        cs,
-                        &input_words, 
-                        &params
-                    )?;
+    //                 rescue_gadget.absorb(
+    //                     cs,
+    //                     &input_words, 
+    //                     &params
+    //                 )?;
         
-                    let res_0 = rescue_gadget.squeeze_out_single(
-                        cs,
-                        &params
-                    )?;
+    //                 let res_0 = rescue_gadget.squeeze_out_single(
+    //                     cs,
+    //                     &params
+    //                 )?;
 
-                    let res_1 = rescue_gadget.squeeze_out_single(
-                        cs,
-                        &params
-                    )?;
-                }
+    //                 let res_1 = rescue_gadget.squeeze_out_single(
+    //                     cs,
+    //                     &params
+    //                 )?;
+    //             }
 
-                Ok(())
-            }
-        }
+    //             Ok(())
+    //         }
+    //     }
 
-        use crate::bellman::plonk::better_better_cs::cs::{prove_with_poseidon_bn256, prove_with_hash_counting_bn256};
+    //     use crate::bellman::plonk::better_better_cs::cs_old::{prove_with_poseidon_bn256, prove_with_hash_counting_bn256};
 
-        // let _ = prove_with_poseidon_bn256::<
-        //     Width4WithCustomGates,
-        //     Width4MainGateWithDNextEquation,
-        //     _
-        // >(&TestCircuit).unwrap();
+    //     // let _ = prove_with_poseidon_bn256::<
+    //     //     Width4WithCustomGates,
+    //     //     Width4MainGateWithDNext,
+    //     //     _
+    //     // >(&TestCircuit).unwrap();
 
-        let _ = prove_with_hash_counting_bn256::<
-            Width4WithCustomGates,
-            Width4MainGateWithDNextEquation,
-            _
-        >(&TestCircuit).unwrap();
-    }
+    //     let _ = prove_with_hash_counting_bn256::<
+    //         Width4WithCustomGates,
+    //         Width4MainGateWithDNext,
+    //         _
+    //     >(&TestCircuit).unwrap();
+    // }
 }

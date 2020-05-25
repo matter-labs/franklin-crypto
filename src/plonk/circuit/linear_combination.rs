@@ -396,6 +396,8 @@ impl<E: Engine> LinearCombination<E> {
 
         let num_terms = terms.len();
 
+        let mg = CS::MainGate::default();
+
         // we have two options: 
         // - fit everything into a single gate (in case of number terms in the linear combination
         // smaller than a width of the state)
@@ -426,7 +428,7 @@ impl<E: Engine> LinearCombination<E> {
             let cycles = ((terms.len() - CS::Params::STATE_WIDTH) + (CS::Params::STATE_WIDTH - 2)) / (CS::Params::STATE_WIDTH - 1); // ceil 
             let mut it = terms.into_iter();
 
-            use crate::bellman::plonk::better_better_cs::cs::{GateEquation, MainGateEquation};
+            use crate::bellman::plonk::better_better_cs::cs::{Gate, MainGate};
 
             let mut next_term_range = CS::MainGate::range_of_next_step_linear_terms();
             assert_eq!(next_term_range.len(), 1, "for now works only if only one variable is accessible on the next step");
@@ -468,7 +470,7 @@ impl<E: Engine> LinearCombination<E> {
                 coeffs[next_step_coeff_idx] = minus_one_fr;
 
                 cs.new_single_gate_for_trace_step(
-                    CS::MainGate::static_description(), 
+                    &mg, 
                     &coeffs, 
                     &vars,
                     &[]
@@ -528,7 +530,7 @@ impl<E: Engine> LinearCombination<E> {
                 coeffs[next_step_coeff_idx] = minus_one_fr;
 
                 cs.new_single_gate_for_trace_step(
-                    CS::MainGate::static_description(), 
+                    &mg, 
                     &coeffs, 
                     &vars,
                     &[]
@@ -565,7 +567,7 @@ impl<E: Engine> LinearCombination<E> {
                 coeffs[idx_of_last_linear_term] = one_fr;
 
                 cs.new_single_gate_for_trace_step(
-                    CS::MainGate::static_description(), 
+                    &mg, 
                     &coeffs, 
                     &vars,
                     &[]
@@ -622,7 +624,7 @@ mod test {
     fn test_inscribe_linear_combination() {
         use crate::bellman::pairing::bn256::{Bn256, Fr};
 
-        let mut assembly = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+        let mut assembly = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
         let before = assembly.n();
 
         let variables: Vec<_> = (0..9).map(|_| AllocatedNum::alloc(
@@ -643,7 +645,7 @@ mod test {
         let result = lc.into_allocated_num(&mut assembly).unwrap();
         println!("result = {}", result.get_value().unwrap());
 
-        assert!(assembly.constraints.len() == 1);
+        assert!(assembly.gates.len() == 1);
         assert_eq!(assembly.n(), 3);
         // let num_gates = assembly.n - before;
         // println!("Single rescue r = 2, c = 1, alpha = 5 invocation takes {} gates", num_gates);
@@ -659,7 +661,7 @@ mod test {
     fn test_inscribe_linear_combination_of_two_gates() {
         use crate::bellman::pairing::bn256::{Bn256, Fr};
 
-        let mut assembly = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+        let mut assembly = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
         let before = assembly.n();
 
         let variables: Vec<_> = (0..5).map(|_| AllocatedNum::alloc(
@@ -680,7 +682,7 @@ mod test {
         let result = lc.into_allocated_num(&mut assembly).unwrap();
         println!("result = {}", result.get_value().unwrap());
 
-        assert!(assembly.constraints.len() == 1);
+        assert!(assembly.gates.len() == 1);
         assert_eq!(assembly.n(), 2);
 
         assert!(assembly.is_satisfied());

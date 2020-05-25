@@ -21,10 +21,10 @@ use crate::bellman::plonk::better_better_cs::cs::{
     ConstraintSystem,
     ArithmeticTerm,
     MainGateTerm,
-    Width4MainGateWithDNextEquation,
-    MainGateEquation,
-    GateEquationInternal,
-    GateEquation,
+    Width4MainGateWithDNext,
+    MainGate,
+    GateInternal,
+    Gate,
     LinearCombinationOfTerms,
     PolynomialMultiplicativeTerm,
     PolynomialInConstraint,
@@ -959,7 +959,7 @@ mod test {
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let a_f: G1Affine = rng.gen();
             let b_f: G1Affine = rng.gen();
@@ -1018,7 +1018,7 @@ mod test {
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let a_f: G1Affine = rng.gen();
             let b_f: G1Affine = rng.gen();
@@ -1069,7 +1069,7 @@ mod test {
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let a_f: G1Affine = rng.gen();
             let b_f: G1Affine = rng.gen();
@@ -1121,7 +1121,7 @@ mod test {
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let a_f: G1Affine = rng.gen();
 
@@ -1163,7 +1163,7 @@ mod test {
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let a_f: G1Affine = rng.gen();
             let b_f: G1Affine = rng.gen();
@@ -1227,7 +1227,7 @@ mod test {
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let a_f: Fr = rng.gen();
 
@@ -1263,7 +1263,7 @@ mod test {
         let _ = compute_skewed_naf_table(&Some(four), Some(3));
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<Bls12, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<Bls12, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let a_f: Fr = rng.gen();
 
@@ -1292,7 +1292,7 @@ mod test {
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         for i in 0..10 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let a_f: G1Affine = rng.gen();
             let mut b_f: Fr = Fr::one();
@@ -1356,7 +1356,7 @@ mod test {
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         for i in 0..10 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let a_f: G1Affine = rng.gen();
             let b_f: Fr = rng.gen();
@@ -1415,7 +1415,7 @@ mod test {
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         for i in 0..10 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let a_f: G1Affine = rng.gen();
             let b_f: Fr = rng.gen();
@@ -1474,7 +1474,7 @@ mod test {
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         for i in 0..10 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let mut a_s = vec![];
             let mut b_s = vec![];
@@ -1557,7 +1557,7 @@ mod test {
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         for i in 0..10 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let mut a_s = vec![];
             let mut b_s = vec![];
@@ -1645,7 +1645,7 @@ mod test {
         let params = RnsParameters::<Bls12, Fq>::new_for_field(68, 110, 8);
 
         for i in 0..10 {
-            let mut cs = TrivialAssembly::<Bls12, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<Bls12, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let mut a_s = vec![];
             let mut b_s = vec![];

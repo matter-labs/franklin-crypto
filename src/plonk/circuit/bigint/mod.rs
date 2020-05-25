@@ -18,10 +18,10 @@ use crate::bellman::plonk::better_better_cs::cs::{
     ConstraintSystem,
     ArithmeticTerm,
     MainGateTerm,
-    Width4MainGateWithDNextEquation,
-    MainGateEquation,
-    GateEquationInternal,
-    GateEquation,
+    Width4MainGateWithDNext,
+    MainGate,
+    GateInternal,
+    Gate,
     LinearCombinationOfTerms,
     PolynomialMultiplicativeTerm,
     PolynomialInConstraint,
@@ -38,7 +38,9 @@ use super::allocated_num::AllocatedNum;
 
 pub mod bigint;
 pub mod field;
-// pub mod range_constraint_gate;
+pub mod range_constraint_gate;
+
+use self::range_constraint_gate::TwoBitDecompositionRangecheckCustomGate;
 
 // dummy for now, will address later based on either lookup/range check or trivial
 // single bit / two bit decompositions
@@ -127,21 +129,28 @@ pub(crate) static RANGE_GATES_COUNTER: AtomicUsize = AtomicUsize::new(0);
 // This is a case for no lookup tables that constraints 8 bits per gate
 pub fn create_range_constraint_chain<E: Engine, CS: ConstraintSystem<E>>(
     cs: &mut CS, 
-    el: &AllocatedNum<E>, 
+    to_constraint: &AllocatedNum<E>, 
     num_bits: usize
 ) -> Result<Vec<AllocatedNum<E>>, SynthesisError> {
-    if let Some(v) = el.get_value() {
+    assert!(num_bits & 1 == 0);
+    assert_eq!(CS::Params::STATE_WIDTH, 4, "this only works for a state of width 4 for now");
+    if let Some(v) = to_constraint.get_value() {
         let t = self::bigint::fe_to_biguint(&v);
         assert!(t.bits() as usize <= num_bits, "value is {} that is {} bits, while expected {} bits", t.to_str_radix(16), t.bits(), num_bits);
     }
     let num_elements = num_bits / 2;
-    let mut slices: Vec<Option<E::Fr>> = if let Some(v) = el.get_value() {
+    let mut slices: Vec<Option<E::Fr>> = if let Some(v) = to_constraint.get_value() {
         split_into_bit_constraint_slices(&v, 2, num_elements).into_iter().map(|el| Some(el)).collect()
     } else {
         vec![None; num_elements]
     };
 
-    let _ = slices.pop().unwrap();
+    let last_val = slices.pop().unwrap();
+    if let Some(last_val) = last_val {
+        if let Some(v) = to_constraint.get_value() {
+            assert_eq!(last_val, v);
+        }
+    }
     
     let mut result = vec![];
     for v in slices.into_iter() {
@@ -155,16 +164,83 @@ pub fn create_range_constraint_chain<E: Engine, CS: ConstraintSystem<E>>(
         result.push(a);
     }
 
-    result.push(el.clone());
+    result.push(to_constraint.clone());
 
-    let num_gates = num_bits / 8 + 1;
-
-    // TODO: add using custom gate
-    for _ in 0..num_gates {
-        cs.allocate_main_gate(MainGateTerm::<E>::new())?;
+    let mut num_gates = num_bits / 8;
+    if num_gates % 8 != 0 {
+        num_gates += 1;
     }
 
-    RANGE_GATES_COUNTER.fetch_add(num_gates, Ordering::SeqCst);
+    let mut raw_variables = Vec::with_capacity(result.len() + 1);
+    raw_variables.push(cs.get_explicit_zero()?); // we start at D(x) with 0
+    for el in result.iter() {
+        raw_variables.push(el.get_variable());
+    }
+
+    if raw_variables.len() % 4 != 1 {
+        let to_add = (5 - (raw_variables.len() % 4)) % 4;
+
+        let mut four = E::Fr::one();
+        four.double();
+        four.double();
+
+        let four = Some(four);
+
+        use crate::circuit::SomeField;
+
+        let mut previous_value = to_constraint.get_value();
+
+        for _ in 0..to_add {
+            let new_value = previous_value.mul(&four);
+            let padding = cs.alloc(
+                || {
+                    Ok(*new_value.get()?)
+                }
+            )?;
+
+            raw_variables.push(padding);
+
+            previous_value = new_value;
+        }
+    }
+
+    assert_eq!(raw_variables.len() % 4, 1, "variables len = {}", raw_variables.len());
+
+    let mut rows = raw_variables.chunks_exact(4);
+
+    let gate = TwoBitDecompositionRangecheckCustomGate::default();
+
+    for row in &mut rows {
+        let mut row = row.to_vec();
+        row.reverse();
+        cs.new_single_gate_for_trace_step(
+            &gate, 
+            &[], 
+            &row, 
+            &[]
+        )?;
+    }
+
+    let last = rows.remainder();
+    assert!(last.len() == 1);
+
+    let last = last[0];
+
+    let dummy = CS::get_dummy_variable();
+
+    // cause we touch D_Next place an empty gate to the next row
+
+    let (mut variables, coeffs) = CS::MainGate::format_term(MainGateTerm::new(), dummy)?;
+    *variables.last_mut().unwrap() = last;
+
+    cs.new_single_gate_for_trace_step(
+        &CS::MainGate::default(), 
+        &coeffs, 
+        &variables, 
+        &[]
+    )?;
+
+    RANGE_GATES_COUNTER.fetch_add(num_gates+1, Ordering::SeqCst);
 
     Ok(result)
 }

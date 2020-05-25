@@ -18,17 +18,20 @@ use crate::bellman::plonk::better_better_cs::cs::{
     ConstraintSystem,
     ArithmeticTerm,
     MainGateTerm,
-    Width4MainGateWithDNextEquation,
-    MainGateEquation,
-    GateEquationInternal,
-    GateEquation,
+    Width4MainGateWithDNext,
+    MainGate,
+    GateInternal,
+    Gate,
     LinearCombinationOfTerms,
     PolynomialMultiplicativeTerm,
     PolynomialInConstraint,
     TimeDilation,
     Coefficient,
+    PolyIdentifier,
+    AssembledPolynomialStorage,
 };
 
+use crate::bellman::plonk::polynomials::*;
 
 use crate::circuit::{
     Assignment
@@ -44,136 +47,107 @@ use super::linear_combination::{
 
 use crate::rescue::*;
 
-#[derive(Clone, Debug, Hash)]
-pub struct Rescue5CustomGate(pub [LinearCombinationOfTerms; 3]);
+#[derive(Clone, Debug, Hash, Default)]
+pub struct Rescue5CustomGate;
 
-impl GateEquationInternal for Rescue5CustomGate {
-    fn can_include_public_inputs(&self) -> bool {
-        false
-    }
-
-    fn put_public_inputs_into_selector_id(&self) -> Option<usize> {
-        None
+impl<E: Engine> GateInternal<E> for Rescue5CustomGate {
+    fn name(&self) -> &'static str {
+        "Alpha=5 custom gate for Rescue/Poseidon"
     }
 
     fn degree(&self) -> usize {
         2
     }
 
-    fn num_constraints(&self) -> usize {
+    fn can_include_public_inputs(&self) -> bool {
+        false
+    }
+
+    fn all_queried_polynomials(&self) -> Vec<PolynomialInConstraint> {
+        vec![
+            PolynomialInConstraint::VariablesPolynomial(0, TimeDilation(0)),
+            PolynomialInConstraint::VariablesPolynomial(1, TimeDilation(0)),
+            PolynomialInConstraint::VariablesPolynomial(2, TimeDilation(0)),
+            PolynomialInConstraint::VariablesPolynomial(3, TimeDilation(0)),
+        ]
+    }
+
+    fn setup_polynomials(&self) -> Vec<PolyIdentifier> {
+        vec![
+        ]
+    }
+
+    fn variable_polynomials(&self) -> Vec<PolyIdentifier> {
+        vec![
+            PolyIdentifier::VariablesPolynomial(0),
+            PolyIdentifier::VariablesPolynomial(1),
+            PolyIdentifier::VariablesPolynomial(2),
+            PolyIdentifier::VariablesPolynomial(3),
+        ]
+    }
+
+    fn benefits_from_linearization(&self) -> bool {
+        false
+    }
+
+    fn linearizes_over(&self) -> Vec<PolyIdentifier> {
+        vec![
+        ]
+    }
+
+    fn needs_opened_for_linearization(&self) -> Vec<PolynomialInConstraint> {
+        vec![
+        ]
+    }
+
+    fn num_quotient_terms(&self) -> usize {
         3
     }
 
-    fn get_constraint(&self) -> &LinearCombinationOfTerms {
-        unreachable!("must not try to access single constraint of Rescue alpha = 5 gate");
-    }
+    fn verify_on_row(&self, row: usize, poly_storage: &AssembledPolynomialStorage<E>, last_row: bool) -> E::Fr {
+        let a_value = poly_storage.get_poly_at_step(PolyIdentifier::VariablesPolynomial(0), row);
+        let b_value = poly_storage.get_poly_at_step(PolyIdentifier::VariablesPolynomial(1), row);
+        let c_value = poly_storage.get_poly_at_step(PolyIdentifier::VariablesPolynomial(2), row);
+        let d_value = poly_storage.get_poly_at_step(PolyIdentifier::VariablesPolynomial(3), row);
+        
+        let mut tmp = a_value;
+        tmp.square();
+        tmp.sub_assign(&b_value);
 
-    fn get_constraints(&self) -> &[LinearCombinationOfTerms] {
-        &self.0[..]
-    }
-}
-
-impl GateEquation for Rescue5CustomGate {
-    const HAS_NONTRIVIAL_CONSTANTS: bool = false;
-    const NUM_CONSTANTS: usize = 6;
-    // Rescue5CustomGate is NOT generic, so this is fine
-    // and safe since it's sync!
-    fn static_description() -> &'static Self {
-        static mut VALUE: Option<Rescue5CustomGate> = None;
-        static INIT: std::sync::Once = std::sync::Once::new();
-
-        unsafe {
-            INIT.call_once(||{
-                VALUE = Some(Rescue5CustomGate::default());
-            });
-
-            VALUE.as_ref().unwrap()
+        if tmp.is_zero() == false {
+            return tmp;
         }
+
+        let mut tmp = b_value;
+        tmp.square();
+        tmp.sub_assign(&c_value);
+
+        if tmp.is_zero() == false {
+            return tmp;
+        }
+
+        let mut tmp = c_value;
+        tmp.mul_assign(&a_value);
+        tmp.sub_assign(&d_value);
+
+        tmp
     }
 
-    fn output_constant_coefficients<E: Engine>() -> Vec<E::Fr> {
-        vec![]
+    fn contribute_into_quotient(
+        &self, 
+        poly_storage: &AssembledPolynomialStorage<E>,
+        challenges: &[E::Fr],
+        lde_factor: usize,
+    ) -> Result<Polynomial<E::Fr, Values>, SynthesisError> {
+        unimplemented!()
     }
-}
 
-
-impl std::default::Default for Rescue5CustomGate {
-    fn default() -> Self {
-        Self::get_equation()
-    }
-}
-
-impl Rescue5CustomGate {
-    pub fn get_equation() -> Self {
-        let mut term_square: Vec<PolynomialMultiplicativeTerm> = Vec::with_capacity(2);
-        // constant
-        term_square.push(
-            PolynomialMultiplicativeTerm(
-                Coefficient::PlusOne,
-                vec![
-                    PolynomialInConstraint::VariablesPolynomial(0, TimeDilation(0)),
-                    PolynomialInConstraint::VariablesPolynomial(0, TimeDilation(0))
-                ]
-            )
-        );
-
-        term_square.push(
-            PolynomialMultiplicativeTerm(
-                Coefficient::MinusOne,
-                vec![
-                    PolynomialInConstraint::VariablesPolynomial(1, TimeDilation(0))
-                ]
-            )
-        );
-
-        let mut term_quad: Vec<PolynomialMultiplicativeTerm> = Vec::with_capacity(2);
-        // constant
-        term_quad.push(
-            PolynomialMultiplicativeTerm(
-                Coefficient::PlusOne,
-                vec![
-                    PolynomialInConstraint::VariablesPolynomial(1, TimeDilation(0)),
-                    PolynomialInConstraint::VariablesPolynomial(1, TimeDilation(0))
-                ]
-            )
-        );
-
-        term_quad.push(
-            PolynomialMultiplicativeTerm(
-                Coefficient::MinusOne,
-                vec![
-                    PolynomialInConstraint::VariablesPolynomial(2, TimeDilation(0))
-                ]
-            )
-        );
-
-        let mut term_fifth: Vec<PolynomialMultiplicativeTerm> = Vec::with_capacity(2);
-        // constant
-        term_fifth.push(
-            PolynomialMultiplicativeTerm(
-                Coefficient::PlusOne,
-                vec![
-                    PolynomialInConstraint::VariablesPolynomial(0, TimeDilation(0)),
-                    PolynomialInConstraint::VariablesPolynomial(2, TimeDilation(0))
-                ]
-            )
-        );
-
-        term_fifth.push(
-            PolynomialMultiplicativeTerm(
-                Coefficient::MinusOne,
-                vec![
-                    PolynomialInConstraint::VariablesPolynomial(3, TimeDilation(0))
-                ]
-            )
-        );
-
-        Self([
-            LinearCombinationOfTerms(term_square),
-            LinearCombinationOfTerms(term_quad),
-            LinearCombinationOfTerms(term_fifth)])
+    fn put_public_inputs_into_selector_id(&self) -> Option<usize> {
+        None
     }
 }
+
+impl<E: Engine> Gate<E> for Rescue5CustomGate {}
 
 pub fn apply_5th_power<E: Engine, CS: ConstraintSystem<E>>(
     cs: &mut CS,
@@ -221,7 +195,7 @@ pub fn apply_5th_power<E: Engine, CS: ConstraintSystem<E>>(
 
     // we take a value and make 5th power from it
     cs.new_single_gate_for_trace_step(
-        Rescue5CustomGate::static_description(), 
+        &Rescue5CustomGate::default(), 
         &[], 
         &[el.get_variable(), squared.get_variable(), quad.get_variable(), fifth.get_variable()], 
         &[]

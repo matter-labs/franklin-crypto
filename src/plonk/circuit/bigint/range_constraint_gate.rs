@@ -18,26 +18,32 @@ use crate::bellman::plonk::better_better_cs::cs::{
     ConstraintSystem,
     ArithmeticTerm,
     MainGateTerm,
-    Width4MainGateWithDNextEquation,
-    MainGateEquation,
-    GateEquationInternal,
-    GateEquation,
+    Width4MainGateWithDNext,
+    MainGate,
+    GateInternal,
+    Gate,
     LinearCombinationOfTerms,
     PolynomialMultiplicativeTerm,
     PolynomialInConstraint,
     TimeDilation,
     Coefficient,
+    PolyIdentifier,
+    AssembledPolynomialStorage,
 };
 
+use crate::bellman::plonk::polynomials::*;
 
 use crate::circuit::{
     Assignment
 };
 
-#[derive(Clone, Debug, Hash)]
-pub struct TwoBitDecompositionRangecheckCustomGate(pub [LinearCombinationOfTerms; 1]);
+#[derive(Clone, Debug, Hash, Default)]
+pub struct TwoBitDecompositionRangecheckCustomGate;
 
-impl GateEquationInternal for TwoBitDecompositionRangecheckCustomGate {
+impl<E: Engine> GateInternal<E> for TwoBitDecompositionRangecheckCustomGate {
+    fn name(&self) -> &'static str {
+        "Two bit decomposition gate for width 4"
+    }
     fn can_include_public_inputs(&self) -> bool {
         false
     }
@@ -50,121 +56,106 @@ impl GateEquationInternal for TwoBitDecompositionRangecheckCustomGate {
         4
     }
 
-    fn num_constraints(&self) -> usize {
+    fn all_queried_polynomials(&self) -> Vec<PolynomialInConstraint> {
+        vec![
+            PolynomialInConstraint::VariablesPolynomial(0, TimeDilation(0)),
+            PolynomialInConstraint::VariablesPolynomial(1, TimeDilation(0)),
+            PolynomialInConstraint::VariablesPolynomial(2, TimeDilation(0)),
+            PolynomialInConstraint::VariablesPolynomial(3, TimeDilation(0)),
+            PolynomialInConstraint::VariablesPolynomial(3, TimeDilation(1)),
+        ]
+    }
+
+    fn setup_polynomials(&self) -> Vec<PolyIdentifier> {
+        vec![
+        ]
+    }
+
+    fn variable_polynomials(&self) -> Vec<PolyIdentifier> {
+        vec![
+            PolyIdentifier::VariablesPolynomial(0),
+            PolyIdentifier::VariablesPolynomial(1),
+            PolyIdentifier::VariablesPolynomial(2),
+            PolyIdentifier::VariablesPolynomial(3),
+        ]
+    }
+
+    fn benefits_from_linearization(&self) -> bool {
+        false
+    }
+
+    fn linearizes_over(&self) -> Vec<PolyIdentifier> {
+        vec![
+        ]
+    }
+
+    fn needs_opened_for_linearization(&self) -> Vec<PolynomialInConstraint> {
+        vec![
+        ]
+    }
+
+    fn num_quotient_terms(&self) -> usize {
         4
     }
 
-    fn get_constraint(&self) -> &LinearCombinationOfTerms {
-        unreachable!("must not try to access single constraint of range check gate");
-    }
+    fn verify_on_row(&self, row: usize, poly_storage: &AssembledPolynomialStorage<E>, last_row: bool) -> E::Fr {
+        assert!(last_row == false, "can not be applied at the last row");
+        let a_value = poly_storage.get_poly_at_step(PolyIdentifier::VariablesPolynomial(0), row);
+        let b_value = poly_storage.get_poly_at_step(PolyIdentifier::VariablesPolynomial(1), row);
+        let c_value = poly_storage.get_poly_at_step(PolyIdentifier::VariablesPolynomial(2), row);
+        let d_value = poly_storage.get_poly_at_step(PolyIdentifier::VariablesPolynomial(3), row);
+        let d_next_value = poly_storage.get_poly_at_step(PolyIdentifier::VariablesPolynomial(3), row+1);
 
-    fn get_constraints(&self) -> &[LinearCombinationOfTerms] {
-        &self.0[..]
-    }
-}
+        let one = E::Fr::one();
+        let mut two = one;
+        two.double();
+        let mut three = two;
+        three.add_assign(&one);
+        let mut four = two;
+        four.double();
 
-impl GateEquation for TwoBitDecompositionRangecheckCustomGate {
-    const HAS_NONTRIVIAL_CONSTANTS: bool = true;
-    const NUM_CONSTANTS: usize = 3;
-    // Rescue5CustomGate is NOT generic, so this is fine
-    // and safe since it's sync!
-    fn static_description() -> &'static Self {
-        static mut VALUE: Option<TwoBitDecompositionRangecheckCustomGate> = None;
-        static INIT: std::sync::Once = std::sync::Once::new();
+        for (high, high_and_low) in [
+            (d_value, c_value),
+            (c_value, b_value),
+            (b_value, a_value),
+            (a_value, d_next_value),
+        ].iter() {
+            let mut shifted_high = *high;
+            shifted_high.mul_assign(&four);
 
-        unsafe {
-            INIT.call_once(||{
-                VALUE = Some(TwoBitDecompositionRangecheckCustomGate::default());
-            });
+            let mut low = *high_and_low;
+            low.sub_assign(&shifted_high);
 
-            VALUE.as_ref().unwrap()
+            let mut total = low;
+            
+            let mut tmp = low;
+            tmp.sub_assign(&one);
+            total.mul_assign(&tmp);
+
+            let mut tmp = low;
+            tmp.sub_assign(&two);
+            total.mul_assign(&tmp);
+
+            let mut tmp = low;
+            tmp.sub_assign(&three);
+            total.mul_assign(&tmp);
+
+            if !total.is_zero() {
+                return total;
+            }
         }
+
+        E::Fr::zero()
     }
 
-    fn output_constant_coefficients<E: Engine>() -> Vec<E::Fr> {
-        vec![]
-    }
-}
-
-
-impl std::default::Default for TwoBitDecompositionRangecheckCustomGate {
-    fn default() -> Self {
-        Self::get_equation()
-    }
-}
-
-impl TwoBitDecompositionRangecheckCustomGate {
-    pub fn get_equation() -> Self {
-        // For each difference of pairs
-        // P(x)*(P(x) - 1)*(P(x) - 2)*(P(x) - 3) -> P * (P-1) * (P^2 - 5P + 6) = P*(P^3 - 5P^2 + 6P - P^2 + 5P - 6) =
-        // P * (P^3 - 6P^2 + 11P - 6) = P^4 - 6*P^3 + 11*P^2 - 6P
-        let mut term_square: Vec<PolynomialMultiplicativeTerm> = Vec::with_capacity(4);
-        // constant
-        term_square.push(
-            PolynomialMultiplicativeTerm(
-                Coefficient::PlusOne,
-                vec![
-                    PolynomialInConstraint::VariablesPolynomial(0, TimeDilation(0)),
-                    PolynomialInConstraint::VariablesPolynomial(0, TimeDilation(0))
-                ]
-            )
-        );
-
-        term_square.push(
-            PolynomialMultiplicativeTerm(
-                Coefficient::MinusOne,
-                vec![
-                    PolynomialInConstraint::VariablesPolynomial(1, TimeDilation(0))
-                ]
-            )
-        );
-
-        let mut term_quad: Vec<PolynomialMultiplicativeTerm> = Vec::with_capacity(2);
-        // constant
-        term_quad.push(
-            PolynomialMultiplicativeTerm(
-                Coefficient::PlusOne,
-                vec![
-                    PolynomialInConstraint::VariablesPolynomial(1, TimeDilation(0)),
-                    PolynomialInConstraint::VariablesPolynomial(1, TimeDilation(0))
-                ]
-            )
-        );
-
-        term_quad.push(
-            PolynomialMultiplicativeTerm(
-                Coefficient::MinusOne,
-                vec![
-                    PolynomialInConstraint::VariablesPolynomial(2, TimeDilation(0))
-                ]
-            )
-        );
-
-        let mut term_fifth: Vec<PolynomialMultiplicativeTerm> = Vec::with_capacity(2);
-        // constant
-        term_fifth.push(
-            PolynomialMultiplicativeTerm(
-                Coefficient::PlusOne,
-                vec![
-                    PolynomialInConstraint::VariablesPolynomial(0, TimeDilation(0)),
-                    PolynomialInConstraint::VariablesPolynomial(2, TimeDilation(0))
-                ]
-            )
-        );
-
-        term_fifth.push(
-            PolynomialMultiplicativeTerm(
-                Coefficient::MinusOne,
-                vec![
-                    PolynomialInConstraint::VariablesPolynomial(3, TimeDilation(0))
-                ]
-            )
-        );
-
-        Self([
-            LinearCombinationOfTerms(term_square),
-            LinearCombinationOfTerms(term_quad),
-            LinearCombinationOfTerms(term_fifth)])
+    fn contribute_into_quotient(
+        &self, 
+        poly_storage: &AssembledPolynomialStorage<E>,
+        challenges: &[E::Fr],
+        lde_factor: usize,
+    ) -> Result<Polynomial<E::Fr, Values>, SynthesisError> {
+        unimplemented!()
     }
 }
 
+impl<E: Engine> Gate<E> for TwoBitDecompositionRangecheckCustomGate {}

@@ -18,10 +18,10 @@ use crate::bellman::plonk::better_better_cs::cs::{
     ConstraintSystem,
     ArithmeticTerm,
     MainGateTerm,
-    Width4MainGateWithDNextEquation,
-    MainGateEquation,
-    GateEquationInternal,
-    GateEquation,
+    Width4MainGateWithDNext,
+    MainGate,
+    GateInternal,
+    Gate,
     LinearCombinationOfTerms,
     PolynomialMultiplicativeTerm,
     PolynomialInConstraint,
@@ -2814,7 +2814,7 @@ mod test {
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let a_f: F = rng.gen();
             let b_f: F = rng.gen();
@@ -2868,7 +2868,7 @@ mod test {
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let a_f: F = rng.gen();
             let a = FieldElement::new_allocated(
@@ -2900,7 +2900,7 @@ mod test {
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let a_f: F = rng.gen();
             let a = FieldElement::new_allocated(
@@ -2939,7 +2939,7 @@ mod test {
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let a_f: F = rng.gen();
             let b_f: F = rng.gen();
@@ -2981,7 +2981,7 @@ mod test {
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let a_f: F = rng.gen();
             let a = FieldElement::new_allocated(
@@ -3018,7 +3018,7 @@ mod test {
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let a_f: F = rng.gen();
             let b_f: F = rng.gen();
@@ -3069,7 +3069,7 @@ mod test {
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let a_f: F = rng.gen();
             let b_f: F = rng.gen();
@@ -3093,6 +3093,7 @@ mod test {
     
             let (result, (a, b)) = a.add(&mut cs, b).unwrap();
 
+            cs.finalize();
             assert!(cs.is_satisfied());
 
             let mut m = a_f;
@@ -3126,7 +3127,7 @@ mod test {
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..10 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let a_f: F = rng.gen();
             let b_f: F = rng.gen();
@@ -3162,7 +3163,7 @@ mod test {
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..10 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let a_f: F = rng.gen();
             let b_f: F = rng.gen();
@@ -3198,7 +3199,7 @@ mod test {
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..10 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let a_f: F = rng.gen();
             let b_f: F = rng.gen();
@@ -3234,7 +3235,7 @@ mod test {
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let a_f: F = rng.gen();
             let b_f: F = rng.gen();
@@ -3295,7 +3296,7 @@ mod test {
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let flag: bool = rng.gen();
 
@@ -3361,7 +3362,7 @@ mod test {
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let flag: bool = rng.gen();
 
@@ -3426,7 +3427,7 @@ mod test {
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let a_f: F = rng.gen();
             let b_f: F = rng.gen();
@@ -3488,7 +3489,7 @@ mod test {
     //     println!("Max representable = {}, with {} bits", params.max_representable_value().to_str_radix(16), params.max_representable_value().bits());
 
     //     for i in 0..100 {
-    //         let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+    //         let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
     //         let a_f0: Fq = rng.gen();
 
@@ -3548,7 +3549,7 @@ mod test {
     //     println!("Max representable = {}, with {} bits", params.max_representable_value().to_str_radix(16), params.max_representable_value().bits());
 
     //     for i in 0..100 {
-    //         let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+    //         let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
     //         let a_f0: Fq = rng.gen();
 
@@ -3606,7 +3607,7 @@ mod test {
     //     println!("Max representable = {}, with {} bits", params.max_representable_value().to_str_radix(16), params.max_representable_value().bits());
 
     //     for i in 0..100 {
-    //         let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+    //         let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
     //         let a_f0: Fq = rng.gen();
     //         let a_f1: Fq = rng.gen();
@@ -3673,7 +3674,7 @@ mod test {
     //     println!("Max representable = {}, with {} bits", params.max_representable_value().to_str_radix(16), params.max_representable_value().bits());
 
     //     for i in 0..100 {
-    //         let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+    //         let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
     //         let a_f0: Fq = rng.gen();
     //         let a_f1: Fq = rng.gen();
@@ -3739,7 +3740,7 @@ mod test {
     //     println!("Max representable = {}, with {} bits", params.max_representable_value().to_str_radix(16), params.max_representable_value().bits());
 
     //     for i in 0..100 {
-    //         let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+    //         let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
     //         let a_f0: Fq = rng.gen();
     //         let a_f1: Fq = rng.gen();
@@ -3812,7 +3813,7 @@ mod test {
     //     println!("Max representable = {}, with {} bits", params.max_representable_value().to_str_radix(16), params.max_representable_value().bits());
 
     //     for i in 0..100 {
-    //         let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+    //         let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
     //         let a_f0: Fq = rng.gen();
     //         let a_f1: Fq = rng.gen();

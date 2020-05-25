@@ -18,10 +18,10 @@ use crate::bellman::plonk::better_better_cs::cs::{
     ConstraintSystem,
     ArithmeticTerm,
     MainGateTerm,
-    Width4MainGateWithDNextEquation,
-    MainGateEquation,
-    GateEquationInternal,
-    GateEquation,
+    Width4MainGateWithDNext,
+    MainGate,
+    GateInternal,
+    Gate,
     LinearCombinationOfTerms,
     PolynomialMultiplicativeTerm,
     PolynomialInConstraint,
@@ -363,7 +363,7 @@ mod test {
     fn test_blank_hash() {
         let iv = get_sha256_iv();
 
-        let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+        let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
         let mut input_bits: Vec<_> = (0..512).map(|_| Boolean::Constant(false)).collect();
         input_bits[0] = Boolean::Constant(true);
         let out = sha256_compression_function(
@@ -394,7 +394,7 @@ mod test {
 
         let iv = get_sha256_iv();
 
-        let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+        let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
         let input_bits: Vec<_> = (0..512).map(|i| {
             Boolean::from(
                 AllocatedBit::alloc(
@@ -428,7 +428,7 @@ mod test {
             let result = h.result();
             let hash_result = result.as_slice();
 
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNextEquation>::new();
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
             let mut input_bits = vec![];
 
             for (byte_i, input_byte) in data.into_iter().enumerate() {
