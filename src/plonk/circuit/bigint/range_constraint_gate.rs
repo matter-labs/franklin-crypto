@@ -154,6 +154,7 @@ impl<E: Engine> GateInternal<E> for TwoBitDecompositionRangecheckCustomGate {
         challenges: &[E::Fr],
         lde_factor: usize,
     ) -> Result<Polynomial<E::Fr, Values>, SynthesisError> {
+        assert_eq!(challenges.len(), 4);
         unimplemented!()
     }
 }

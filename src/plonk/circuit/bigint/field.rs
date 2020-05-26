@@ -53,7 +53,6 @@ pub struct RnsParameters<E: Engine, F: PrimeField>{
 
     // convenience
     pub base_field_modulus: BigUint,
-    pub base_field_max_val: BigUint,
     pub binary_representation_max_value: BigUint,
 
     // modulus if the field that we represent
@@ -167,7 +166,6 @@ impl<'a, E: Engine, F: PrimeField> RnsParameters<E, F>{
             num_binary_limbs,
             binary_modulus,
             base_field_modulus: base_field_modulus.clone(),
-            base_field_max_val: base_field_modulus - BigUint::from(1u64),
             num_limbs_for_in_field_representation,
             binary_representation_max_value,
             represented_field_modulus,
@@ -258,12 +256,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         {
             if width == 0 {
                 assert!(max_val.is_zero());
-                let zero_term = Term::<E>::zero();
-                let limb = Limb::<E>::new(
-                    zero_term,
-                    max_val
-                );
-                binary_limbs_allocated.push(limb);
+                binary_limbs_allocated.push(Self::zero_limb());
             } else {
                 let a = AllocatedNum::alloc(cs, || {
                     Ok(*l.get()?)
@@ -424,15 +417,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                         low_idx >= params.num_limbs_for_in_field_representation && 
                         high_idx >= params.num_limbs_for_in_field_representation {
 
-                        unreachable!("should not try to allocated value in a field with non-constant higher limbs");
-
-                        // binary_limbs_allocated.push(Self::zero_limb());
-                        // binary_limbs_allocated.push(Self::zero_limb());
-
-                        // // also check that the variable is zero
-                        // var.assert_equal_to_constant(cs, E::Fr::zero())?;
-
-                        // continue;
+                        unreachable!("should not try to allocate a value in a field with non-constant high limbs");
                     }
 
                     let (expected_low_width, expected_low_max_value) = if top_limb_may_overflow {
@@ -440,18 +425,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                     } else {
                         (params.binary_limbs_bit_widths[low_idx], params.binary_limbs_max_values[low_idx].clone())
                     };
-
-                    // // perform redundant check through the params
-                    // if expected_low_width == 0 {
-                    //     // high limb must be also zero
-
-                    //     var.assert_equal_to_constant(cs, E::Fr::zero())?;
-
-                    //     binary_limbs_allocated.push(Self::zero_limb());
-                    //     binary_limbs_allocated.push(Self::zero_limb());
-
-                    //     continue;
-                    // }
 
                     let (expected_high_width, expected_high_max_value) = if top_limb_may_overflow {
                         (params.binary_limbs_params.limb_size_bits, params.binary_limbs_params.limb_max_value.clone())
@@ -461,6 +434,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
                     assert!(expected_low_width > 0);
                     assert!(expected_high_width > 0);
+                    assert_eq!(expected_low_width, expected_high_width);
 
                     assert_eq!(params.binary_limbs_params.limb_max_value.clone(), expected_low_max_value);
 

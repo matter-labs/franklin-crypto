@@ -39,6 +39,7 @@ use super::allocated_num::AllocatedNum;
 pub mod bigint;
 pub mod field;
 pub mod range_constraint_gate;
+pub mod range_constraint_functions;
 
 use self::range_constraint_gate::TwoBitDecompositionRangecheckCustomGate;
 
@@ -69,6 +70,19 @@ fn split_into_slices<F: PrimeField>(
     }
 
     slices
+}
+
+
+fn split_some_into_slices<F: PrimeField>(
+    el: Option<F>,
+    slice_width: usize,
+    num_slices: usize
+) -> Vec<Option<F>> {
+    if let Some(v) = el.as_ref() {
+        split_into_slices(v, slice_width, num_slices).into_iter().map(|el| Some(el)).collect()
+    } else {
+        vec![None; num_slices]
+    }
 }
 
 fn split_into_accululating_slices<F: PrimeField>(
@@ -246,50 +260,80 @@ pub fn create_range_constraint_chain<E: Engine, CS: ConstraintSystem<E>>(
     Ok(result)
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RangeConstraintStrategy {
+    MultiTable,
+    SingleTableInvocation,
+    CustomTwoBitGate,
+    NaiveSingleBit
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RangeConstraintInfo {
     pub minimal_multiple: usize,
     pub optimal_multiple: usize,
     pub multiples_per_gate: usize,
+    pub strategy: RangeConstraintStrategy,
 }
 
-pub fn get_range_constraint_info<E: Engine, CS: ConstraintSystem<E>>(cs: &CS) -> RangeConstraintInfo {
-    const MULTIAPPLICATION_TABLE_NAME: &'static str = "Range check table";
-    const SINGLE_APPLICATION_TABLE_NAME: &'static str = "Range check table for a single column";
+const RANGE_CHECK_MULTIAPPLICATION_TABLE_NAME: &'static str = "Range check table";
+const RANGE_CHECK_SINGLE_APPLICATION_TABLE_NAME: &'static str = "Range check table for a single column";
 
-    if let Ok(multi) = cs.get_multitable(MULTIAPPLICATION_TABLE_NAME) {
+pub fn get_range_constraint_info<E: Engine, CS: ConstraintSystem<E>>(cs: &CS) -> Vec<RangeConstraintInfo> {
+    let mut strategies = vec![];
+
+    use crate::bellman::plonk::better_better_cs::cs::PolyIdentifier;
+
+    if let Ok(multi) = cs.get_multitable(RANGE_CHECK_MULTIAPPLICATION_TABLE_NAME) {
         let width = crate::log2_floor(multi.size());
         let multiples = multi.applies_over().len();
         assert!(multiples <= 3);
+        assert!(multi.applies_over() == &[PolyIdentifier::VariablesPolynomial(0), PolyIdentifier::VariablesPolynomial(1), PolyIdentifier::VariablesPolynomial(2)]);
 
-        return RangeConstraintInfo {
+        let strategy = RangeConstraintInfo {
             minimal_multiple: width as usize,
             optimal_multiple: (width as usize) * multiples,
             multiples_per_gate: multiples,
+            strategy: RangeConstraintStrategy::MultiTable
         };
+
+        strategies.push(strategy);
     }
 
-    if let Ok(single) = cs.get_table(SINGLE_APPLICATION_TABLE_NAME) {
+    if let Ok(single) = cs.get_table(RANGE_CHECK_SINGLE_APPLICATION_TABLE_NAME) {
         let width = crate::log2_floor(single.size());
 
-        return RangeConstraintInfo {
+        assert!(single.applies_over() == &[PolyIdentifier::VariablesPolynomial(0), PolyIdentifier::VariablesPolynomial(1), PolyIdentifier::VariablesPolynomial(2)]);
+
+        let strategy = RangeConstraintInfo {
             minimal_multiple: width as usize,
             optimal_multiple: width as usize,
             multiples_per_gate: 1,
+            strategy: RangeConstraintStrategy::SingleTableInvocation
         };
+    
+        strategies.push(strategy);
     }
 
     if CS::Params::STATE_WIDTH == 4 && CS::Params::HAS_CUSTOM_GATES {
-        return RangeConstraintInfo {
+        let strategy = RangeConstraintInfo {
             minimal_multiple: 2,
             optimal_multiple: 8,
             multiples_per_gate: 4,
+            strategy: RangeConstraintStrategy::CustomTwoBitGate
         };
+
+        strategies.push(strategy);
     }
 
-    return RangeConstraintInfo {
+    let strategy = RangeConstraintInfo {
         minimal_multiple: 1,
         optimal_multiple: 1,
         multiples_per_gate: 1,
+        strategy: RangeConstraintStrategy::NaiveSingleBit
     };
+
+    strategies.push(strategy);
+
+    strategies
 }
