@@ -24,6 +24,8 @@ use crate::circuit::{
     Assignment
 };
 
+use super::boolean::*;
+
 #[derive(Clone, Debug)]
 pub enum Num<E: Engine> {
     Variable(AllocatedNum<E>),
@@ -58,6 +60,15 @@ impl<E: Engine> Num<E> {
             Num::Variable(..) => false,
             Num::Constant(..) => true
         }
+    }
+
+    pub fn is_zero<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Boolean, SynthesisError> {
+        let flag = match self {
+            Num::Constant(c) => Ok(Boolean::constant(c.is_zero())),
+            Num::Variable(var) => var.is_zero(cs),
+        };
+
+        flag
     }
 
     pub(crate) fn get_constant_value(&self) -> E::Fr {
@@ -210,6 +221,50 @@ impl<E: Engine> AllocatedNum<E> {
         Ok(())
     }
 
+    pub fn is_zero<CS>(
+        &self,
+        cs: &mut CS,
+    ) -> Result<Boolean, SynthesisError>
+        where CS: ConstraintSystem<E> 
+    {
+        let flag_value = self.get_value().map(|x| x.is_zero());
+        let flag = AllocatedBit::alloc_unchecked(cs, flag_value)?;
+
+        let inv_value = if let Some(value) = self.get_value() {
+            value.inverse()
+        } else {
+            None
+        };
+
+        let inv = Self::alloc(
+            cs,
+            || {
+                Ok(*inv_value.get()?)
+            }
+        )?;
+
+        //  inv * X = (1 - flag) => inv * X + flag - 1 = 0
+        //  flag * X = 0
+        
+        let a_term = ArithmeticTerm::from_variable(self.variable).mul_by_variable(inv.variable);
+        let b_term = ArithmeticTerm::from_variable(flag.get_variable());
+        let c_term = ArithmeticTerm::constant(E::Fr::one());
+        let mut term = MainGateTerm::new();
+        term.add_assign(a_term);
+        term.add_assign(b_term);
+        term.sub_assign(c_term);
+        cs.allocate_main_gate(term)?;
+
+        let self_term = ArithmeticTerm::from_variable(self.variable).mul_by_variable(flag.get_variable());
+        let res_term = ArithmeticTerm::constant(E::Fr::one());
+        let mut term = MainGateTerm::new();
+        term.add_assign(self_term);
+        term.sub_assign(res_term);
+        cs.allocate_main_gate(term)?;
+
+        Ok(flag.into())
+    }
+
     pub fn add<CS>(
         &self,
         cs: &mut CS,
@@ -278,6 +333,42 @@ impl<E: Engine> AllocatedNum<E> {
         })
     }
 
+    pub fn sub_constant<CS>(
+        &self,
+        cs: &mut CS,
+        constant: E::Fr
+    ) -> Result<Self, SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let mut value = None;
+
+        let substraction_result = cs.alloc(|| {
+            let mut tmp = *self.value.get()?;
+            tmp.sub_assign(&constant);
+
+            value = Some(tmp);
+
+            Ok(tmp)
+        })?;
+
+        let self_term = ArithmeticTerm::from_variable(self.variable);
+        let mut constant = constant.clone();
+        constant.negate();
+        let other_term = ArithmeticTerm::constant(constant);
+        let result_term = ArithmeticTerm::from_variable(substraction_result);
+        let mut term = MainGateTerm::new();
+        term.add_assign(self_term);
+        term.add_assign(other_term);
+        term.sub_assign(result_term);
+
+        cs.allocate_main_gate(term)?;
+
+        Ok(AllocatedNum {
+            value: value,
+            variable: substraction_result
+        })
+    }
+
     pub fn mul<CS>(
         &self,
         cs: &mut CS,
@@ -317,6 +408,40 @@ impl<E: Engine> AllocatedNum<E> {
         where CS: ConstraintSystem<E>
     {
         self.mul(cs, &self)
+    }
+
+    pub fn div<CS>(
+        &self,
+        cs: &mut CS,
+        other: &Self
+    ) -> Result<Self, SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let mut value = None;
+
+        let quotient= cs.alloc(|| {
+            let mut tmp = *other.value.get()?;
+            tmp = *tmp.inverse().get()?;
+        
+            tmp.mul_assign(self.value.get()?);
+
+            value = Some(tmp);
+
+            Ok(tmp)
+        })?;
+
+        let self_term = ArithmeticTerm::from_variable(quotient).mul_by_variable(other.variable);
+        let result_term = ArithmeticTerm::from_variable(self.variable);
+        let mut term = MainGateTerm::new();
+        term.add_assign(self_term);
+        term.sub_assign(result_term);
+
+        cs.allocate_main_gate(term)?;
+
+        Ok(AllocatedNum {
+            value: value,
+            variable: quotient
+        })
     }
 }
 

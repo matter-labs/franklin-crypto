@@ -260,6 +260,28 @@ impl<E: Engine> LinearCombination<E> {
         self.constant.add_assign(&coeff);
     }
 
+    pub fn sub_assign_constant(
+        &mut self,
+        coeff: E::Fr
+    )
+    {
+        let newval = match self.value {
+            Some(mut curval) => {
+                curval.sub_assign(&coeff);
+
+                Some(curval)
+            },
+            None => {
+                let mut temp = coeff;
+                temp.negate();
+                Some(temp)
+            }
+        };
+
+        self.value = newval;
+        self.constant.sub_assign(&coeff);
+    }
+
     pub fn into_num<CS: ConstraintSystem<E>>(
         self,
         cs: &mut CS

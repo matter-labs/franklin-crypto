@@ -44,7 +44,7 @@ use super::linear_combination::{
 
 /// Represents a variable in the constraint system which is guaranteed
 /// to be either zero or one.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AllocatedBit {
     variable: Variable,
     value: Option<bool>
@@ -154,6 +154,27 @@ impl AllocatedBit {
 
         cs.allocate_main_gate(gate_term)?;
         
+        Ok(AllocatedBit {
+            variable: var,
+            value: value
+        })
+    }
+
+    pub fn alloc_unchecked<E, CS>(
+        cs: &mut CS,
+        value: Option<bool>,
+    ) -> Result<Self, SynthesisError>
+        where E: Engine,
+              CS: ConstraintSystem<E>
+    {
+        let var = cs.alloc(|| {
+            if *value.get()? {
+                Ok(E::Fr::one())
+            } else {
+                Ok(E::Fr::zero())
+            }
+        })?;
+
         Ok(AllocatedBit {
             variable: var,
             value: value
@@ -526,7 +547,7 @@ pub fn field_into_allocated_bits_le<E: Engine, CS: ConstraintSystem<E>, F: Prime
 
 /// This is a boolean value which may be either a constant or
 /// an interpretation of an `AllocatedBit`.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Boolean {
     /// Existential view of the boolean variable
     Is(AllocatedBit),
@@ -537,6 +558,7 @@ pub enum Boolean {
 }
 
 impl Boolean {
+
     pub fn is_constant(&self) -> bool {
         match *self {
             Boolean::Constant(_) => true,

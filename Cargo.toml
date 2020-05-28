@@ -28,7 +28,7 @@ num-bigint = {git = "https://github.com/rust-num/num-bigint.git"}
 num-integer = "0.1"
 num-traits = "0.2"
 
-bellman = { package = "bellman_ce", path = "C:/Users/Konstantce/Desktop/bellman/bellman" }
+bellman = { package = "bellman_ce", path = "C:/Users/Konstantce/Desktop/wrong_bellman/bellman" }
 blake2-rfc_bellman_edition = "0.0.1"
 
 [dev-dependencies]

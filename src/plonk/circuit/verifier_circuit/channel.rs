@@ -1,53 +1,55 @@
-// we prefer to make it modular and generic as we have to use sha256-based channel instead of rescue_channel in future releases
-use common::num::*;
+use crate::plonk::circuit::allocated_num::*;
+use crate::plonk::circuit::linear_combination::*;
+use crate::plonk::circuit::rescue::*;
+use crate::rescue::*;
+
 use bellman::pairing::{
     Engine,
 };
-use bellman::{
+
+use crate::bellman::{
     SynthesisError,
-    ConstraintSystem,
 };
 
-pub mod rescue_channel;
+use crate::bellman::plonk::better_better_cs::cs::{
+    ConstraintSystem,
+};
 
 
 pub trait ChannelGadget<E: Engine> {
     type Params;
 
-    fn new(params: Self::Params) -> Self;
+    fn new(params: &Self::Params) -> Self;
 
-    fn consume<CS: ConstraintSystem<E>>(&mut self, data: AllocatedNum<E>, cs: CS) -> Result<(), SynthesisError>;
-    fn produce_challenge<CS: ConstraintSystem<E>>(&mut self, cs: CS) -> Result<AllocatedNum<E>, SynthesisError>;
+    fn consume<CS: ConstraintSystem<E>>(&mut self, data: AllocatedNum<E>, cs: &mut CS) -> Result<(), SynthesisError>;
+    fn produce_challenge<CS: ConstraintSystem<E>>(&mut self, cs: &mut CS) -> Result<LinearCombination<E>, SynthesisError>;
 }
 
-use super::*;
-use hashes::rescue::{RescueGadget, RescueSbox};
 
-use bellman::redshift::IOP::hashes::rescue::{Rescue, RescueParams};
-
-
-pub struct RescueChannelGadget<'a, E: Engine, RP: RescueParams<E::Fr>, SBOX: RescueSbox<E>> {
-    state: RescueGadget<E, RP, SBOX>,
-    params: &'a RP,
+pub struct RescueChannelGadget<E: RescueEngine> {
+    state: StatefulRescueGadget<E>,
+    params: E::Params,
 }
 
-impl<'a, E, RP, SBOX> ChannelGadget<E> for RescueChannelGadget<'a, E, RP, SBOX>
-where E: Engine, RP: RescueParams<E::Fr>, SBOX: RescueSbox<E>
+
+impl<E: RescueEngine> ChannelGadget<E> for RescueChannelGadget<E>
+where <<E as RescueEngine>::Params as RescueHashParams<E>>::SBox0: PlonkCsSBox<E>, 
+    <<E as RescueEngine>::Params as RescueHashParams<E>>::SBox1: PlonkCsSBox<E>
 {
-    type Params = &'a RP;
+    type Params = E::Params;
 
-    fn new(channel_params: Self::Params) -> Self {
+    fn new(channel_params: &Self::Params) -> Self {
         Self {
-            state: RescueGadget::<E, RP, SBOX>::new(channel_params),
-            params: channel_params,
+            state: StatefulRescueGadget::new(channel_params),
+            params: channel_params.clone(),
         }
     }
 
-    fn consume<CS: ConstraintSystem<E>>(&mut self, data: AllocatedNum<E>, cs: CS) -> Result<(), SynthesisError> {      
-        self.state.absorb(data, cs, self.params)
+    fn consume<CS: ConstraintSystem<E>>(&mut self, data: AllocatedNum<E>, cs: &mut CS) -> Result<(), SynthesisError> {  
+        self.state.absorb(cs, &[data], &self.params)    
     }
 
-    fn produce_challenge<CS: ConstraintSystem<E>>(&mut self, cs: CS) -> Result<AllocatedNum<E>, SynthesisError> {
-        self.state.squeeze(cs, self.params)
+    fn produce_challenge<CS: ConstraintSystem<E>>(&mut self, cs: &mut CS) -> Result<LinearCombination<E>, SynthesisError> {
+        self.state.squeeze_out_single(cs, &self.params)
     }
 }

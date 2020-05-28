@@ -10,7 +10,7 @@ extern crate byteorder;
 extern crate tiny_keccak;
 extern crate sha2;
 extern crate hmac;
-extern crate poseidon_hash;
+//extern crate poseidon_hash;
 extern crate num_bigint;
 extern crate num_traits;
 extern crate num_integer;

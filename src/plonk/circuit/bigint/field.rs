@@ -2758,6 +2758,46 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         Ok(())
     }
 
+    pub fn equals<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+        other: &Self
+    ) -> Result<Boolean, SynthesisError> {
+        let c = self.compute_congruency(cs, other)?;
+
+        
+        let flag = match c.is_constant() {
+            true => {
+                let c = c.get_constant_value();
+                Ok(Boolean::constant(c.is_zero()))
+            },
+            false => {
+                let num = c.collapse_into_num(cs)?;
+                let n = num.get_variable();
+                n.is_zero(cs)
+            },
+        };
+       
+        flag
+    }
+
+    pub fn is_zero<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+    ) -> Result<Boolean, SynthesisError> 
+    {
+        let elem = self.reduce_if_necessary(cs)?;
+        let num = elem.base_field_limb.collapse_into_num(cs)?;
+        let mut flag = num.is_zero(cs)?;
+        
+        for limb in elem.binary_limbs.iter() {
+            let num = limb.term.collapse_into_num(cs)?;
+            flag = Boolean::and(cs, &flag, &num.is_zero(cs)?)?;
+        }
+        
+        Ok(flag)
+    }
+
     pub(crate) fn compute_congruency<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,

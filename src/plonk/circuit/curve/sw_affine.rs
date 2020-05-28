@@ -118,12 +118,30 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         new
     }
 
+    pub fn zero(
+        params: &'a RnsParameters<E, G::Base>
+    ) -> Self
+    {
+        AffinePoint::constant(G::zero(), params)
+    }
+
     pub fn is_constant(&self) -> bool {
         self.x.is_constant() & self.y.is_constant()
     }
 
     pub fn get_value(&self) -> Option<G> {
         self.value
+    }
+
+    pub fn equals<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+        other: &Self,
+    ) -> Result<Boolean, SynthesisError> 
+    {
+        let x_check = self.x.equals(cs, &other.x)?;
+        let y_check = self.y.equals(cs, &other.y)?;
+        Boolean::and(cs, &x_check, &y_check)
     }
 
     pub fn add_unequal<CS: ConstraintSystem<E>>(
@@ -373,6 +391,25 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         Ok((new, this))
     }
 
+    pub fn negate<CS: ConstraintSystem<E>>(
+        self,
+        cs: &mut CS,
+    ) -> Result<Self, SynthesisError>
+    {
+        let new_y = self.y.negated(cs)?;
+        let value = self.get_value().map(|x| {
+            let mut temp = x.clone();
+            temp.negate();
+            temp
+        });
+
+        Ok(AffinePoint {
+            x: self.x,
+            y: new_y.0,
+            value,
+        })
+    }
+
     pub fn double_and_add<CS: ConstraintSystem<E>>(
         self,
         cs: &mut CS,
@@ -471,6 +508,29 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         scalar: &G::Scalar
     ) -> Result<(Self, Self), SynthesisError> {
         unimplemented!()
+    }
+
+    pub fn select<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        flag: &Boolean,
+        first: Self,
+        second: Self
+    ) -> Result<Self, SynthesisError> {
+
+        let x = FieldElement::select(cs, flag, first.x, second.x)?;
+        let y = FieldElement::select(cs, flag, first.y, second.y)?;
+
+        let value = match (flag.get_value(), first.get_value(), second.get_value()) {
+            (Some(true), Some(p), _) => Some(p),
+            (Some(false), _, Some(p)) => Some(p),
+            (_, _, _) => None
+        };
+
+        Ok(AffinePoint { 
+            x : x.0, 
+            y : y.0, 
+            value 
+        })
     }
 
 }
