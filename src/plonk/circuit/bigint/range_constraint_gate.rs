@@ -157,6 +157,10 @@ impl<E: Engine> GateInternal<E> for TwoBitDecompositionRangecheckCustomGate {
         assert_eq!(challenges.len(), 4);
         unimplemented!()
     }
+    
+    fn box_clone(&self) -> Box<dyn GateInternal<E>> {
+        Box::from(self.clone())
+    }
 }
 
 impl<E: Engine> Gate<E> for TwoBitDecompositionRangecheckCustomGate {}

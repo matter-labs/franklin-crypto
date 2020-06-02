@@ -96,6 +96,13 @@ impl<E: Engine> LinearCombination<E> {
         &mut self,
         coeff: &E::Fr
     ) {
+        if coeff.is_zero() {
+            self.terms.truncate(0);
+            self.constant = E::Fr::zero();
+            self.value = Some(E::Fr::zero());
+            return;
+        }
+
         if let Some(ref mut val) = self.value.as_mut() {
             val.mul_assign(&coeff);
         }
@@ -166,6 +173,10 @@ impl<E: Engine> LinearCombination<E> {
         coeff: E::Fr
     )
     {
+        if coeff.is_zero() {
+            return;
+        }
+
         let newval = match (self.value, variable.get_value()) {
             (Some(mut curval), Some(val)) => {
                 let mut tmp = val;
@@ -188,6 +199,10 @@ impl<E: Engine> LinearCombination<E> {
         coeff: E::Fr
     )
     {
+        if coeff.is_zero() {
+            return;
+        }
+
         let new_value = match (self.value, bit.get_value()) {
             (Some(mut val), Some(bit_value)) => {
                 if bit_value {
@@ -225,6 +240,10 @@ impl<E: Engine> LinearCombination<E> {
         coeff: E::Fr
     )
     {
+        if coeff.is_zero() {
+            return;
+        }
+
         let new_value = match (self.value, bit.get_value()) {
             (Some(mut val), Some(bit_value)) => {
                 if bit_value {
@@ -245,6 +264,10 @@ impl<E: Engine> LinearCombination<E> {
         coeff: E::Fr
     )
     {
+        if coeff.is_zero() {
+            return;
+        }
+
         let newval = match self.value {
             Some(mut curval) => {
                 curval.add_assign(&coeff);

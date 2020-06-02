@@ -1724,4 +1724,84 @@ mod test {
             }
         }
     }
+
+    #[test]
+    fn test_base_curve_multiexp_10_bls_12_using_tables_on_random_witnesses() {
+        use crate::bellman::plonk::better_better_cs::cs::*;
+        use super::super::super::bigint::get_range_constraint_info;
+        use rand::{XorShiftRng, SeedableRng, Rng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        use crate::bellman::pairing::bls12_381::{Bls12, Fr, Fq, G1Affine, G1};
+
+        let mut cs = TrivialAssembly::<Bls12, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+
+        let over = vec![PolyIdentifier::VariablesPolynomial(0), PolyIdentifier::VariablesPolynomial(1), PolyIdentifier::VariablesPolynomial(2)];
+        let table = MultiTableApplication::<Bls12>::new_range_table_of_width_3(16, over).unwrap();
+
+        cs.add_multitable(table).unwrap();
+
+        let strats = get_range_constraint_info(&cs);
+
+        let params = RnsParameters::<Bls12, Fq>::new_for_field_with_strategy(
+            80, 
+            110, 
+            7, 
+            strats[0],
+            true
+        );
+
+        let mut a_s = vec![];
+        let mut b_s = vec![];
+        for _ in 0..10 {
+            let a_f: G1 = rng.gen();
+            let a_f = a_f.into_affine();
+            let b_f: Fr = rng.gen();
+
+            a_s.push(a_f);
+            b_s.push(b_f);
+        }
+        
+        let mut a_p = vec![];
+        for a in a_s.iter() {
+            let a = AffinePoint::alloc(
+                &mut cs, 
+                Some(*a), 
+                &params
+            ).unwrap();
+
+            a_p.push(a);
+        }
+
+        let mut b_n = vec![];
+
+        for b in b_s.iter() {
+            let b = AllocatedNum::alloc(
+                &mut cs, 
+                || {
+                    Ok(*b)
+                }
+            ).unwrap();
+
+            let b = Num::Variable(b);
+            b_n.push(b);
+        }
+
+        let base = cs.n();
+
+        let result = AffinePoint::multiexp(&mut cs, &b_n, &a_p, None).unwrap();
+
+        println!("10 points multiexp with 16 bit range tables taken {} gates", cs.n() - base);
+
+        let mut result_recalculated = G1Affine::zero().into_projective();
+
+        for (a, b) in a_s.iter().zip(b_s.iter()) {
+            let tmp = a.mul(b.into_repr());
+            result_recalculated.add_assign(&tmp);
+        }
+
+        let result_recalculated = result_recalculated.into_affine();
+
+        assert!(cs.is_satisfied());
+    }
 }

@@ -185,6 +185,14 @@ impl<E: Engine> Limb<E> {
     ) -> Result<Num<E>, SynthesisError> {
         self.term.collapse_into_num(cs)
     }
+
+    pub fn is_zero(&self) -> bool {
+        if self.is_constant() {
+            self.term.get_constant_value().is_zero()
+        } else {
+            false
+        }
+    }
 }
 
 pub(crate) fn repr_to_biguint<F: PrimeField>(repr: &F::Repr) -> BigUint {
@@ -197,7 +205,6 @@ pub(crate) fn repr_to_biguint<F: PrimeField>(repr: &F::Repr) -> BigUint {
     b
 }
 
-#[inline]
 pub fn mod_inverse(el: &BigUint, modulus: &BigUint) -> BigUint {
     use crate::num_bigint::BigInt;
     use crate::num_integer::{Integer, ExtendedGcd};
@@ -338,4 +345,45 @@ pub fn split_into_fixed_number_of_limbs(mut fe: BigUint, bits_per_limb: usize, n
     }
 
     limbs
+}
+
+pub fn slice_into_limbs_of_max_size(value: Option<BigUint>, max_width: usize, limb_width: usize) -> (Vec<Option<BigUint>>, Vec<usize>) {
+    let mut limb_sizes = vec![];
+    let mut tmp = max_width;
+    loop {
+        if tmp > limb_width {
+            tmp -= limb_width;
+            limb_sizes.push(limb_width);
+        } else {
+            limb_sizes.push(tmp);
+            break;
+        }
+    }
+
+    let mask = BigUint::from(1u64) << limb_width;
+
+    let limb_values = if let Some(value) = value {
+        let mut values = Vec::with_capacity(limb_sizes.len());
+        let mut tmp = value.clone();
+        for _ in 0..limb_sizes.len() {
+            let value = tmp.clone() % &mask;
+            values.push(Some(value));
+            tmp >>= limb_width;
+        }
+
+        values
+    } else {
+        vec![None; limb_sizes.len()]
+    };
+
+    (limb_values, limb_sizes)
+}
+
+pub(crate) fn make_multiple(mut value: usize, multiple_of: usize) -> usize {
+    let remainder = value % multiple_of;
+    if remainder != 0 {
+        value += multiple_of - remainder;
+    }
+
+    value
 }

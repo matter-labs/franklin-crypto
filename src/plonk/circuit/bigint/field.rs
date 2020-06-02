@@ -62,9 +62,6 @@ pub struct RnsParameters<E: Engine, F: PrimeField>{
     pub binary_limbs_bit_widths: Vec<usize>,
     pub binary_limbs_max_values: Vec<BigUint>,
 
-    // pub last_binary_limb_bit_width: usize,
-    // pub last_binary_limb_max_value: BigUint,
-
     // we do modular reductions, so we want to have these for convenience
     pub represented_field_modulus_negated_limbs_biguints: Vec<BigUint>,
     pub represented_field_modulus_negated_limbs: Vec<E::Fr>,
@@ -73,6 +70,10 @@ pub struct RnsParameters<E: Engine, F: PrimeField>{
     pub represented_field_modulus_negated_in_base_field: E::Fr,
 
     pub limb_witness_size: usize,
+
+    pub range_check_info: RangeConstraintInfo,
+
+    pub prefer_single_limb_allocation: bool,
 
     pub (crate) _marker: std::marker::PhantomData<F>
 }
@@ -91,9 +92,27 @@ impl<'a, E: Engine, F: PrimeField> RnsParameters<E, F>{
     }
 
     pub fn new_for_field(limb_size: usize, intermediate_limb_capacity: usize, num_binary_limbs:usize) -> Self {
+        let default_strategy = RangeConstraintInfo {
+            minimal_multiple: 2,
+            optimal_multiple: 8,
+            multiples_per_gate: 4,
+            strategy: RangeConstraintStrategy::CustomTwoBitGate
+        };
+
+        Self::new_for_field_with_strategy(limb_size, intermediate_limb_capacity, num_binary_limbs, default_strategy, false)
+    }
+
+    pub fn new_for_field_with_strategy(
+        limb_size: usize, 
+        intermediate_limb_capacity: usize, 
+        num_binary_limbs:usize,
+        strategy: RangeConstraintInfo,
+        prefer_single_limb_allocation: bool
+    ) -> Self {
         let binary_limbs_params = LimbedRepresentationParameters::new(limb_size, intermediate_limb_capacity);
 
-        assert!(num_binary_limbs & 1 == 0);
+        let minimal_multiple = strategy.minimal_multiple;
+        assert!(limb_size % minimal_multiple == 0, "limb size is not a multiple of range check quant");
 
         let base_field_modulus = repr_to_biguint::<E::Fr>(&E::Fr::char());
         let binary_modulus = BigUint::from(1u64) << (num_binary_limbs * limb_size);
@@ -113,6 +132,9 @@ impl<'a, E: Engine, F: PrimeField> RnsParameters<E, F>{
 
         let mut num_limbs_for_in_field_representation = 0;
 
+        let mut freshly_allocated_max_value = BigUint::from(0u64);
+        let mut shift = 0;
+
         for _ in 0..num_binary_limbs {
             if tmp.is_zero() {
                 binary_limbs_max_bits_if_in_field.push(0);
@@ -122,21 +144,27 @@ impl<'a, E: Engine, F: PrimeField> RnsParameters<E, F>{
                 tmp >>= limb_size;
                 if tmp.is_zero() {
                     // this is a last limb
-                    if current_bits & 1 == 1 {
-                        current_bits += 1;
+                    let remainder = current_bits % minimal_multiple;
+                    if remainder != 0 {
+                        current_bits += minimal_multiple - remainder;
                     }
                     binary_limbs_max_bits_if_in_field.push(current_bits);
-                    binary_limbs_max_values_if_in_field.push((BigUint::from(1u64) << current_bits) - BigUint::from(1u64));
+                    let max_value = (BigUint::from(1u64) << current_bits) - BigUint::from(1u64);
 
+                    freshly_allocated_max_value += &max_value << shift;
+                    binary_limbs_max_values_if_in_field.push(max_value);
+
+                    shift += current_bits;
                 } else {
                     binary_limbs_max_bits_if_in_field.push(binary_limbs_params.limb_size_bits);
                     binary_limbs_max_values_if_in_field.push(binary_limbs_params.limb_max_value.clone());
+                    freshly_allocated_max_value += &binary_limbs_params.limb_max_value << shift;
+
+                    shift += binary_limbs_params.limb_size_bits;
                 }
                 num_limbs_for_in_field_representation += 1;
             }
         }
-
-        assert!(num_limbs_for_in_field_representation & 1 == 0); // TODO: for now
 
         let mut tmp = represented_modulus_negated_modulo_binary.clone();
 
@@ -156,12 +184,7 @@ impl<'a, E: Engine, F: PrimeField> RnsParameters<E, F>{
         let repr_modulus_negated = base_field_modulus.clone() - (represented_field_modulus.clone() % &base_field_modulus.clone());
         let repr_modulus_negated = biguint_to_fe(repr_modulus_negated);
 
-        {
-            let t = represented_field_modulus.clone() % &base_field_modulus;
-            println!("Represented modulus modulo base = {}, has {} bits", t.to_str_radix(16), t.bits());
-        }
-
-        Self {
+        let new = Self {
             binary_limbs_params,
             num_binary_limbs,
             binary_modulus,
@@ -175,7 +198,32 @@ impl<'a, E: Engine, F: PrimeField> RnsParameters<E, F>{
             represented_field_modulus_negated_limbs,
             limb_witness_size: 2,
             represented_field_modulus_negated_in_base_field: repr_modulus_negated,
+            range_check_info: strategy,
+            prefer_single_limb_allocation: prefer_single_limb_allocation,
             _marker: std::marker::PhantomData
+        };
+
+        // println!("fresh: {}, {} bits", freshly_allocated_max_value.to_str_radix(16), freshly_allocated_max_value.bits());
+
+        // println!("max: {}, {} bits", new.max_representable_value().to_str_radix(16), new.max_representable_value().bits());
+
+        if freshly_allocated_max_value >= new.max_representable_value() {
+            panic!("Newly allocated value will have limit of {} ({} bits) that is larger than max intermediate value {} ({} bits) before forced reduction",
+            &freshly_allocated_max_value, freshly_allocated_max_value.bits(), new.max_representable_value(), new.max_representable_value().bits());
+        }
+
+        if new.can_allocate_from_double_limb_witness() {
+            assert!(E::Fr::CAPACITY as usize >= limb_size * 2, "double limb size must not overflow the capacity");
+        }
+
+        new
+    }
+
+    pub fn can_allocate_from_double_limb_witness(&self) -> bool {
+        if self.range_check_info.strategy.can_access_minimal_multiple_quants() {
+            true
+        } else {
+            self.prefer_single_limb_allocation == false && self.binary_limbs_params.limb_size_bits % self.range_check_info.optimal_multiple == 0
         }
     }
 }
@@ -246,50 +294,314 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         value: Option<F>,
         params: &'a RnsParameters<E, F>
     ) -> Result<Self, SynthesisError> {
-        let (binary_limbs, base_limb) = value_to_limbs(value, params);
+        let (binary_limbs, _) = value_to_limbs(value, params);
 
-        let mut binary_limbs_allocated = Vec::with_capacity(binary_limbs.len());
+        let mut witnesses = Vec::with_capacity(params.num_binary_limbs);
 
-        for ((l, &width), max_val) in binary_limbs.into_iter()
+        for (l, &width) in binary_limbs.into_iter()
             .zip(params.binary_limbs_bit_widths.iter())
-            .zip(params.binary_limbs_max_values.iter().cloned()) 
         {
             if width == 0 {
-                assert!(max_val.is_zero());
-                binary_limbs_allocated.push(Self::zero_limb());
+                witnesses.push(Num::Constant(E::Fr::zero()));
             } else {
                 let a = AllocatedNum::alloc(cs, || {
                     Ok(*l.get()?)
                 })?;
 
-                let _ = create_range_constraint_chain(cs, &a, width);
-                let term = Term::from_allocated_num(a);
+                let n = Num::Variable(a);
 
-                let limb = Limb::<E>::new(
-                    term,
-                    max_val
-                );
-
-                binary_limbs_allocated.push(limb);
+                witnesses.push(n);
             }
         }
 
-        let a = AllocatedNum::alloc(cs, || {
-            Ok(*base_limb.get()?)
-        })?;
+        Self::coarsely_allocate_from_single_limb_witnesses(cs, &witnesses, false, params)
 
-        let base_limb = Term::from_allocated_num(a);
+        // let mut binary_limbs_allocated = Vec::with_capacity(binary_limbs.len());
 
-        assert_eq!(fe_to_biguint(&value.unwrap()) % &params.base_field_modulus, fe_to_biguint(&base_limb.get_value().unwrap()));
+        // for ((l, &width), max_val) in binary_limbs.into_iter()
+        //     .zip(params.binary_limbs_bit_widths.iter())
+        //     .zip(params.binary_limbs_max_values.iter().cloned()) 
+        // {
+        //     if width == 0 {
+        //         assert!(max_val.is_zero());
+        //         binary_limbs_allocated.push(Self::zero_limb());
+        //     } else {
+        //         let a = AllocatedNum::alloc(cs, || {
+        //             Ok(*l.get()?)
+        //         })?;
+
+        //         let _ = create_range_constraint_chain(cs, &a, width);
+        //         let term = Term::from_allocated_num(a);
+
+        //         let limb = Limb::<E>::new(
+        //             term,
+        //             max_val
+        //         );
+
+        //         binary_limbs_allocated.push(limb);
+        //     }
+        // }
+
+        // let a = AllocatedNum::alloc(cs, || {
+        //     Ok(*base_limb.get()?)
+        // })?;
+
+        // let base_limb = Term::from_allocated_num(a);
+
+        // assert_eq!(fe_to_biguint(&value.unwrap()) % &params.base_field_modulus, fe_to_biguint(&base_limb.get_value().unwrap()));
+
+        // let new = Self {
+        //     binary_limbs: binary_limbs_allocated,
+        //     base_field_limb: base_limb,
+        //     representation_params: params,
+        //     value,
+        // };
+
+        // Ok(new)
+    }
+
+    /// Allocate a field element from witnesses for individual binary(!) limbs,
+    /// such that highest limb may be a little (up to range constraint granularity)
+    /// larger than for an element that is in a field.
+    /// If `may_overflow` == true then all limbs may be as large limb bit width
+    pub fn coarsely_allocate_from_single_limb_witnesses<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        witnesses: &[Num<E>],
+        may_overflow: bool,
+        params: &'a RnsParameters<E, F>
+    ) -> Result<Self, SynthesisError> {
+        assert!(params.num_binary_limbs ==  witnesses.len());
+        assert!(params.binary_limbs_params.limb_size_bits % params.range_check_info.minimal_multiple == 0, 
+            "limb size must be divisible by range constraint strategy granularity");
+
+        let mut binary_limbs_allocated = Vec::with_capacity(params.num_binary_limbs);
+
+        let mut base_field_lc = LinearCombination::<E>::zero();
+
+        let shift_constant = params.binary_limbs_params.shift_left_by_limb_constant;
+        let mut current_constant = E::Fr::one();
+
+        let mut this_value = BigUint::from(0u64);
+        let mut value_is_none = false;
+
+        for (witness_idx, w) in witnesses.iter().enumerate() {
+            match w {
+                Num::Constant(value) => {
+                    let v = fe_to_biguint(value);
+                    this_value += v.clone() << (witness_idx*params.binary_limbs_params.limb_size_bits);
+
+
+                    // if the element must fit into the field than pad with zeroes
+                    if may_overflow == false && witness_idx >= params.num_limbs_for_in_field_representation {
+                        assert!(value.is_zero());
+                        binary_limbs_allocated.push(Self::zero_limb());
+                        continue;
+                    }
+
+                    let (expected_width, expected_max_value) = if may_overflow {
+                        (params.binary_limbs_params.limb_size_bits, params.binary_limbs_params.limb_max_value.clone())
+                    } else {
+                        (params.binary_limbs_bit_widths[witness_idx], params.binary_limbs_max_values[witness_idx].clone())
+                    };
+
+                    assert!(expected_width > 0);
+                    assert!(v.bits() as usize <= expected_width);
+                    assert!(v <= expected_max_value);
+
+                    let limb = Limb::<E>::new_constant(
+                        v
+                    );
+
+                    binary_limbs_allocated.push(limb);
+                },
+                Num::Variable(var) => {
+                    let limb_value = if let Some(v) = var.get_value() {
+                        let v = fe_to_biguint(&v);
+                        this_value += v.clone() << (witness_idx*params.binary_limbs_params.limb_size_bits);
+
+                        Some(v)
+                    } else {
+                        value_is_none = true;
+
+                        None
+                    };
+
+                    // if the element must fit into the field than pad with zeroes
+                    if may_overflow == false && witness_idx >= params.num_limbs_for_in_field_representation {
+                        unreachable!("should not try to allocate a value in a field with non-constant high limbs");
+                    }
+
+                    let (expected_width, expected_max_value) = if may_overflow {
+                        (params.binary_limbs_params.limb_size_bits, params.binary_limbs_params.limb_max_value.clone())
+                    } else {
+                        (params.binary_limbs_bit_widths[witness_idx], params.binary_limbs_max_values[witness_idx].clone())
+                    };
+
+                    assert!(expected_width > 0);
+                    if let Some(v) = limb_value.as_ref() {
+                        assert!(v <= &expected_max_value);
+                    }
+
+                    assert!(expected_width % params.range_check_info.minimal_multiple == 0, 
+                        "limb size must be divisible by range constraint strategy granularity");
+
+                    // match over strategy
+
+                    match params.range_check_info.strategy {
+                        RangeConstraintStrategy::MultiTable => {
+                            self::range_constraint_functions::coarsely_enforce_using_multitable(cs, var, expected_width)?;
+                        },
+                        RangeConstraintStrategy::CustomTwoBitGate => {
+                            let _ = create_range_constraint_chain(cs, var, expected_width)?;
+                        }
+                        _ => {unimplemented!("range constraint strategies other than multitable or custom gate are not yet handled")}
+                    }
+
+                    let term = Term::<E>::from_allocated_num(var.clone());
+
+                    let limb = Limb::<E>::new( 
+                        term,
+                        expected_max_value,
+                    );
+
+                    binary_limbs_allocated.push(limb);
+                }
+            }
+
+            // keep track of base field limb
+            base_field_lc.add_assign_number_with_coeff(&w, current_constant);
+            current_constant.mul_assign(&shift_constant);
+        }
+
+        let base_field_limb_num = base_field_lc.into_num(cs)?;
+
+        let base_field_term = Term::<E>::from_num(base_field_limb_num);
+
+        let this_value = if value_is_none {
+            None
+        } else {
+            Some(this_value)
+        };
+
+        let this_value = some_biguint_to_fe::<F>(&this_value);
+
+        // assert_eq!(fe_to_biguint(&this_value.unwrap()) % &params.base_field_modulus, fe_to_biguint(&base_field_term.get_value().unwrap()));
 
         let new = Self {
             binary_limbs: binary_limbs_allocated,
-            base_field_limb: base_limb,
+            base_field_limb: base_field_term,
             representation_params: params,
-            value,
+            value: this_value,
+        };
+
+        if may_overflow == false {
+            assert!(new.needs_reduction() == false);
+        }
+
+        Ok(new)
+    }
+
+    /// Allocate a field element from witnesses for individual binary(!) limbs,
+    /// such that highest limb may be a little (up to range constraint granularity)
+    /// larger than for an element that is in a field.
+    /// If `may_overflow` == true then all limbs may be as large limb bit width
+    pub fn coarsely_allocate_for_known_bit_width<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        value: Option<BigUint>,
+        width: usize,
+        params: &'a RnsParameters<E, F>
+    ) -> Result<Self, SynthesisError> {
+        assert!(params.binary_limbs_params.limb_size_bits % params.range_check_info.minimal_multiple == 0, 
+            "limb size must be divisible by range constraint strategy granularity");
+
+        let mut binary_limbs_allocated = Vec::with_capacity(params.num_binary_limbs);
+
+        let mut base_field_lc = LinearCombination::<E>::zero();
+
+        let shift_constant = params.binary_limbs_params.shift_left_by_limb_constant;
+        let mut current_constant = E::Fr::one();
+
+        let this_value = some_biguint_to_fe::<F>(&value);
+
+        let (limb_values, limb_sizes) = slice_into_limbs_of_max_size(value, width, params.binary_limbs_params.limb_size_bits);
+
+        let last_idx = limb_values.len() - 1;
+        for (idx, (value, mut size)) in limb_values.into_iter().zip(limb_sizes.into_iter()).enumerate() {
+            let value_as_fe = some_biguint_to_fe::<E::Fr>(&value);
+
+            let a = AllocatedNum::alloc(
+                cs, 
+                || {
+                    Ok(*value_as_fe.get()?)
+                }
+            )?;
+
+            let remainder = size % params.range_check_info.minimal_multiple;
+
+            if remainder != 0 {
+                if idx == last_idx {
+                    size += params.range_check_info.minimal_multiple - remainder;
+                } else {
+                    unreachable!("only last limb may have not strictly divisible by granularity width");
+                }
+            }
+
+            let max_value = (BigUint::from(1u64) << size) - BigUint::from(1u64);
+
+            match params.range_check_info.strategy {
+                RangeConstraintStrategy::MultiTable => {
+                    self::range_constraint_functions::coarsely_enforce_using_multitable(cs, &a, size)?;
+                },
+                RangeConstraintStrategy::CustomTwoBitGate => {
+                    let _ = create_range_constraint_chain(cs, &a, size)?;
+                }
+                _ => {unimplemented!("range constraint strategies other than multitable or custom gate are not yet handled")}
+            }
+
+            let term = Term::<E>::from_allocated_num(a.clone());
+
+            let limb = Limb::<E>::new( 
+                term,
+                max_value,
+            );
+
+            binary_limbs_allocated.push(limb);
+
+            base_field_lc.add_assign_variable_with_coeff(&a, current_constant);
+            current_constant.mul_assign(&shift_constant);
+        }
+
+        binary_limbs_allocated.resize(params.num_binary_limbs, Self::zero_limb());
+        
+        let base_field_limb_num = base_field_lc.into_num(cs)?;
+
+        let base_field_term = Term::<E>::from_num(base_field_limb_num);
+
+        let new = Self {
+            binary_limbs: binary_limbs_allocated,
+            base_field_limb: base_field_term,
+            representation_params: params,
+            value: this_value,
         };
 
         Ok(new)
+    }
+
+    pub fn coarsely_allocate_for_unknown_width<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        value: Option<BigUint>,
+        params: &'a RnsParameters<E, F>
+    ) -> Result<Self, SynthesisError> {
+        if params.can_allocate_from_double_limb_witness() == true {
+            unimplemented!()
+        } else {
+            assert!(params.binary_limbs_params.limb_size_bits % params.range_check_info.minimal_multiple == 0, 
+                "limb size must be divisible by range constraint strategy granularity");
+
+            let slices = Self::slice_into_limb_witnesses(value, cs, params)?;
+
+            Self::coarsely_allocate_from_single_limb_witnesses(cs, &slices, true, params)
+        }
     }
 
     pub fn from_double_size_limb_witnesses<CS: ConstraintSystem<E>>(
@@ -299,6 +611,9 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         params: &'a RnsParameters<E, F>
     ) -> Result<Self, SynthesisError> {
         assert!(params.num_binary_limbs == params.limb_witness_size * witnesses.len());
+        // until we make better handling of a case that top limb should be zero
+        // we make sure that 
+        assert!(params.num_limbs_for_in_field_representation & 1 == 0);
 
         let mut binary_limbs_allocated = Vec::with_capacity(params.num_binary_limbs);
 
@@ -632,7 +947,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         Some(result)
     }
 
-    // return current value unreduced
     pub fn get_field_value(&self) -> Option<F> {
         self.value
     }
@@ -650,26 +964,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
         result
     }
-
-
-    // // return maximum value based on maximum limb values
-    // pub(crate) fn get_max_value(&self) -> BigUint {
-    //     let shift = self.representation_params.binary_limbs_params.limb_size_bits;
-
-    //     let mut result = BigUint::from(0u64);
-
-    //     for i in (1..self.binary_limbs.len()).rev() {
-    //         let this_limb = self.binary_limbs[i].max_value();
-    //         let shift = self.binary_limbs[i-1].max_value().bits();
-
-    //         result += this_limb;
-    //         result <<= shift;
-    //     }
-
-    //     result += self.binary_limbs[0].max_value();
-
-    //     result
-    // }
 
     pub fn is_constant(&self) -> bool {
         for l in self.binary_limbs.iter() {
@@ -700,6 +994,9 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         // let's see if we ever need to reduce individual limbs into the default ranges
         // first trivial check
         let mut needs_reduction = self.get_max_value() > self.representation_params.max_representable_value();
+        // if needs_reduction {
+        //     println!("Val = {}\nMAX = {}", self.get_max_value().to_str_radix(16), self.representation_params.max_representable_value().to_str_radix(16));
+        // }
         // let mut needs_reduction = self.get_max_value() > self.representation_params.max_representable_value() * self.representation_params.max_representable_value();
         let max_limb_value = &self.representation_params.binary_limbs_params.limb_max_intermediate_value;
         for binary_limb in self.binary_limbs.iter() {
@@ -747,162 +1044,162 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             (None, None)
         };
         
-        let mut max_q_bits = (self.get_max_value() / &params.represented_field_modulus).bits() as usize;
-        if max_q_bits & 1 == 1 {
-            max_q_bits += 1;
-        }
-        assert!(max_q_bits <= E::Fr::CAPACITY as usize, "for no quotient size can not overflow capacity");
+        let max_q_bits = (self.get_max_value() / &params.represented_field_modulus).bits() as usize;
+        assert!(max_q_bits <= E::Fr::CAPACITY as usize, "for no quotient size can overflow capacity");
 
-        let q_fe = some_biguint_to_fe::<E::Fr>(&q);
-        let q_represented_field_value = some_biguint_to_fe::<F>(&q);
+        let q_as_field_repr = Self::coarsely_allocate_for_known_bit_width(
+            cs,
+            q, 
+            max_q_bits, 
+            &params
+        )?;
 
-        let q_as_field_repr = if max_q_bits <= params.binary_limbs_params.limb_size_bits {
-            let q_max_value = (BigUint::from(1u64) << max_q_bits) - BigUint::from(1u64);
+        // let q_fe = some_biguint_to_fe::<E::Fr>(&q);
+        // let q_represented_field_value = some_biguint_to_fe::<F>(&q);
 
-            let allocated = AllocatedNum::alloc(
-                cs, 
-                || {
-                    Ok(*q_fe.get()?)
-                }
-            )?;
+        // let q_as_field_repr = if max_q_bits <= params.binary_limbs_params.limb_size_bits {
+        //     let q_max_value = (BigUint::from(1u64) << max_q_bits) - BigUint::from(1u64);
+
+        //     let allocated = AllocatedNum::alloc(
+        //         cs, 
+        //         || {
+        //             Ok(*q_fe.get()?)
+        //         }
+        //     )?;
     
-            let _ = create_range_constraint_chain(cs, &allocated, max_q_bits)?;
-            let term = Term::<E>::from_allocated_num(allocated);
-            let q_limb = Limb::new(term.clone(), q_max_value);
+        //     let _ = create_range_constraint_chain(cs, &allocated, max_q_bits)?;
+        //     let term = Term::<E>::from_allocated_num(allocated);
+        //     let q_limb = Limb::new(term.clone(), q_max_value);
     
-            let q_empty_limb = Self::zero_limb();
+        //     let q_empty_limb = Self::zero_limb();
     
-            let mut q_new_binary_limbs = Vec::with_capacity(self.binary_limbs.len());
-            q_new_binary_limbs.push(q_limb.clone());
-            q_new_binary_limbs.resize(params.num_binary_limbs, q_empty_limb);
+        //     let mut q_new_binary_limbs = Vec::with_capacity(self.binary_limbs.len());
+        //     q_new_binary_limbs.push(q_limb.clone());
+        //     q_new_binary_limbs.resize(params.num_binary_limbs, q_empty_limb);
     
-            let q_base_field_term = term;
+        //     let q_base_field_term = term;
     
-            let q_as_field_repr = Self{
-                base_field_limb: q_base_field_term,
-                binary_limbs: q_new_binary_limbs,
-                representation_params: params,
-                value: q_represented_field_value
-            };
+        //     let q_as_field_repr = Self {
+        //         base_field_limb: q_base_field_term,
+        //         binary_limbs: q_new_binary_limbs,
+        //         representation_params: params,
+        //         value: q_represented_field_value
+        //     };
 
-            q_as_field_repr
-        } else {
-            // we need more limbs for quotient
-            assert!(max_q_bits <= E::Fr::CAPACITY as usize);
-            let mut num_limbs = max_q_bits / params.binary_limbs_params.limb_size_bits;
-            if max_q_bits % self.representation_params.binary_limbs_params.limb_size_bits != 0 {
-                num_limbs += 1;
-            }
+        //     q_as_field_repr
+        // } else {
+        //     // we need more limbs for quotient
+        //     assert!(max_q_bits <= E::Fr::CAPACITY as usize);
+        //     let mut num_limbs = max_q_bits / params.binary_limbs_params.limb_size_bits;
+        //     if max_q_bits % self.representation_params.binary_limbs_params.limb_size_bits != 0 {
+        //         num_limbs += 1;
+        //     }
 
-            // let q_max_value = (BigUint::from(1u64) << max_q_bits) - BigUint::from(1u64);
+        //     // let q_max_value = (BigUint::from(1u64) << max_q_bits) - BigUint::from(1u64);
 
-            let allocated = AllocatedNum::alloc(
-                cs, 
-                || {
-                    Ok(*q_fe.get()?)
-                }
-            )?;
+        //     let allocated = AllocatedNum::alloc(
+        //         cs, 
+        //         || {
+        //             Ok(*q_fe.get()?)
+        //         }
+        //     )?;
     
-            let chain = create_range_constraint_chain(cs, &allocated, max_q_bits)?;
-            let term = Term::<E>::from_allocated_num(allocated);
+        //     let chain = create_range_constraint_chain(cs, &allocated, max_q_bits)?;
+        //     let term = Term::<E>::from_allocated_num(allocated);
 
-            let mut q_new_binary_limbs = Vec::with_capacity(self.binary_limbs.len());
+        //     let mut q_new_binary_limbs = Vec::with_capacity(self.binary_limbs.len());
 
-            assert!(max_q_bits % chain.len() == 0);
-            let constraint_bits_per_step = max_q_bits / chain.len();
+        //     assert!(max_q_bits % chain.len() == 0);
+        //     let constraint_bits_per_step = max_q_bits / chain.len();
 
-            // let mut shift = 0;
+        //     // let mut shift = 0;
 
-            let mut expected_limb_bits = Vec::with_capacity(num_limbs);
+        //     let mut expected_limb_bits = Vec::with_capacity(num_limbs);
 
-            for l in 0..num_limbs {
-                let bits = if max_q_bits > params.binary_limbs_params.limb_size_bits {
-                    max_q_bits -= params.binary_limbs_params.limb_size_bits;
+        //     for l in 0..num_limbs {
+        //         let bits = if max_q_bits > params.binary_limbs_params.limb_size_bits {
+        //             max_q_bits -= params.binary_limbs_params.limb_size_bits;
 
-                    params.binary_limbs_params.limb_size_bits
-                } else {
-                    max_q_bits
-                };
+        //             params.binary_limbs_params.limb_size_bits
+        //         } else {
+        //             max_q_bits
+        //         };
 
-                if bits != 0 {
-                    expected_limb_bits.push(bits);
-                } else {
-                    break;
-                }
-            }
+        //         if bits != 0 {
+        //             expected_limb_bits.push(bits);
+        //         } else {
+        //             break;
+        //         }
+        //     }
 
-            let mut reversed_low_limbs = Vec::with_capacity(expected_limb_bits.len());
+        //     let mut reversed_low_limbs = Vec::with_capacity(expected_limb_bits.len());
 
-            let mut previous_high_bits: Option<Term<E>> = None;
-            let mut total_bits = 0;
+        //     let mut previous_high_bits: Option<Term<E>> = None;
+        //     let mut total_bits = 0;
 
-            for bits in expected_limb_bits.into_iter().rev() {
-                let bits_to_take = total_bits + bits;
-                let max_limb_value = (BigUint::from(1u64) << bits) - BigUint::from(1u64);
+        //     for bits in expected_limb_bits.into_iter().rev() {
+        //         let bits_to_take = total_bits + bits;
+        //         let max_limb_value = (BigUint::from(1u64) << bits) - BigUint::from(1u64);
                 
 
-                let subvalue_index = bits_to_take / constraint_bits_per_step - 1;
+        //         let subvalue_index = bits_to_take / constraint_bits_per_step - 1;
 
-                // let mut subvalue_index = bits / constraint_bits_per_step - 1;
-                // subvalue_index += shift;
-                // shift += subvalue_index + 1;
+        //         // this is low part + high part
 
-                // this is low part + high part
+        //         if let Some(high_part) = previous_high_bits.take() {
+        //             // there are higher bits in a chain already, so we get low + high part
+        //             let combined_part = chain[subvalue_index].clone();
+        //             let combined_term = Term::from_allocated_num(combined_part);
 
-                if let Some(high_part) = previous_high_bits.take() {
-                    // there are higher bits in a chain already, so we get low + high part
-                    let combined_part = chain[subvalue_index].clone();
-                    let combined_term = Term::from_allocated_num(combined_part);
+        //             let mut shift = E::Fr::one();
+        //             for _ in 0..bits {
+        //                 shift.double();
+        //             }
 
-                    let mut shift = E::Fr::one();
-                    for _ in 0..bits {
-                        shift.double();
-                    }
+        //             let mut high_part_shifted_and_negated = high_part;
+        //             high_part_shifted_and_negated.scale(&shift);
+        //             high_part_shifted_and_negated.negate();
 
-                    let mut high_part_shifted_and_negated = high_part;
-                    high_part_shifted_and_negated.scale(&shift);
-                    high_part_shifted_and_negated.negate();
+        //             let lower_part = combined_term.add(cs, &high_part_shifted_and_negated)?;
 
-                    let lower_part = combined_term.add(cs, &high_part_shifted_and_negated)?;
+        //             let q_limb = Limb::new(lower_part, max_limb_value);
+        //             reversed_low_limbs.push(q_limb);
 
-                    let q_limb = Limb::new(lower_part, max_limb_value);
-                    reversed_low_limbs.push(q_limb);
+        //             previous_high_bits = Some(combined_term);
+        //         } else {
+        //             // there is no previous part, so this is actually the highest part
+        //             let allocated = chain[subvalue_index].clone();
+        //             let term = Term::<E>::from_allocated_num(allocated);
 
-                    previous_high_bits = Some(combined_term);
-                } else {
-                    // there is no previous part, so this is actually the highest part
-                    let allocated = chain[subvalue_index].clone();
-                    let term = Term::<E>::from_allocated_num(allocated);
+        //             let q_limb = Limb::new(term.clone(), max_limb_value);
+        //             reversed_low_limbs.push(q_limb);
 
-                    let q_limb = Limb::new(term.clone(), max_limb_value);
-                    reversed_low_limbs.push(q_limb);
+        //             previous_high_bits = Some(term);
+        //         }
 
-                    previous_high_bits = Some(term);
-                }
+        //         total_bits += bits;
+        //     }
 
-                total_bits += bits;
-            }
+        //     reversed_low_limbs.reverse();
+        //     q_new_binary_limbs.extend(reversed_low_limbs);
 
-            reversed_low_limbs.reverse();
-            q_new_binary_limbs.extend(reversed_low_limbs);
-
-            let q_empty_limb = Self::zero_limb();
-            q_new_binary_limbs.resize(params.num_binary_limbs, q_empty_limb);
+        //     let q_empty_limb = Self::zero_limb();
+        //     q_new_binary_limbs.resize(params.num_binary_limbs, q_empty_limb);
     
-            let q_base_field_term = term;
+        //     let q_base_field_term = term;
     
-            let q_as_field_repr = Self{
-                base_field_limb: q_base_field_term,
-                binary_limbs: q_new_binary_limbs,
-                representation_params: params,
-                value: q_represented_field_value
-            };
+        //     let q_as_field_repr = Self{
+        //         base_field_limb: q_base_field_term,
+        //         binary_limbs: q_new_binary_limbs,
+        //         representation_params: params,
+        //         value: q_represented_field_value
+        //     };
 
-            q_as_field_repr
-        };
+        //     q_as_field_repr
+        // };
 
-        assert!(max_q_bits <= self.representation_params.binary_limbs_params.limb_size_bits, 
-            "during requction q has {} bits, limb size is {}", max_q_bits, params.binary_limbs_params.limb_size_bits);
+        // assert!(max_q_bits <= self.representation_params.binary_limbs_params.limb_size_bits, 
+        //     "during requction q has {} bits, limb size is {}", max_q_bits, params.binary_limbs_params.limb_size_bits);
 
         // create remainder
 
@@ -922,6 +1219,8 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             r_fe,
             params
         )?;
+
+        assert!(r_elem.needs_reduction() == false);
 
         // perform constraining by implementing multiplication
         // x = q*p + r
@@ -998,6 +1297,32 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
             Ok(witnesses)
         }
+    }
+
+    fn slice_into_limb_witnesses<CS: ConstraintSystem<E>>(
+        value: Option<BigUint>,
+        cs: &mut CS,
+        params: &RnsParameters<E, F>,
+    ) -> Result<Vec<Num<E>>, SynthesisError> {
+        let num_witness = params.num_binary_limbs / 2;
+        let witness_limbs = split_some_into_fixed_number_of_limbs(
+            value, 
+            params.binary_limbs_params.limb_size_bits, 
+            params.num_binary_limbs
+        );
+
+        let mut witnesses = vec![];
+        for l in witness_limbs.into_iter() {
+            let v = some_biguint_to_fe::<E::Fr>(&l);
+            let w = AllocatedNum::alloc(cs, 
+            || {
+                Ok(*v.get()?)
+            })?;
+
+            witnesses.push(Num::Variable(w));
+        }
+
+        Ok(witnesses)
     }
 
     pub fn add<CS: ConstraintSystem<E>>(
@@ -1330,14 +1655,16 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             _ => (None, None)
         };
 
-        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
+        let q_elem = Self::coarsely_allocate_for_unknown_width(cs, q, params)?;
 
-        let q_elem = Self::from_double_size_limb_witnesses(
-            cs, 
-            &q_wit, 
-            true, 
-            params
-        )?;
+        // let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
+
+        // let q_elem = Self::from_double_size_limb_witnesses(
+        //     cs, 
+        //     &q_wit, 
+        //     true, 
+        //     params
+        // )?;
 
         let r_elem = Self::new_allocated(
             cs, 
@@ -1395,14 +1722,16 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             _ => (None, None)
         };
 
-        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
+        let q_elem = Self::coarsely_allocate_for_unknown_width(cs, q, params)?;
 
-        let q_elem = Self::from_double_size_limb_witnesses(
-            cs, 
-            &q_wit, 
-            true, 
-            params
-        )?;
+        // let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
+
+        // let q_elem = Self::from_double_size_limb_witnesses(
+        //     cs, 
+        //     &q_wit, 
+        //     true, 
+        //     params
+        // )?;
 
         let r_elem = Self::new_allocated(
             cs, 
@@ -1483,14 +1812,16 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             (Some(q), Some(r))
         };
 
-        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
+        let q_elem = Self::coarsely_allocate_for_unknown_width(cs, q, params)?;
 
-        let q_elem = Self::from_double_size_limb_witnesses(
-            cs, 
-            &q_wit, 
-            true, 
-            params
-        )?;
+        // let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
+
+        // let q_elem = Self::from_double_size_limb_witnesses(
+        //     cs, 
+        //     &q_wit, 
+        //     true, 
+        //     params
+        // )?;
 
         let r_elem = Self::new_allocated(
             cs, 
@@ -1569,14 +1900,16 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             (Some(q), Some(r))
         };
 
-        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
+        let q_elem = Self::coarsely_allocate_for_unknown_width(cs, q, params)?;
 
-        let q_elem = Self::from_double_size_limb_witnesses(
-            cs, 
-            &q_wit, 
-            true, 
-            params
-        )?;
+        // let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
+
+        // let q_elem = Self::from_double_size_limb_witnesses(
+        //     cs, 
+        //     &q_wit, 
+        //     true, 
+        //     params
+        // )?;
 
         let r_elem = Self::new_allocated(
             cs, 
@@ -1653,14 +1986,16 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             }
         };
 
-        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
+        let q_elem = Self::coarsely_allocate_for_unknown_width(cs, q, params)?;
 
-        let q_elem = Self::from_double_size_limb_witnesses(
-            cs, 
-            &q_wit, 
-            true, 
-            params
-        )?;
+        // let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
+
+        // let q_elem = Self::from_double_size_limb_witnesses(
+        //     cs, 
+        //     &q_wit, 
+        //     true, 
+        //     params
+        // )?;
 
         let inv_wit = Self::new_allocated(
             cs, 
@@ -1782,14 +2117,16 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             return Ok((new, (reduced_nums, den)));
         }
 
-        let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
+        let q_elem = Self::coarsely_allocate_for_unknown_width(cs, q, params)?;
 
-        let q_elem = Self::from_double_size_limb_witnesses(
-            cs, 
-            &q_wit, 
-            true, 
-            params
-        )?;
+        // let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
+
+        // let q_elem = Self::from_double_size_limb_witnesses(
+        //     cs, 
+        //     &q_wit, 
+        //     true, 
+        //     params
+        // )?;
 
         let result_wit = Self::new_allocated(
             cs, 
@@ -1979,24 +2316,9 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             }
         }
 
-        // now we need to process over additions and remainder
-        let mut collapsed_limbs = vec![];
-        let mut collapsed_max_values = vec![];
-        for (components, max_values_components) in result_limbs.into_iter()
-                                                    .zip(expected_binary_max_values.into_iter()) 
-        {
-            assert!(components.len() > 0);
-            let r = if components.len() == 1 {
-                components[0].clone()
-            } else {
-                let (base, other) = components.split_first().unwrap();
-                let r = base.add_multiple(cs, &other)?;
+        let mut collapsed_max_values = Vec::with_capacity(expected_binary_max_values.len());
 
-                r
-            };
-
-            collapsed_limbs.push(r);
-
+        for max_values_components in expected_binary_max_values.into_iter() {
             let mut max_value = BigUint::from(0u64);
             for c in max_values_components.into_iter() {
                 max_value += c;
@@ -2005,185 +2327,221 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             collapsed_max_values.push(max_value);
         }
 
-        // also add max value contributions from additions
-        // we do not add max values from remainder cause we expect it to cancel exactly
-        let mut double_limb_max_bits = vec![];
-        for i in (0..target_limbs).step_by(2) {
-            let mut max_value = BigUint::from(0u64);
-            max_value += &collapsed_max_values[i];
-            max_value += &collapsed_max_values[i+1] << params.binary_limbs_params.limb_size_bits;
-            for a in addition_elements.iter() {
-                max_value += a.binary_limbs[i].max_value();
-                max_value += a.binary_limbs[i+1].max_value() << params.binary_limbs_params.limb_size_bits;
-            }
+        let params = mul_a.representation_params;
 
-            let mut max_bits = (max_value.bits() as usize) + 1;
-            if max_bits & 1 == 1 {
-                // we expect to constraint by two bits only
-                max_bits += 1;
-            }
+        Self::propagate_carries_using_double_limb_approach(
+            cs,
+            (result_limbs, collapsed_max_values),
+            addition_elements,
+            result_remainder_decomposition,
+            params
+        )?;
 
-            double_limb_max_bits.push(max_bits);
-        }
+        // // now we need to process over additions and remainder
+        // let mut collapsed_limbs = vec![];
+        // let mut collapsed_max_values = vec![];
+        // for (components, max_values_components) in result_limbs.into_iter()
+        //                                             .zip(expected_binary_max_values.into_iter()) 
+        // {
+        //     assert!(components.len() > 0);
+        //     let r = if components.len() == 1 {
+        //         components[0].clone()
+        //     } else {
+        //         let (base, other) = components.split_first().unwrap();
+        //         let r = base.add_multiple(cs, &other)?;
 
-        let shift_right_one_limb_constant = params.binary_limbs_params.shift_right_by_limb_constant;
-        let mut shift_right_two_limb_constant = shift_right_one_limb_constant;
-        shift_right_two_limb_constant.square();
+        //         r
+        //     };
 
-        let shift_left_one_limb_constant = params.binary_limbs_params.shift_left_by_limb_constant;
-        let mut shift_left_two_limb_constant = shift_left_one_limb_constant;
-        shift_left_two_limb_constant.square();
+        //     collapsed_limbs.push(r);
 
-        // check that multiplications did not overflow
-        // e.g that a[0] * b[0] - q[0] * p[0] - r[0] fits into two limbs max
+        //     let mut max_value = BigUint::from(0u64);
+        //     for c in max_values_components.into_iter() {
+        //         max_value += c;
+        //     }
 
-        let mut minus_one = E::Fr::one();
-        minus_one.negate();
+        //     collapsed_max_values.push(max_value);
+        // }
 
-        let mut double_limb_carries = vec![];
+        // // also add max value contributions from additions
+        // // we do not add max values from remainder cause we expect it to cancel exactly
+        // let mut double_limb_max_bits = vec![];
+        // for i in (0..target_limbs).step_by(2) {
+        //     let mut max_value = BigUint::from(0u64);
+        //     max_value += &collapsed_max_values[i];
+        //     max_value += &collapsed_max_values[i+1] << params.binary_limbs_params.limb_size_bits;
+        //     for a in addition_elements.iter() {
+        //         max_value += a.binary_limbs[i].max_value();
+        //         max_value += a.binary_limbs[i+1].max_value() << params.binary_limbs_params.limb_size_bits;
+        //     }
 
-        let mut chunk_of_previous_carry = None;
+        //     let mut max_bits = max_value.bits() as usize;
+        //     if max_bits & 1 == 1 {
+        //         // we expect to constraint by two bits only
+        //         max_bits += 1;
+        //     }
 
-        let last_idx = target_limbs - 1;
+        //     double_limb_max_bits.push(max_bits);
+        // }
 
-        for i in (0..target_limbs).step_by(2) {
-            let mut contributions = vec![];
+        // let shift_right_one_limb_constant = params.binary_limbs_params.shift_right_by_limb_constant;
+        // let mut shift_right_two_limb_constant = shift_right_one_limb_constant;
+        // shift_right_two_limb_constant.square();
 
-            let tmp = collapsed_limbs[i].clone();
-            contributions.push(tmp);
+        // let shift_left_one_limb_constant = params.binary_limbs_params.shift_left_by_limb_constant;
+        // let mut shift_left_two_limb_constant = shift_left_one_limb_constant;
+        // shift_left_two_limb_constant.square();
 
-            let mut tmp = collapsed_limbs[i+1].clone();
-            tmp.scale(&shift_left_one_limb_constant);
-            contributions.push(tmp);
+        // // check that multiplications did not overflow
+        // // e.g that a[0] * b[0] - q[0] * p[0] - r[0] fits into two limbs max
 
-            for result_remainder in result_remainder_decomposition.iter() {
-                let mut tmp = result_remainder.binary_limbs[i].term.clone();
-                tmp.negate();
-                contributions.push(tmp);
+        // let mut minus_one = E::Fr::one();
+        // minus_one.negate();
+
+        // let mut double_limb_carries = vec![];
+
+        // let mut chunk_of_previous_carry = None;
+
+        // let last_idx = target_limbs - 1;
+
+        // for i in (0..target_limbs).step_by(2) {
+        //     let mut contributions = vec![];
+
+        //     let tmp = collapsed_limbs[i].clone();
+        //     contributions.push(tmp);
+
+        //     let mut tmp = collapsed_limbs[i+1].clone();
+        //     tmp.scale(&shift_left_one_limb_constant);
+        //     contributions.push(tmp);
+
+        //     for result_remainder in result_remainder_decomposition.iter() {
+        //         let mut tmp = result_remainder.binary_limbs[i].term.clone();
+        //         tmp.negate();
+        //         contributions.push(tmp);
     
-                let mut tmp = result_remainder.binary_limbs[i+1].term.clone();
-                tmp.scale(&shift_left_one_limb_constant);
-                tmp.negate();
-                contributions.push(tmp);
+        //         let mut tmp = result_remainder.binary_limbs[i+1].term.clone();
+        //         tmp.scale(&shift_left_one_limb_constant);
+        //         tmp.negate();
+        //         contributions.push(tmp);
 
-            }
+        //     }
 
-            for addition_element in addition_elements.iter() {
-                let tmp = addition_element.binary_limbs[i].term.clone();
-                contributions.push(tmp);
+        //     for addition_element in addition_elements.iter() {
+        //         let tmp = addition_element.binary_limbs[i].term.clone();
+        //         contributions.push(tmp);
 
-                let mut tmp = addition_element.binary_limbs[i+1].term.clone();
-                tmp.scale(&shift_left_one_limb_constant);
-                contributions.push(tmp);
-            }
+        //         let mut tmp = addition_element.binary_limbs[i+1].term.clone();
+        //         tmp.scale(&shift_left_one_limb_constant);
+        //         contributions.push(tmp);
+        //     }
 
-            if let Some(previous) = chunk_of_previous_carry.take() {
-                contributions.push(previous);
-            }
+        //     if let Some(previous) = chunk_of_previous_carry.take() {
+        //         contributions.push(previous);
+        //     }
 
-            // collapse contributions
-            let (base, other) = contributions.split_first().unwrap();
-            let mut r = base.add_multiple(cs, &other)?;
+        //     // collapse contributions
+        //     let (base, other) = contributions.split_first().unwrap();
+        //     let mut r = base.add_multiple(cs, &other)?;
 
-            r.scale(&shift_right_two_limb_constant);
+        //     r.scale(&shift_right_two_limb_constant);
 
-            if i+1 != last_idx {
-                chunk_of_previous_carry = Some(r.clone());
-            };
+        //     if i+1 != last_idx {
+        //         chunk_of_previous_carry = Some(r.clone());
+        //     };
 
-            double_limb_carries.push(r);
-        }
+        //     double_limb_carries.push(r);
+        // }
 
-        assert!(chunk_of_previous_carry.is_none());
+        // assert!(chunk_of_previous_carry.is_none());
 
-        assert_eq!(double_limb_carries.len(), double_limb_max_bits.len());
+        // assert_eq!(double_limb_carries.len(), double_limb_max_bits.len());
 
-        let mut previous_chunk: Option<(Num<E>, usize)> = None;
+        // let mut previous_chunk: Option<(Num<E>, usize)> = None;
 
-        let last_idx = double_limb_carries.len() - 1;
+        // let last_idx = double_limb_carries.len() - 1;
 
-        // now we have to take each "double carry" and propagate it into other
-        for (idx, (r, max_bits)) in double_limb_carries.into_iter()
-            .zip(double_limb_max_bits.into_iter())
-            .enumerate() 
-        {
-            let this_carry_value = r.collapse_into_num(cs)?;
+        // // now we have to take each "double carry" and propagate it into other
+        // for (idx, (r, max_bits)) in double_limb_carries.into_iter()
+        //     .zip(double_limb_max_bits.into_iter())
+        //     .enumerate() 
+        // {
+        //     let this_carry_value = r.collapse_into_num(cs)?;
 
-            assert!(max_bits >= 2*params.binary_limbs_params.limb_size_bits);
+        //     assert!(max_bits >= 2*params.binary_limbs_params.limb_size_bits);
 
-            let mut carry_max_bits = max_bits - 2*params.binary_limbs_params.limb_size_bits;
-            if carry_max_bits & 1 == 1 {
-                carry_max_bits += 1;
-            }
+        //     let mut carry_max_bits = max_bits - 2*params.binary_limbs_params.limb_size_bits;
+        //     if carry_max_bits & 1 == 1 {
+        //         carry_max_bits += 1;
+        //     }
 
-            if let Some((previous_carry_value, previous_max_bits)) = previous_chunk.take() {
-                // we have some bits to constraint from the previous step
-                let mut shift_constant = E::Fr::one();
-                for _ in 0..previous_max_bits {
-                    shift_constant.double();
-                }
-                let mut this_combined_with_previous = Term::<E>::from_num(this_carry_value);
-                let previous_term = Term::<E>::from_num(previous_carry_value.clone());
-                this_combined_with_previous.scale(&shift_constant);
-                let combined_carry_value = this_combined_with_previous.add(cs, &previous_term)?.collapse_into_num(cs)?;
+        //     if let Some((previous_carry_value, previous_max_bits)) = previous_chunk.take() {
+        //         // we have some bits to constraint from the previous step
+        //         let mut shift_constant = E::Fr::one();
+        //         for _ in 0..previous_max_bits {
+        //             shift_constant.double();
+        //         }
+        //         let mut this_combined_with_previous = Term::<E>::from_num(this_carry_value);
+        //         let previous_term = Term::<E>::from_num(previous_carry_value.clone());
+        //         this_combined_with_previous.scale(&shift_constant);
+        //         let combined_carry_value = this_combined_with_previous.add(cs, &previous_term)?.collapse_into_num(cs)?;
 
-                let max_bits_from_both = carry_max_bits + previous_max_bits;
+        //         let max_bits_from_both = carry_max_bits + previous_max_bits;
 
-                match combined_carry_value {
-                    Num::Constant(val) => {
-                        let f = fe_to_biguint(&val);
-                        assert!(f.bits() as usize <= max_bits);
-                    },
-                    Num::Variable(var) => {
-                        let chain = create_range_constraint_chain(cs, &var, max_bits_from_both)?;
-                        assert!(max_bits_from_both % chain.len() == 0);
-                        let constraint_bits_per_step = max_bits_from_both / chain.len();
-                        let idx_for_higher_part = carry_max_bits / constraint_bits_per_step - 1;
+        //         match combined_carry_value {
+        //             Num::Constant(val) => {
+        //                 let f = fe_to_biguint(&val);
+        //                 assert!(f.bits() as usize <= max_bits);
+        //             },
+        //             Num::Variable(var) => {
+        //                 let chain = create_range_constraint_chain(cs, &var, max_bits_from_both)?;
+        //                 assert!(max_bits_from_both % chain.len() == 0);
+        //                 let constraint_bits_per_step = max_bits_from_both / chain.len();
+        //                 let idx_for_higher_part = carry_max_bits / constraint_bits_per_step - 1;
 
-                        let high_part_in_chain = chain[idx_for_higher_part].clone();
+        //                 let high_part_in_chain = chain[idx_for_higher_part].clone();
 
-                        let mut shift = E::Fr::one();
-                        for _ in 0..previous_max_bits {
-                            shift.double();
-                        }
+        //                 let mut shift = E::Fr::one();
+        //                 for _ in 0..previous_max_bits {
+        //                     shift.double();
+        //                 }
 
-                        let mut high_part_shifted_and_negated = Term::from_allocated_num(high_part_in_chain);
-                        high_part_shifted_and_negated.scale(&shift);
-                        high_part_shifted_and_negated.negate();
+        //                 let mut high_part_shifted_and_negated = Term::from_allocated_num(high_part_in_chain);
+        //                 high_part_shifted_and_negated.scale(&shift);
+        //                 high_part_shifted_and_negated.negate();
 
-                        let combined_term = Term::from_allocated_num(var);
+        //                 let combined_term = Term::from_allocated_num(var);
 
-                        let lower_part = combined_term.add(cs, &high_part_shifted_and_negated)?;
+        //                 let lower_part = combined_term.add(cs, &high_part_shifted_and_negated)?;
 
-                        let v = match previous_carry_value {
-                            Num::Variable(p) => p,
-                            _ => {unreachable!()}
-                        };
+        //                 let v = match previous_carry_value {
+        //                     Num::Variable(p) => p,
+        //                     _ => {unreachable!()}
+        //                 };
 
-                        let low = lower_part.collapse_into_num(cs)?.get_variable();
+        //                 let low = lower_part.collapse_into_num(cs)?.get_variable();
 
-                        low.enforce_equal(cs, &v)?;
-                    }
-                }
-            } else {
-                if idx == last_idx {
-                    // this is a last chunk, so we have to enforce right away
-                    match this_carry_value {
-                        Num::Constant(val) => {
-                            let f = fe_to_biguint(&val);
-                            assert!(f.bits() as usize <= carry_max_bits);
-                        },
-                        Num::Variable(var) => {
-                            let _ = create_range_constraint_chain(cs, &var, carry_max_bits)?;
-                        }
-                    }
-                } else {
-                    // combine with next
-                    previous_chunk = Some((this_carry_value, carry_max_bits));
-                }   
+        //                 low.enforce_equal(cs, &v)?;
+        //             }
+        //         }
+        //     } else {
+        //         if idx == last_idx {
+        //             // this is a last chunk, so we have to enforce right away
+        //             match this_carry_value {
+        //                 Num::Constant(val) => {
+        //                     let f = fe_to_biguint(&val);
+        //                     assert!(f.bits() as usize <= carry_max_bits);
+        //                 },
+        //                 Num::Variable(var) => {
+        //                     let _ = create_range_constraint_chain(cs, &var, carry_max_bits)?;
+        //                 }
+        //             }
+        //         } else {
+        //             // combine with next
+        //             previous_chunk = Some((this_carry_value, carry_max_bits));
+        //         }   
                 
-            }
-        }
+        //     }
+        // }
 
         // now much more trivial part - multiply base field basis
 
@@ -2312,199 +2670,197 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             collapsed_max_values.push(max_value);
         }
 
-        // also add max value contributions from additions
-        // we do not add max values from remainder cause we expect it to cancel exactly
-        let mut double_limb_max_bits = vec![];
-        for i in (0..target_limbs).step_by(2) {
-            let mut max_value = BigUint::from(0u64);
-            max_value += &collapsed_max_values[i];
-            max_value += &collapsed_max_values[i+1] << params.binary_limbs_params.limb_size_bits;
-            for a in addition_elements.iter() {
-                max_value += a.binary_limbs[i].max_value();
-                max_value += a.binary_limbs[i+1].max_value() << params.binary_limbs_params.limb_size_bits;
-            }
+        let params = this.representation_params;
 
-            let mut max_bits = (max_value.bits() as usize) + 1;
-            if max_bits & 1 == 1 {
-                // we expect to constraint by two bits only
-                max_bits += 1;
-            }
+        Self::propagate_carries_using_double_limb_approach(
+            cs,
+            (result_limbs, collapsed_max_values),
+            addition_elements,
+            result_remainder_decomposition,
+            params
+        )?;
 
-            double_limb_max_bits.push(max_bits);
-        }
+        // // also add max value contributions from additions
+        // // we do not add max values from remainder cause we expect it to cancel exactly
+        // let mut double_limb_max_bits = vec![];
+        // for i in (0..target_limbs).step_by(2) {
+        //     let mut max_value = BigUint::from(0u64);
+        //     max_value += &collapsed_max_values[i];
+        //     max_value += &collapsed_max_values[i+1] << params.binary_limbs_params.limb_size_bits;
+        //     for a in addition_elements.iter() {
+        //         max_value += a.binary_limbs[i].max_value();
+        //         max_value += a.binary_limbs[i+1].max_value() << params.binary_limbs_params.limb_size_bits;
+        //     }
 
-        let shift_right_one_limb_constant = params.binary_limbs_params.shift_right_by_limb_constant;
-        let mut shift_right_two_limb_constant = shift_right_one_limb_constant;
-        shift_right_two_limb_constant.square();
+        //     let mut max_bits = (max_value.bits() as usize) + 1;
+        //     if max_bits & 1 == 1 {
+        //         // we expect to constraint by two bits only
+        //         max_bits += 1;
+        //     }
 
-        let shift_left_one_limb_constant = params.binary_limbs_params.shift_left_by_limb_constant;
-        let mut shift_left_two_limb_constant = shift_left_one_limb_constant;
-        shift_left_two_limb_constant.square();
+        //     double_limb_max_bits.push(max_bits);
+        // }
 
-        // check that multiplications did not overflow
-        // e.g that a[0] * b[0] - q[0] * p[0] - r[0] fits into two limbs max
+        // let shift_right_one_limb_constant = params.binary_limbs_params.shift_right_by_limb_constant;
+        // let mut shift_right_two_limb_constant = shift_right_one_limb_constant;
+        // shift_right_two_limb_constant.square();
 
-        let mut minus_one = E::Fr::one();
-        minus_one.negate();
+        // let shift_left_one_limb_constant = params.binary_limbs_params.shift_left_by_limb_constant;
+        // let mut shift_left_two_limb_constant = shift_left_one_limb_constant;
+        // shift_left_two_limb_constant.square();
 
-        let mut double_limb_carries = vec![];
+        // // check that multiplications did not overflow
+        // // e.g that a[0] * b[0] - q[0] * p[0] - r[0] fits into two limbs max
 
-        let mut chunk_of_previous_carry = None;
+        // let mut minus_one = E::Fr::one();
+        // minus_one.negate();
 
-        let last_idx = target_limbs - 1;
+        // let mut double_limb_carries = vec![];
 
-        for i in (0..target_limbs).step_by(2) {
-            let mut contributions = vec![];
+        // let mut chunk_of_previous_carry = None;
 
-            for c in result_limbs[i].iter() {
-                contributions.push(c.clone());
-            }
+        // let last_idx = target_limbs - 1;
 
-            for c in result_limbs[i+1].iter() {
-                let mut tmp = c.clone();
-                tmp.scale(&shift_left_one_limb_constant);
-                contributions.push(tmp);
-            }
+        // for i in (0..target_limbs).step_by(2) {
+        //     let mut contributions = vec![];
 
-            for result_remainder in result_remainder_decomposition.iter() {
-                let mut tmp = result_remainder.binary_limbs[i].term.clone();
-                tmp.negate();
-                contributions.push(tmp);
+        //     for c in result_limbs[i].iter() {
+        //         contributions.push(c.clone());
+        //     }
+
+        //     for c in result_limbs[i+1].iter() {
+        //         let mut tmp = c.clone();
+        //         tmp.scale(&shift_left_one_limb_constant);
+        //         contributions.push(tmp);
+        //     }
+
+        //     for result_remainder in result_remainder_decomposition.iter() {
+        //         let mut tmp = result_remainder.binary_limbs[i].term.clone();
+        //         tmp.negate();
+        //         contributions.push(tmp);
     
-                let mut tmp = result_remainder.binary_limbs[i+1].term.clone();
-                tmp.scale(&shift_left_one_limb_constant);
-                tmp.negate();
-                contributions.push(tmp);
-            }
+        //         let mut tmp = result_remainder.binary_limbs[i+1].term.clone();
+        //         tmp.scale(&shift_left_one_limb_constant);
+        //         tmp.negate();
+        //         contributions.push(tmp);
+        //     }
 
-            for addition_element in addition_elements.iter() {
-                let tmp = addition_element.binary_limbs[i].term.clone();
-                contributions.push(tmp);
+        //     for addition_element in addition_elements.iter() {
+        //         let tmp = addition_element.binary_limbs[i].term.clone();
+        //         contributions.push(tmp);
 
-                let mut tmp = addition_element.binary_limbs[i+1].term.clone();
-                tmp.scale(&shift_left_one_limb_constant);
-                contributions.push(tmp);
-            }
+        //         let mut tmp = addition_element.binary_limbs[i+1].term.clone();
+        //         tmp.scale(&shift_left_one_limb_constant);
+        //         contributions.push(tmp);
+        //     }
 
-            if let Some(previous) = chunk_of_previous_carry.take() {
-                contributions.push(previous);
-            }
+        //     if let Some(previous) = chunk_of_previous_carry.take() {
+        //         contributions.push(previous);
+        //     }
 
-            // collapse contributions
-            let (base, other) = contributions.split_first().unwrap();
-            let mut r = base.add_multiple(cs, &other)?;
+        //     // collapse contributions
+        //     let (base, other) = contributions.split_first().unwrap();
+        //     let mut r = base.add_multiple(cs, &other)?;
 
-            r.scale(&shift_right_two_limb_constant);
+        //     r.scale(&shift_right_two_limb_constant);
 
-            if i+1 != last_idx {
-                chunk_of_previous_carry = Some(r.clone());
-            };
+        //     if i+1 != last_idx {
+        //         chunk_of_previous_carry = Some(r.clone());
+        //     };
 
-            double_limb_carries.push(r);
-        }
+        //     double_limb_carries.push(r);
+        // }
 
-        assert!(chunk_of_previous_carry.is_none());
+        // assert!(chunk_of_previous_carry.is_none());
 
-        assert_eq!(double_limb_carries.len(), double_limb_max_bits.len());
+        // assert_eq!(double_limb_carries.len(), double_limb_max_bits.len());
 
-        let mut previous_chunk: Option<(Num<E>, usize)> = None;
+        // let mut previous_chunk: Option<(Num<E>, usize)> = None;
 
-        let last_idx = double_limb_carries.len() - 1;
+        // let last_idx = double_limb_carries.len() - 1;
 
-        // now we have to take each "double carry" and propagate it into other
-        for (idx, (r, max_bits)) in double_limb_carries.into_iter()
-            .zip(double_limb_max_bits.into_iter())
-            .enumerate() 
-        {
-            let this_carry_value = r.collapse_into_num(cs)?;
+        // // now we have to take each "double carry" and propagate it into other
+        // for (idx, (r, max_bits)) in double_limb_carries.into_iter()
+        //     .zip(double_limb_max_bits.into_iter())
+        //     .enumerate() 
+        // {
+        //     let this_carry_value = r.collapse_into_num(cs)?;
 
-            assert!(max_bits >= 2*params.binary_limbs_params.limb_size_bits);
+        //     assert!(max_bits >= 2*params.binary_limbs_params.limb_size_bits);
 
-            let mut carry_max_bits = max_bits - 2*params.binary_limbs_params.limb_size_bits;
-            if carry_max_bits & 1 == 1 {
-                carry_max_bits += 1;
-            }
+        //     let mut carry_max_bits = max_bits - 2*params.binary_limbs_params.limb_size_bits;
+        //     if carry_max_bits & 1 == 1 {
+        //         carry_max_bits += 1;
+        //     }
 
-            if let Some((previous_carry_value, previous_max_bits)) = previous_chunk.take() {
-                // we have some bits to constraint from the previous step
-                let mut shift_constant = E::Fr::one();
-                for _ in 0..previous_max_bits {
-                    shift_constant.double();
-                }
-                let mut this_combined_with_previous = Term::<E>::from_num(this_carry_value);
-                let previous_term = Term::<E>::from_num(previous_carry_value.clone());
-                this_combined_with_previous.scale(&shift_constant);
-                let combined_carry_value = this_combined_with_previous.add(cs, &previous_term)?.collapse_into_num(cs)?;
+        //     if let Some((previous_carry_value, previous_max_bits)) = previous_chunk.take() {
+        //         // we have some bits to constraint from the previous step
+        //         let mut shift_constant = E::Fr::one();
+        //         for _ in 0..previous_max_bits {
+        //             shift_constant.double();
+        //         }
+        //         let mut this_combined_with_previous = Term::<E>::from_num(this_carry_value);
+        //         let previous_term = Term::<E>::from_num(previous_carry_value.clone());
+        //         this_combined_with_previous.scale(&shift_constant);
+        //         let combined_carry_value = this_combined_with_previous.add(cs, &previous_term)?.collapse_into_num(cs)?;
 
-                let max_bits_from_both = carry_max_bits + previous_max_bits;
+        //         let max_bits_from_both = carry_max_bits + previous_max_bits;
 
-                match combined_carry_value {
-                    Num::Constant(val) => {
-                        let f = fe_to_biguint(&val);
-                        assert!(f.bits() as usize <= max_bits);
-                    },
-                    Num::Variable(var) => {
-                        let chain = create_range_constraint_chain(cs, &var, max_bits_from_both)?;
-                        assert!(max_bits_from_both % chain.len() == 0);
-                        let constraint_bits_per_step = max_bits_from_both / chain.len();
-                        let idx_for_higher_part = carry_max_bits / constraint_bits_per_step - 1;
+        //         match combined_carry_value {
+        //             Num::Constant(val) => {
+        //                 let f = fe_to_biguint(&val);
+        //                 assert!(f.bits() as usize <= max_bits);
+        //             },
+        //             Num::Variable(var) => {
+        //                 let chain = create_range_constraint_chain(cs, &var, max_bits_from_both)?;
+        //                 assert!(max_bits_from_both % chain.len() == 0);
+        //                 let constraint_bits_per_step = max_bits_from_both / chain.len();
+        //                 let idx_for_higher_part = carry_max_bits / constraint_bits_per_step - 1;
 
-                        let high_part_in_chain = chain[idx_for_higher_part].clone();
+        //                 let high_part_in_chain = chain[idx_for_higher_part].clone();
 
-                        let mut shift = E::Fr::one();
-                        for _ in 0..previous_max_bits {
-                            shift.double();
-                        }
+        //                 let mut shift = E::Fr::one();
+        //                 for _ in 0..previous_max_bits {
+        //                     shift.double();
+        //                 }
 
-                        let mut high_part_shifted_and_negated = Term::from_allocated_num(high_part_in_chain);
-                        high_part_shifted_and_negated.scale(&shift);
-                        high_part_shifted_and_negated.negate();
+        //                 let mut high_part_shifted_and_negated = Term::from_allocated_num(high_part_in_chain);
+        //                 high_part_shifted_and_negated.scale(&shift);
+        //                 high_part_shifted_and_negated.negate();
 
-                        let combined_term = Term::from_allocated_num(var);
+        //                 let combined_term = Term::from_allocated_num(var);
 
-                        let lower_part = combined_term.add(cs, &high_part_shifted_and_negated)?;
+        //                 let lower_part = combined_term.add(cs, &high_part_shifted_and_negated)?;
 
-                        let v = match previous_carry_value {
-                            Num::Variable(p) => p,
-                            _ => {unreachable!()}
-                        };
+        //                 let v = match previous_carry_value {
+        //                     Num::Variable(p) => p,
+        //                     _ => {unreachable!()}
+        //                 };
 
-                        let low = lower_part.collapse_into_num(cs)?.get_variable();
+        //                 let low = lower_part.collapse_into_num(cs)?.get_variable();
 
-                        low.enforce_equal(cs, &v)?;
-
-                        // let constraint_bits_per_step = max_bits_from_both / chain.len();
-                        // let idx_for_lower_part = previous_max_bits / constraint_bits_per_step - 1;
-
-                        // let low_part_in_chain = chain[idx_for_lower_part].clone();
-
-                        // let v = match previous_carry_value {
-                        //     Num::Variable(p) => p,
-                        //     _ => {unreachable!()}
-                        // };
-
-                        // low_part_in_chain.enforce_equal(cs, &v)?;
-                    }
-                }
-            } else {
-                if idx == last_idx {
-                    // this is a last chunk, so we have to enforce right away
-                    match this_carry_value {
-                        Num::Constant(val) => {
-                            let f = fe_to_biguint(&val);
-                            assert!(f.bits() as usize <= carry_max_bits);
-                        },
-                        Num::Variable(var) => {
-                            let _ = create_range_constraint_chain(cs, &var, carry_max_bits)?;
-                        }
-                    }
-                } else {
-                    // combine with next
-                    previous_chunk = Some((this_carry_value, carry_max_bits));
-                }   
+        //                 low.enforce_equal(cs, &v)?;
+        //             }
+        //         }
+        //     } else {
+        //         if idx == last_idx {
+        //             // this is a last chunk, so we have to enforce right away
+        //             match this_carry_value {
+        //                 Num::Constant(val) => {
+        //                     let f = fe_to_biguint(&val);
+        //                     assert!(f.bits() as usize <= carry_max_bits);
+        //                 },
+        //                 Num::Variable(var) => {
+        //                     let _ = create_range_constraint_chain(cs, &var, carry_max_bits)?;
+        //                 }
+        //             }
+        //         } else {
+        //             // combine with next
+        //             previous_chunk = Some((this_carry_value, carry_max_bits));
+        //         }   
                 
-            }
-        }
+        //     }
+        // }
 
         // now much more trivial part - multiply base field basis
 
@@ -2537,6 +2893,275 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         }
 
         Ok(())
+    }
+
+    fn propagate_carries_using_double_limb_approach<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        bases: (Vec<Vec<Term<E>>>, Vec<BigUint>),
+        add: &[Self],
+        sub: &[Self],
+        params: &RnsParameters<E, F>
+    ) -> Result<(), SynthesisError> {
+        let num_limbs = params.num_binary_limbs;
+
+        // keep track of the max values after additions
+
+        let (result_limbs, collapsed_max_values) = bases;
+
+        let mut double_limb_max_bits = vec![];
+        let mut last_single_limb_max_bits = None;
+
+        let target_limbs = (params.num_binary_limbs >> 1) << 1;
+
+        for i in (0..target_limbs).step_by(2) {
+            let mut max_value = BigUint::from(0u64);
+            max_value += &collapsed_max_values[i];
+            max_value += &collapsed_max_values[i+1] << params.binary_limbs_params.limb_size_bits;
+            for a in add.iter() {
+                max_value += a.binary_limbs[i].max_value();
+                max_value += a.binary_limbs[i+1].max_value() << params.binary_limbs_params.limb_size_bits;
+            }
+
+            let max_bits = max_value.bits() as usize;
+
+            assert!(max_bits >= 2*params.binary_limbs_params.limb_size_bits);
+            assert!(max_bits <= E::Fr::CAPACITY as usize);
+
+            let carry_max_bits = max_bits - 2*params.binary_limbs_params.limb_size_bits;
+
+            double_limb_max_bits.push(carry_max_bits);
+        }
+
+        if params.num_binary_limbs & 1 == 1 {
+            let idx = params.num_binary_limbs - 1;
+
+            let mut max_value = BigUint::from(0u64);
+
+            max_value += &collapsed_max_values[idx];
+            for a in add.iter() {
+                max_value += a.binary_limbs[idx].max_value();
+            }
+
+            let max_bits = max_value.bits() as usize;
+            assert!(max_bits >= params.binary_limbs_params.limb_size_bits);
+            assert!(max_bits <= E::Fr::CAPACITY as usize);
+
+            let carry_max_bits = max_bits - params.binary_limbs_params.limb_size_bits;
+
+            last_single_limb_max_bits = Some(carry_max_bits);
+        }
+
+        let shift_right_one_limb_constant = params.binary_limbs_params.shift_right_by_limb_constant;
+        let mut shift_right_two_limb_constant = shift_right_one_limb_constant;
+        shift_right_two_limb_constant.square();
+
+        let shift_left_one_limb_constant = params.binary_limbs_params.shift_left_by_limb_constant;
+        let mut shift_left_two_limb_constant = shift_left_one_limb_constant;
+        shift_left_two_limb_constant.square();
+
+        // propagate carries
+
+        let mut minus_one = E::Fr::one();
+        minus_one.negate();
+
+        let mut double_limb_carries = vec![];
+
+        let mut chunk_of_previous_carry = None;
+
+        let last_idx = target_limbs - 1;
+
+        for i in (0..target_limbs).step_by(2) {
+            let mut contributions = vec![];
+
+            for c in result_limbs[i].iter() {
+                contributions.push(c.clone());
+            }
+
+            for c in result_limbs[i+1].iter() {
+                let mut tmp = c.clone();
+                tmp.scale(&shift_left_one_limb_constant);
+                contributions.push(tmp);
+            }
+
+            for result_remainder in sub.iter() {
+                let mut tmp = result_remainder.binary_limbs[i].term.clone();
+                tmp.negate();
+                contributions.push(tmp);
+    
+                let mut tmp = result_remainder.binary_limbs[i+1].term.clone();
+                tmp.scale(&shift_left_one_limb_constant);
+                tmp.negate();
+                contributions.push(tmp);
+            }
+
+            for addition_element in add.iter() {
+                let tmp = addition_element.binary_limbs[i].term.clone();
+                contributions.push(tmp);
+
+                let mut tmp = addition_element.binary_limbs[i+1].term.clone();
+                tmp.scale(&shift_left_one_limb_constant);
+                contributions.push(tmp);
+            }
+
+            if let Some(previous) = chunk_of_previous_carry.take() {
+                contributions.push(previous);
+            }
+
+            // collapse contributions
+            let (base, other) = contributions.split_first().unwrap();
+            let mut r = base.add_multiple(cs, &other)?;
+
+            r.scale(&shift_right_two_limb_constant);
+
+            if i+1 == last_idx && last_single_limb_max_bits.is_none() {
+                // we don't need to propagate any further
+            } else {
+                chunk_of_previous_carry = Some(r.clone());
+            };
+
+            double_limb_carries.push(r);
+        }
+
+        if let Some(last_bits) = last_single_limb_max_bits {
+            let idx = params.num_binary_limbs - 1;
+
+            let mut contributions = vec![];
+
+            for c in result_limbs[idx].iter() {
+                contributions.push(c.clone());
+            }
+
+            for result_remainder in sub.iter() {
+                let mut tmp = result_remainder.binary_limbs[idx].term.clone();
+                tmp.negate();
+                contributions.push(tmp);
+            }
+
+            for addition_element in add.iter() {
+                let tmp = addition_element.binary_limbs[idx].term.clone();
+                contributions.push(tmp);
+            }
+
+            if let Some(previous) = chunk_of_previous_carry.take() {
+                contributions.push(previous);
+            }
+
+            // collapse contributions
+            let (base, other) = contributions.split_first().unwrap();
+            let mut r = base.add_multiple(cs, &other)?;
+
+            r.scale(&shift_right_one_limb_constant);
+
+            double_limb_carries.push(r);
+            double_limb_max_bits.push(last_bits);
+        }
+
+        assert!(chunk_of_previous_carry.is_none());
+
+        assert_eq!(double_limb_carries.len(), double_limb_max_bits.len());
+
+        // now we need to perform individual constraining
+
+        match params.range_check_info.strategy {
+            RangeConstraintStrategy::MultiTable => {
+                super::range_constraint_functions::adaptively_coarsely_constraint_multiple(cs, &double_limb_carries, &double_limb_max_bits)?;
+            },
+            _ => unimplemented!("other forms of range constraining are not implemented")
+        }
+
+        Ok(())
+
+        // let mut previous_chunk: Option<(Num<E>, usize)> = None;
+
+        // let last_idx = double_limb_carries.len() - 1;
+
+        // let mut nums_to_constraint = vec![];
+        // let mut expected_widths = vec![];
+
+
+
+        // // now we have to take each "double carry" and propagate it into other
+        // for (idx, (r, max_bits)) in double_limb_carries.into_iter()
+        //     .zip(double_limb_max_bits.into_iter())
+        //     .enumerate() 
+        // {
+        //     let this_carry_value = r.collapse_into_num(cs)?;
+
+        //     assert!(max_bits >= 2*params.binary_limbs_params.limb_size_bits);
+
+        //     let carry_max_bits = max_bits - 2*params.binary_limbs_params.limb_size_bits;
+        //     let carry_max_bits = make_multiple(carry_max_bits, params.range_check_info.minimal_multiple);
+
+        //     if let Some((previous_carry_value, previous_max_bits)) = previous_chunk.take() {
+        //         // we have some bits to constraint from the previous step
+        //         let mut shift_constant = E::Fr::one();
+        //         for _ in 0..previous_max_bits {
+        //             shift_constant.double();
+        //         }
+        //         let mut this_combined_with_previous = Term::<E>::from_num(this_carry_value);
+        //         let previous_term = Term::<E>::from_num(previous_carry_value.clone());
+        //         this_combined_with_previous.scale(&shift_constant);
+        //         let combined_carry_value = this_combined_with_previous.add(cs, &previous_term)?.collapse_into_num(cs)?;
+
+        //         let max_bits_from_both = carry_max_bits + previous_max_bits;
+
+        //         match combined_carry_value {
+        //             Num::Constant(val) => {
+        //                 let f = fe_to_biguint(&val);
+        //                 assert!(f.bits() as usize <= max_bits);
+        //             },
+        //             Num::Variable(var) => {
+        //                 let chain = create_range_constraint_chain(cs, &var, max_bits_from_both)?;
+        //                 assert!(max_bits_from_both % chain.len() == 0);
+        //                 let constraint_bits_per_step = max_bits_from_both / chain.len();
+        //                 let idx_for_higher_part = carry_max_bits / constraint_bits_per_step - 1;
+
+        //                 let high_part_in_chain = chain[idx_for_higher_part].clone();
+
+        //                 let mut shift = E::Fr::one();
+        //                 for _ in 0..previous_max_bits {
+        //                     shift.double();
+        //                 }
+
+        //                 let mut high_part_shifted_and_negated = Term::from_allocated_num(high_part_in_chain);
+        //                 high_part_shifted_and_negated.scale(&shift);
+        //                 high_part_shifted_and_negated.negate();
+
+        //                 let combined_term = Term::from_allocated_num(var);
+
+        //                 let lower_part = combined_term.add(cs, &high_part_shifted_and_negated)?;
+
+        //                 let v = match previous_carry_value {
+        //                     Num::Variable(p) => p,
+        //                     _ => {unreachable!()}
+        //                 };
+
+        //                 let low = lower_part.collapse_into_num(cs)?.get_variable();
+
+        //                 low.enforce_equal(cs, &v)?;
+        //             }
+        //         }
+        //     } else {
+        //         if idx == last_idx {
+        //             // this is a last chunk, so we have to enforce right away
+        //             match this_carry_value {
+        //                 Num::Constant(val) => {
+        //                     let f = fe_to_biguint(&val);
+        //                     assert!(f.bits() as usize <= carry_max_bits);
+        //                 },
+        //                 Num::Variable(var) => {
+        //                     let _ = create_range_constraint_chain(cs, &var, carry_max_bits)?;
+        //                 }
+        //             }
+        //         } else {
+        //             // combine with next
+        //             previous_chunk = Some((this_carry_value, carry_max_bits));
+        //         }   
+                
+        //     }
+        // }
+
+        // Ok(())
     }
 
     fn cong_factor(value: BigUint, modulus: &BigUint) -> Option<usize> {
@@ -2702,10 +3327,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             let num = c.collapse_into_num(cs)?;
             let n = num.get_variable();
 
-            if !n.get_value().unwrap().is_zero() {
-                panic!("N = {}", n.get_value().unwrap());
-            }
-
             n.assert_is_zero(cs)?;
         }
 
@@ -2817,6 +3438,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::plonk::circuit::*;
 
     #[test]
     fn test_bn_254() {
@@ -2824,20 +3446,86 @@ mod test {
 
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
-        test_allocation_on_random_witnesses(&params);
-        test_add_on_random_witnesses(&params);
-        test_sub_on_random_witnesses(&params);
-        test_mul_on_random_witnesses(&params);
-        test_square_on_random_witnesses(&params);
-        test_negation_on_random_witnesses(&params);
-        test_equality_on_random_witnesses(&params);
-        test_non_equality_on_random_witnesses(&params);
-        test_select_on_random_witnesses(&params);
-        test_conditional_negation_on_random_witnesses(&params);
-        test_long_addition_chain_on_random_witnesses(&params);
-        test_long_negation_chain_on_random_witnesses(&params);
-        test_long_subtraction_chain_on_random_witnesses(&params);
-        test_inv_mul_on_random_witnesses(&params);
+        let init_function = move || {
+            let cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+
+            cs
+        };
+
+        test_allocation_on_random_witnesses(&params, &init_function);
+        test_add_on_random_witnesses(&params, &init_function);
+        test_sub_on_random_witnesses(&params, &init_function);
+        test_mul_on_random_witnesses(&params, &init_function);
+        test_square_on_random_witnesses(&params, &init_function);
+        test_negation_on_random_witnesses(&params, &init_function);
+        test_equality_on_random_witnesses(&params, &init_function);
+        test_non_equality_on_random_witnesses(&params, &init_function);
+        test_select_on_random_witnesses(&params, &init_function);
+        test_conditional_negation_on_random_witnesses(&params, &init_function);
+        test_long_addition_chain_on_random_witnesses(&params, &init_function);
+        test_long_negation_chain_on_random_witnesses(&params, &init_function);
+        test_long_subtraction_chain_on_random_witnesses(&params, &init_function);
+        test_inv_mul_on_random_witnesses(&params, &init_function);
+    }
+
+    #[test]
+    fn test_bn_254_with_multitable() {
+        use crate::bellman::pairing::bn256::{Fq, Bn256, Fr};
+
+        use rand::{XorShiftRng, SeedableRng, Rng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        use crate::bellman::plonk::better_better_cs::cs::*;
+
+        let (params, init_function) = {
+            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+
+            let over = vec![PolyIdentifier::VariablesPolynomial(0), PolyIdentifier::VariablesPolynomial(1), PolyIdentifier::VariablesPolynomial(2)];
+            let table = MultiTableApplication::<Bn256>::new_range_table_of_width_3(16, over).unwrap();
+
+            cs.add_multitable(table).unwrap();
+
+            let strats = get_range_constraint_info(&cs);
+
+            let params = RnsParameters::<Bn256, Fq>::new_for_field_with_strategy(
+                80, 
+                110, 
+                4, 
+                strats[0],
+                true
+            );
+
+            let init_function = move || {
+                cs.clone()
+                // let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+    
+                // let over = vec![PolyIdentifier::VariablesPolynomial(0), PolyIdentifier::VariablesPolynomial(1), PolyIdentifier::VariablesPolynomial(2)];
+                // let table = MultiTableApplication::<Bn256>::new_range_table_of_width_3(16, over).unwrap();
+        
+                // cs.add_multitable(table).unwrap();
+    
+                // cs
+            };
+
+            (params, init_function)
+        };
+
+        
+
+        test_allocation_on_random_witnesses(&params, &init_function);
+        test_add_on_random_witnesses(&params, &init_function);
+        test_sub_on_random_witnesses(&params, &init_function);
+        test_mul_on_random_witnesses(&params, &init_function);
+        test_square_on_random_witnesses(&params, &init_function);
+        test_negation_on_random_witnesses(&params, &init_function);
+        test_equality_on_random_witnesses(&params, &init_function);
+        test_non_equality_on_random_witnesses(&params, &init_function);
+        test_select_on_random_witnesses(&params, &init_function);
+        test_conditional_negation_on_random_witnesses(&params, &init_function);
+        test_long_addition_chain_on_random_witnesses(&params, &init_function);
+        test_long_negation_chain_on_random_witnesses(&params, &init_function);
+        test_long_subtraction_chain_on_random_witnesses(&params, &init_function);
+        test_inv_mul_on_random_witnesses(&params, &init_function);
     }
 
 
@@ -2850,31 +3538,38 @@ mod test {
 
         println!("Max representable = {}, with {} bits", params.max_representable_value().to_str_radix(16), params.max_representable_value().bits());
 
-        test_allocation_on_random_witnesses(&params);
-        test_add_on_random_witnesses(&params);
-        test_sub_on_random_witnesses(&params);
-        test_mul_on_random_witnesses(&params);
-        test_square_on_random_witnesses(&params);
-        test_negation_on_random_witnesses(&params);
-        test_equality_on_random_witnesses(&params);
-        test_non_equality_on_random_witnesses(&params);
-        test_select_on_random_witnesses(&params);
-        test_conditional_negation_on_random_witnesses(&params);
-        test_long_addition_chain_on_random_witnesses(&params);
-        test_long_negation_chain_on_random_witnesses(&params);
-        test_long_subtraction_chain_on_random_witnesses(&params);
-        test_inv_mul_on_random_witnesses(&params);
+        let init_function = move || {
+            let cs = TrivialAssembly::<Bls12, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+
+            cs
+        };
+
+        test_allocation_on_random_witnesses(&params, &init_function);
+        test_add_on_random_witnesses(&params, &init_function);
+        test_sub_on_random_witnesses(&params, &init_function);
+        test_mul_on_random_witnesses(&params, &init_function);
+        test_square_on_random_witnesses(&params, &init_function);
+        test_negation_on_random_witnesses(&params, &init_function);
+        test_equality_on_random_witnesses(&params, &init_function);
+        test_non_equality_on_random_witnesses(&params, &init_function);
+        test_select_on_random_witnesses(&params, &init_function);
+        test_conditional_negation_on_random_witnesses(&params, &init_function);
+        test_long_addition_chain_on_random_witnesses(&params, &init_function);
+        test_long_negation_chain_on_random_witnesses(&params, &init_function);
+        test_long_subtraction_chain_on_random_witnesses(&params, &init_function);
+        test_inv_mul_on_random_witnesses(&params, &init_function);
     }
 
 
-    fn test_mul_on_random_witnesses<E: Engine, F: PrimeField>(
-        params: &RnsParameters<E, F>
+    fn test_mul_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+        params: &RnsParameters<E, F>,
+        init: &I
     ){
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = init();
 
             let a_f: F = rng.gen();
             let b_f: F = rng.gen();
@@ -2921,14 +3616,15 @@ mod test {
         }
     }
 
-    fn test_allocation_on_random_witnesses<E: Engine, F: PrimeField>(
-        params: &RnsParameters<E, F>
+    fn test_allocation_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+        params: &RnsParameters<E, F>,
+        init: &I
     ){
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = init();
 
             let a_f: F = rng.gen();
             let a = FieldElement::new_allocated(
@@ -2953,14 +3649,15 @@ mod test {
         }
     }
 
-    fn test_equality_on_random_witnesses<E: Engine, F: PrimeField>(
-        params: &RnsParameters<E, F>
+    fn test_equality_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+        params: &RnsParameters<E, F>,
+        init: &I
     ){
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = init();
 
             let a_f: F = rng.gen();
             let a = FieldElement::new_allocated(
@@ -2992,14 +3689,15 @@ mod test {
         }
     }
 
-    fn test_non_equality_on_random_witnesses<E: Engine, F: PrimeField>(
-        params: &RnsParameters<E, F>
+    fn test_non_equality_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+        params: &RnsParameters<E, F>,
+        init: &I
     ){
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = init();
 
             let a_f: F = rng.gen();
             let b_f: F = rng.gen();
@@ -3034,14 +3732,15 @@ mod test {
         }
     }
 
-    fn test_negation_on_random_witnesses<E: Engine, F: PrimeField>(
-        params: &RnsParameters<E, F>
+    fn test_negation_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+        params: &RnsParameters<E, F>,
+        init: &I
     ){
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = init();
 
             let a_f: F = rng.gen();
             let a = FieldElement::new_allocated(
@@ -3071,14 +3770,15 @@ mod test {
         }
     }
 
-    fn test_square_on_random_witnesses<E: Engine, F: PrimeField>(
-        params: &RnsParameters<E, F>
+    fn test_square_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+        params: &RnsParameters<E, F>,
+        init: &I
     ){
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = init();
 
             let a_f: F = rng.gen();
             let b_f: F = rng.gen();
@@ -3122,14 +3822,15 @@ mod test {
         }
     }
 
-    fn test_add_on_random_witnesses<E: Engine, F: PrimeField>(
-        params: &RnsParameters<E, F>
+    fn test_add_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+        params: &RnsParameters<E, F>,
+        init: &I
     ){
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = init();
 
             let a_f: F = rng.gen();
             let b_f: F = rng.gen();
@@ -3172,6 +3873,8 @@ mod test {
             if i == 0 {
                 let t0 = a.reduce_if_necessary(&mut cs).unwrap();
                 let t1 = result.reduce_if_necessary(&mut cs).unwrap();
+                assert!(t0.needs_reduction() == false);
+                assert!(t1.needs_reduction() == false);
                 let base = cs.n();
                 let _ = t0.add(&mut cs, t1).unwrap();
                 println!("Single addition taken {} gates", cs.n() - base);
@@ -3180,14 +3883,15 @@ mod test {
     }
 
 
-    fn test_long_addition_chain_on_random_witnesses<E: Engine, F: PrimeField>(
-        params: &RnsParameters<E, F>
+    fn test_long_addition_chain_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+        params: &RnsParameters<E, F>,
+        init: &I
     ){
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..10 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = init();
 
             let a_f: F = rng.gen();
             let b_f: F = rng.gen();
@@ -3216,14 +3920,15 @@ mod test {
         }
     }
 
-    fn test_long_subtraction_chain_on_random_witnesses<E: Engine, F: PrimeField>(
-        params: &RnsParameters<E, F>
+    fn test_long_subtraction_chain_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+        params: &RnsParameters<E, F>,
+        init: &I
     ){
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..10 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = init();
 
             let a_f: F = rng.gen();
             let b_f: F = rng.gen();
@@ -3252,14 +3957,15 @@ mod test {
         }
     }
 
-    fn test_long_negation_chain_on_random_witnesses<E: Engine, F: PrimeField>(
-        params: &RnsParameters<E, F>
+    fn test_long_negation_chain_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+        params: &RnsParameters<E, F>,
+        init: &I
     ){
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..10 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = init();
 
             let a_f: F = rng.gen();
             let b_f: F = rng.gen();
@@ -3288,14 +3994,15 @@ mod test {
         }
     }
 
-    fn test_sub_on_random_witnesses<E: Engine, F: PrimeField>(
-        params: &RnsParameters<E, F>
+    fn test_sub_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+        params: &RnsParameters<E, F>,
+        init: &I
     ){
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = init();
 
             let a_f: F = rng.gen();
             let b_f: F = rng.gen();
@@ -3349,14 +4056,15 @@ mod test {
         }
     }
 
-    fn test_select_on_random_witnesses<E: Engine, F: PrimeField>(
-        params: &RnsParameters<E, F>
+    fn test_select_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+        params: &RnsParameters<E, F>,
+        init: &I
     ){
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = init();
 
             let flag: bool = rng.gen();
 
@@ -3415,14 +4123,15 @@ mod test {
         }
     }
 
-    fn test_conditional_negation_on_random_witnesses<E: Engine, F: PrimeField>(
-        params: &RnsParameters<E, F>
+    fn test_conditional_negation_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+        params: &RnsParameters<E, F>,
+        init: &I
     ){
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = init();
 
             let flag: bool = rng.gen();
 
@@ -3480,14 +4189,15 @@ mod test {
         }
     }
 
-    fn test_inv_mul_on_random_witnesses<E: Engine, F: PrimeField>(
-        params: &RnsParameters<E, F>
+    fn test_inv_mul_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+        params: &RnsParameters<E, F>,
+        init: &I
     ){
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = init();
 
             let a_f: F = rng.gen();
             let b_f: F = rng.gen();
@@ -3537,6 +4247,61 @@ mod test {
             //     println!("Range checks take {} gates", k);
             // }
         }
+    }
+
+    #[test]
+    fn test_rns_params_for_advanced_strategies() {
+        type E = crate::bellman::pairing::bn256::Bn256;
+        type Fr = crate::bellman::pairing::bn256::Fr;
+        type Fq = crate::bellman::pairing::bn256::Fq;
+
+        use crate::bellman::plonk::better_better_cs::cs::*;
+
+        let mut cs = TrivialAssembly::<E, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+
+        let over = vec![PolyIdentifier::VariablesPolynomial(0), PolyIdentifier::VariablesPolynomial(1), PolyIdentifier::VariablesPolynomial(2)];
+        let table = MultiTableApplication::<E>::new_range_table_of_width_3(16, over).unwrap();
+
+        cs.add_multitable(table).unwrap();
+
+        let strategies = get_range_constraint_info(&cs);
+
+        let params = RnsParameters::<E, Fq>::new_for_field_with_strategy(
+            96, 
+            110,
+            3,
+            strategies[0],
+            false
+        );
+
+        println!("Max representable = {}, with {} bits", params.max_representable_value().to_str_radix(16), params.max_representable_value().bits());
+    }
+
+    #[test]
+    #[should_panic(expected = "limb size is not a multiple of range check quant")]
+    fn test_rns_params_for_advanced_strategies_with_mismatched_parameters() {
+        type E = crate::bellman::pairing::bn256::Bn256;
+        type Fr = crate::bellman::pairing::bn256::Fr;
+        type Fq = crate::bellman::pairing::bn256::Fq;
+
+        use crate::bellman::plonk::better_better_cs::cs::*;
+
+        let mut cs = TrivialAssembly::<E, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+
+        let over = vec![PolyIdentifier::VariablesPolynomial(0), PolyIdentifier::VariablesPolynomial(1), PolyIdentifier::VariablesPolynomial(2)];
+        let table = MultiTableApplication::<E>::new_range_table_of_width_3(16, over).unwrap();
+
+        cs.add_multitable(table).unwrap();
+
+        let strategies = get_range_constraint_info(&cs);
+
+        let params = RnsParameters::<E, Fq>::new_for_field_with_strategy(
+            68, 
+            110,
+            4,
+            strategies[0],
+            false
+        );
     }
 
     // #[test]

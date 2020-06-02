@@ -145,6 +145,10 @@ impl<E: Engine> GateInternal<E> for Rescue5CustomGate {
     fn put_public_inputs_into_selector_id(&self) -> Option<usize> {
         None
     }
+
+    fn box_clone(&self) -> Box<dyn GateInternal<E>> {
+        Box::from(self.clone())
+    }
 }
 
 impl<E: Engine> Gate<E> for Rescue5CustomGate {}

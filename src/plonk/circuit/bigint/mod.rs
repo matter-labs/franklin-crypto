@@ -40,6 +40,7 @@ pub mod bigint;
 pub mod field;
 pub mod range_constraint_gate;
 pub mod range_constraint_functions;
+pub mod range_constraint_with_two_bit_gate;
 
 use self::range_constraint_gate::TwoBitDecompositionRangecheckCustomGate;
 
@@ -146,6 +147,7 @@ pub fn create_range_constraint_chain<E: Engine, CS: ConstraintSystem<E>>(
     to_constraint: &AllocatedNum<E>, 
     num_bits: usize
 ) -> Result<Vec<AllocatedNum<E>>, SynthesisError> {
+    unreachable!("Disabled for now");
     assert!(num_bits > 0);
     assert!(num_bits & 1 == 0);
     assert_eq!(CS::Params::STATE_WIDTH, 4, "this only works for a state of width 4 for now");
@@ -268,7 +270,18 @@ pub enum RangeConstraintStrategy {
     NaiveSingleBit
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+impl RangeConstraintStrategy {
+    pub fn can_access_minimal_multiple_quants(&self) -> bool {
+        match self {
+            RangeConstraintStrategy::MultiTable => false,
+            RangeConstraintStrategy::SingleTableInvocation => true,
+            RangeConstraintStrategy::CustomTwoBitGate => true,
+            RangeConstraintStrategy::NaiveSingleBit => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RangeConstraintInfo {
     pub minimal_multiple: usize,
     pub optimal_multiple: usize,
