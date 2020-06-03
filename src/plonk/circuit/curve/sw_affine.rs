@@ -392,7 +392,7 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
     }
 
     pub fn negate<CS: ConstraintSystem<E>>(
-        self,
+        &self,
         cs: &mut CS,
     ) -> Result<Self, SynthesisError>
     {

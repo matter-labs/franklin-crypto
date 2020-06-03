@@ -14,7 +14,8 @@ use crate::bellman::{
 };
 
 use crate::bellman::plonk::better_better_cs::cs::{
-    Variable, 
+    Variable,
+    Index, 
     ConstraintSystem,
     ArithmeticTerm,
     MainGateTerm
@@ -25,6 +26,7 @@ use crate::circuit::{
 };
 
 use super::boolean::*;
+use std::sync::Once;
 
 #[derive(Clone, Debug)]
 pub enum Num<E: Engine> {
@@ -89,6 +91,8 @@ impl<E: Engine> Num<E> {
         }
     }
 }
+
+
 #[derive(Debug)]
 pub struct AllocatedNum<E: Engine> {
     pub(crate) value: Option<E::Fr>,
@@ -135,6 +139,53 @@ impl<E: Engine> AllocatedNum<E> {
             value: new_value,
             variable: var
         })
+    }
+
+    pub fn alloc_input<CS, F>(
+        cs: &mut CS,
+        value: F,
+    ) -> Result<Self, SynthesisError>
+        where CS: ConstraintSystem<E>,
+            F: FnOnce() -> Result<E::Fr, SynthesisError>
+    {
+        let mut new_value = None;
+        let var = cs.alloc_input(
+            || {
+                let tmp = value()?;
+
+                new_value = Some(tmp);
+
+                Ok(tmp)
+            }
+        )?;
+
+        Ok(AllocatedNum {
+            value: new_value,
+            variable: var
+        })
+    }
+
+    // allocate public variable with value "one"
+    pub fn one<CS: ConstraintSystem<E>>(cs: &mut CS) -> Self {
+    
+        static INIT: Once = Once::new();
+        static mut VAR: Option<Variable> = None;
+
+        unsafe {
+            INIT.call_once(|| {
+                let temp = Self::alloc_input(cs, || Ok(E::Fr::one())).expect("should alloc");
+                VAR = Some(temp.get_variable());
+            });
+        }
+
+        let var = unsafe {
+            VAR.unwrap()
+        };
+     
+        AllocatedNum {
+            value: Some(E::Fr::one()),
+            variable: var,
+        }
     }
 
     pub fn enforce_equal<CS>(
@@ -442,6 +493,114 @@ impl<E: Engine> AllocatedNum<E> {
             value: value,
             variable: quotient
         })
+    }
+
+    /// Takes two allocated numbers (a, b) and returns
+    /// a if the condition is true, and b
+    /// otherwise.
+    /// Most often to be used with b = 0
+    pub fn conditionally_select<CS>(
+        cs: &mut CS,
+        a: &Self,
+        b: &Self,
+        condition: &Boolean
+    ) -> Result<Self, SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let res = match condition {
+            Boolean::Constant(flag) => if *flag { a.clone() } else { b.clone() },
+            
+            Boolean::Is(cond) => {
+                let c = Self::alloc(
+                    cs,
+                    || {
+                        if *cond.get_value().get()? {
+                            Ok(*a.value.get()?)
+                        } else {
+                            Ok(*b.value.get()?)
+                        }
+                    }
+                )?;
+
+                // a * condition + b*(1-condition) = c ->
+                // a * condition - b*condition - c + b = 0
+
+                let mut main_term = MainGateTerm::<E>::new();
+                let mut term = ArithmeticTerm::from_variable(a.get_variable()).mul_by_variable(cond.get_variable());
+                main_term.add_assign(term);
+
+                term = ArithmeticTerm::from_variable(b.variable).mul_by_variable(cond.get_variable());
+                main_term.sub_assign(term);
+
+                main_term.sub_assign(ArithmeticTerm::from_variable(c.get_variable()));
+                main_term.add_assign(ArithmeticTerm::from_variable(b.get_variable()));
+
+                c
+            },
+
+            Boolean::Not(cond) => {
+                let c = Self::alloc(
+                    cs,
+                    || {
+                        if *cond.get_value().get()? {
+                            Ok(*b.value.get()?)
+                        } else {
+                            Ok(*a.value.get()?)
+                        }
+                    }
+                )?;
+
+                // b * condition + a*(1-condition) = c ->
+                // b * condition - a*condition - c + a = 0
+
+                let mut main_term = MainGateTerm::<E>::new();
+                let mut term = ArithmeticTerm::from_variable(b.get_variable()).mul_by_variable(cond.get_variable());
+                main_term.add_assign(term);
+
+                term = ArithmeticTerm::from_variable(a.variable).mul_by_variable(cond.get_variable());
+                main_term.sub_assign(term);
+
+                main_term.sub_assign(ArithmeticTerm::from_variable(c.get_variable()));
+                main_term.add_assign(ArithmeticTerm::from_variable(a.get_variable()));
+
+                c
+            }
+        };
+        
+        Ok(res)
+
+    }
+
+    // Montgomery double and add algorithm
+    pub fn pow<CS, F>(cs: &mut CS, base: &Self, d: F) -> Result<Self, SynthesisError> 
+    where CS: ConstraintSystem<E>, F: AsRef<[Boolean]>
+    {
+        let mut r0 = Self::one(cs);
+        let mut r1 = base.clone();
+
+        for b in d.as_ref().iter() {
+            // RO = RO * R1 if b == 1 else R0^2
+            // R1 = R1^2 if b == 1 else R0 * R1
+            let r0_squared = r0.square(cs)?;
+            let r1_squared = r1.square(cs)?;
+            let r0_times_r1 = r0.mul(cs, &r1)?;
+            
+            r0 = AllocatedNum::conditionally_select(
+                cs,
+                &r0_times_r1,
+                &r0_squared,
+                b,
+            )?;
+
+            r1 = AllocatedNum::conditionally_select(
+                cs,
+                &r1_squared,
+                &r0_times_r1,
+                b,
+            )?;
+        }
+
+        Ok(r0)
     }
 }
 

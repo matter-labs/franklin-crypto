@@ -2786,11 +2786,11 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         cs: &mut CS,
     ) -> Result<Boolean, SynthesisError> 
     {
-        let elem = self.reduce_if_necessary(cs)?;
-        let num = elem.base_field_limb.collapse_into_num(cs)?;
+        *self = self.reduce_if_necessary(cs)?;
+        let num = self.base_field_limb.collapse_into_num(cs)?;
         let mut flag = num.is_zero(cs)?;
         
-        for limb in elem.binary_limbs.iter() {
+        for limb in self.binary_limbs.iter() {
             let num = limb.term.collapse_into_num(cs)?;
             flag = Boolean::and(cs, &flag, &num.is_zero(cs)?)?;
         }
