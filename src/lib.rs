@@ -15,6 +15,8 @@ extern crate num_bigint;
 extern crate num_traits;
 extern crate num_integer;
 
+extern crate take_mut;
+
 #[cfg(test)]
 #[macro_use]
 extern crate hex_literal;

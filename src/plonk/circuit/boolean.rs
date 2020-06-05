@@ -181,30 +181,6 @@ impl AllocatedBit {
         })
     }
 
-    // pub fn inputize<E, CS>(&self, mut cs: CS, witness: &AllocatedBit) -> Result<(), SynthesisError>
-    //     where
-    //         E: Engine,
-    //         CS: ConstraintSystem<E>,
-    // {
-    //     let input = cs.alloc_input(
-    //         || "input variable",
-    //         || {
-    //             if self.get_value().grab()? {
-    //                 Ok(E::Fr::one())
-    //             } else {
-    //                 Ok(E::Fr::zero())
-    //             }
-    //         },
-    //     )?;
-    //     cs.enforce(
-    //         || "enforce input is correct",
-    //         |lc| lc + input,
-    //         |lc| lc + CS::one(),
-    //         |lc| lc + self.get_variable(),
-    //     );
-    //     Ok(())
-    // }
-
     /// Performs an XOR operation over the two operands, returning
     /// an `AllocatedBit`.
     pub fn xor<E, CS>(
@@ -816,6 +792,56 @@ impl Boolean {
             (&Boolean::Is(ref a), &Boolean::Is(ref b)) => {
                 Ok(Boolean::Is(AllocatedBit::or(cs, a, b)?))
             }
+        }
+    }
+
+    pub fn to_positive_form<E, CS>(
+        &self,
+        cs: &mut CS,
+    ) -> Result<Self, SynthesisError>
+        where E: Engine, CS: ConstraintSystem<E>
+    {
+        match self {
+            &Boolean::Constant(_) | &Boolean::Is(_) => Ok(self.clone()),
+            &Boolean::Not(ref x) => {
+                // create new variable y = NOT x => x + y = 1
+                let y = AllocatedBit::alloc_unchecked(cs, x.get_value().map(|x| !x))?;
+
+                let mut gate_term = MainGateTerm::new();
+                gate_term.add_assign(ArithmeticTerm::from_variable(x.get_variable()));
+                gate_term.add_assign(ArithmeticTerm::from_variable(y.get_variable()));
+                gate_term.sub_assign(ArithmeticTerm::constant(E::Fr::one()));
+
+                cs.allocate_main_gate(gate_term)?;
+                Ok(Boolean::Is(y))
+            },
+        }
+    }
+
+    pub fn select<'a, E, CS>(
+        cs: &mut CS,
+        flag: &'a Self,
+        left: &'a Self,
+        right: &'a Self
+    ) -> Result<Self, SynthesisError>
+        where E: Engine,
+              CS: ConstraintSystem<E>
+    {
+        match (flag, left, right) {
+            (&Boolean::Constant(true), x, _) => Ok(x.clone()),
+            (&Boolean::Constant(false), _, x) => Ok(x.clone()),
+            (_, &Boolean::Constant(false), &Boolean::Constant(false)) => Ok(Boolean::Constant(false)),
+            (_, &Boolean::Constant(true), &Boolean::Constant(true)) => Ok(Boolean::Constant(true)),
+            (&cond, &a, &b) => {
+                
+                // cond && a ^ (not cond) && b = c;
+
+                let left_part = Boolean::and(cs, &cond, &a)?;
+                let right_part = Boolean::and(cs, &Boolean::not(&cond), &b)?;
+                let c = Boolean::xor(cs, &left_part, &right_part);
+
+                c
+            },
         }
     }
 

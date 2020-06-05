@@ -42,6 +42,8 @@ use num_bigint::BigUint;
 use num_integer::Integer;
 use num_traits::Zero;
 
+use take_mut::take;
+
 // Parameters of the representation
 #[derive(Clone, Debug)]
 pub struct RnsParameters<E: Engine, F: PrimeField>{
@@ -2782,17 +2784,23 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
     }
 
     pub fn is_zero<CS: ConstraintSystem<E>>(
-        &self,
+        &mut self,
         cs: &mut CS,
     ) -> Result<Boolean, SynthesisError> 
     {
-        *self = self.reduce_if_necessary(cs)?;
+        // dirty hack, but there is no workarounf, cause it's weak and inexpressive RUST
+        // if you want code without hacks use any "real" production-ready language (like C++) instead of RUST
+        take(self, |x| {
+            x.reduce_if_necessary(cs).unwrap()
+        });
+  
         let num = self.base_field_limb.collapse_into_num(cs)?;
         let mut flag = num.is_zero(cs)?;
         
         for limb in self.binary_limbs.iter() {
             let num = limb.term.collapse_into_num(cs)?;
-            flag = Boolean::and(cs, &flag, &num.is_zero(cs)?)?;
+            let is_num_zero = num.is_zero(cs)?;
+            flag = Boolean::and(cs, &flag, &is_num_zero)?;
         }
         
         Ok(flag)

@@ -188,6 +188,38 @@ impl<E: Engine> AllocatedNum<E> {
         }
     }
 
+    // allocate public variable with value "one"
+    pub fn zero<CS: ConstraintSystem<E>>(cs: &mut CS) -> Self {
+    
+        static INIT: Once = Once::new();
+        static mut VAR: Option<Variable> = None;
+
+        unsafe {
+            INIT.call_once(|| {
+                let temp = Self::alloc_input(cs, || Ok(E::Fr::zero())).expect("should alloc");
+                VAR = Some(temp.get_variable());
+            });
+        }
+
+        let var = unsafe {
+            VAR.unwrap()
+        };
+     
+        AllocatedNum {
+            value: Some(E::Fr::zero()),
+            variable: var,
+        }
+    }
+
+    // used as placeholder in some circumstances
+    pub fn dumb() -> Self 
+    { 
+        AllocatedNum {
+            value: None,
+            variable: Variable::new_unchecked(Index::Aux(0)),
+        }
+    }
+
     pub fn enforce_equal<CS>(
         &self,
         cs: &mut CS,
@@ -347,6 +379,40 @@ impl<E: Engine> AllocatedNum<E> {
         Ok(AllocatedNum {
             value: value,
             variable: addition_result
+        })
+    }
+
+    pub fn sub<CS>(
+        &self,
+        cs: &mut CS,
+        other: &Self
+    ) -> Result<Self, SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let mut value = None;
+
+        let substraction_result = cs.alloc(|| {
+            let mut tmp = *self.value.get()?;
+            tmp.sub_assign(other.value.get()?);
+
+            value = Some(tmp);
+
+            Ok(tmp)
+        })?;
+
+        let self_term = ArithmeticTerm::from_variable(self.variable);
+        let other_term = ArithmeticTerm::from_variable(other.variable);
+        let result_term = ArithmeticTerm::from_variable(substraction_result);
+        let mut term = MainGateTerm::new();
+        term.add_assign(self_term);
+        term.sub_assign(other_term);
+        term.sub_assign(result_term);
+
+        cs.allocate_main_gate(term)?;
+
+        Ok(AllocatedNum {
+            value: value,
+            variable: substraction_result
         })
     }
 
@@ -523,15 +589,13 @@ impl<E: Engine> AllocatedNum<E> {
                 )?;
 
                 // a * condition + b*(1-condition) = c ->
-                // a * condition - b*condition - c + b = 0
+                // (a - b) *condition - c + b = 0
+
+                let a_minus_b = a.sub(cs, b)?;
 
                 let mut main_term = MainGateTerm::<E>::new();
-                let mut term = ArithmeticTerm::from_variable(a.get_variable()).mul_by_variable(cond.get_variable());
+                let mut term = ArithmeticTerm::from_variable(a_minus_b.get_variable()).mul_by_variable(cond.get_variable());
                 main_term.add_assign(term);
-
-                term = ArithmeticTerm::from_variable(b.variable).mul_by_variable(cond.get_variable());
-                main_term.sub_assign(term);
-
                 main_term.sub_assign(ArithmeticTerm::from_variable(c.get_variable()));
                 main_term.add_assign(ArithmeticTerm::from_variable(b.get_variable()));
 
@@ -551,14 +615,13 @@ impl<E: Engine> AllocatedNum<E> {
                 )?;
 
                 // b * condition + a*(1-condition) = c ->
-                // b * condition - a*condition - c + a = 0
+                // ( b - a) * condition - c + a = 0
+
+                let b_minus_a = b.sub(cs, a)?;
 
                 let mut main_term = MainGateTerm::<E>::new();
-                let mut term = ArithmeticTerm::from_variable(b.get_variable()).mul_by_variable(cond.get_variable());
+                let mut term = ArithmeticTerm::from_variable(b_minus_a.get_variable()).mul_by_variable(cond.get_variable());
                 main_term.add_assign(term);
-
-                term = ArithmeticTerm::from_variable(a.variable).mul_by_variable(cond.get_variable());
-                main_term.sub_assign(term);
 
                 main_term.sub_assign(ArithmeticTerm::from_variable(c.get_variable()));
                 main_term.add_assign(ArithmeticTerm::from_variable(a.get_variable()));
@@ -601,6 +664,80 @@ impl<E: Engine> AllocatedNum<E> {
         }
 
         Ok(r0)
+    }
+
+    // out = q_m * a * b + q_a * a + q_b *b + q_c * c
+    pub fn general_equation<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        a: &Self,
+        b: &Self,
+        c: &Self,
+        q_m : &E::Fr,
+        q_a: &E::Fr,
+        q_b: &E::Fr,
+        q_c: &E::Fr,
+        q_const: &E::Fr,
+    ) -> Result<Self, SynthesisError> {
+
+        let mut out_value = None;
+
+        let out = cs.alloc(|| {
+            let mut a_val = *a.value.get()?;
+            let mut b_val = *b.value.get()?;
+            let mut c_val = *c.value.get()?;
+            let mut total = E::Fr::zero();
+
+            let mut tmp = a_val.clone();
+            tmp.mul_assign(&b_val);
+            tmp.mul_assign(q_m);
+            total.add_assign(&tmp);
+
+            tmp = a_val.clone();
+            tmp.mul_assign(q_a);
+            total.add_assign(&tmp);
+
+            tmp = b_val.clone();
+            tmp.mul_assign(q_b);
+            total.add_assign(&tmp);
+
+            tmp = c_val.clone();
+            tmp.mul_assign(q_c);
+            tmp.add_assign(q_const);
+            total.add_assign(&tmp);
+
+            Ok(total)
+        })?;
+
+        let mut main_term = MainGateTerm::new();
+
+        let mut term = ArithmeticTerm::from_variable(a.variable).mul_by_variable(b.variable);
+        term.scale(q_m);
+        main_term.add_assign(term);
+
+        let mut term = ArithmeticTerm::from_variable(a.variable);
+        term.scale(q_a);
+        main_term.add_assign(term);
+
+        let mut term = ArithmeticTerm::from_variable(b.variable);
+        term.scale(q_b);
+        main_term.add_assign(term);
+
+        let mut term = ArithmeticTerm::from_variable(c.variable);
+        term.scale(q_c);
+        main_term.add_assign(term);
+
+        let term = ArithmeticTerm::constant(*q_const);
+        main_term.add_assign(term);
+
+        let term = ArithmeticTerm::from_variable(out);
+        main_term.sub_assign(term);
+
+        cs.allocate_main_gate(main_term)?;
+
+        Ok(AllocatedNum {
+            value: out_value,
+            variable: out,
+        })
     }
 }
 

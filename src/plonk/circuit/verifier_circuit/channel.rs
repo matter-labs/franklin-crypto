@@ -5,6 +5,7 @@ use crate::rescue::*;
 
 use crate::plonk::circuit::curve::sw_affine::AffinePoint;
 use crate::plonk::circuit::bigint::field::*;
+use crate::plonk::circuit::verifier_circuit::data_structs::WrappedAffinePoint;
 
 use bellman::pairing::{
     Engine,
@@ -28,8 +29,8 @@ pub trait ChannelGadget<E: Engine> {
 
     fn consume_point<CS: ConstraintSystem<E>>(
         &mut self, 
-        data: AffinePoint<E, E::G1Affine>, 
-        cs: &mut CS
+        cs: &mut CS,
+        data: WrappedAffinePoint<E>,
     ) -> Result<(), SynthesisError>;
     
     fn produce_challenge<CS: ConstraintSystem<E>>(&mut self, cs: &mut CS) -> Result<AllocatedNum<E>, SynthesisError>;
@@ -61,15 +62,19 @@ where <<E as RescueEngine>::Params as RescueHashParams<E>>::SBox0: PlonkCsSBox<E
 
     fn consume_point<CS: ConstraintSystem<E>>(
         &mut self, 
-        data: AffinePoint<E, E::G1Affine>, 
-        cs: &mut CS
+        cs: &mut CS,
+        data: WrappedAffinePoint<E>,
     ) -> Result<(), SynthesisError> {
-
-        // our strategi here is to consume x mod Pq and y mod Pq,
-        let x = data.x.base_field_limb.collapse_into_num(cs)?.get_variable();
-        let y = data.y.base_field_limb.collapse_into_num(cs)?.get_variable();
         
-        self.state.absorb(cs, &[x, y], &self.params)   
+        // our strategy here is to consume x mod Pq and y mod Pq,
+        let x = data.point.x.base_field_limb.collapse_into_num(cs)?.get_variable();
+        let y = data.point.y.base_field_limb.collapse_into_num(cs)?.get_variable();
+        let zero = AllocatedNum::zero(cs);
+
+        let selected_x = AllocatedNum::conditionally_select(cs, &zero, &x, &data.is_zero)?;
+        let selected_y = AllocatedNum::conditionally_select(cs, &zero, &y, &data.is_zero)?;
+        
+        self.state.absorb(cs, &[selected_x, selected_y], &self.params)   
     }
 
     fn produce_challenge<CS: ConstraintSystem<E>>(&mut self, cs: &mut CS) -> Result<AllocatedNum<E>, SynthesisError> {

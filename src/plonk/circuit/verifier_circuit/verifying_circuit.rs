@@ -116,25 +116,25 @@ where E: Engine, T: ChannelGadget<E>, P: PlonkConstraintSystemParams<E>, AD: Aux
 
         // Commit wire values
         for w in proof.wire_commitments.iter() {
-            channel.consume_point(*w, cs)?;
+            channel.consume_point(cs, *w)?;
         }
 
         let beta = channel.produce_challenge(cs)?;
         let gamma = channel.produce_challenge(cs)?;
 
         // commit grand product
-        channel.consume_point(proof.grand_product_commitment, cs)?;
+        channel.consume_point(cs, proof.grand_product_commitment)?;
 
         let alpha = channel.produce_challenge(cs)?;
     
         // Commit parts of the quotient polynomial
         for w in proof.quotient_poly_commitments.iter() {
-            channel.consume_point(*w, cs)?;
+            channel.consume_point(cs, *w)?;
         }
 
         let z = channel.produce_challenge(cs)?;
-        let mut z_by_omega = z.clone();
-        z_by_omega.scale(&domain.generator);
+        // let mut z_by_omega = z.clone();
+        // z_by_omega.scale(&domain.generator);
 
         // commit every claimed value
 
@@ -153,20 +153,16 @@ where E: Engine, T: ChannelGadget<E>, P: PlonkConstraintSystemParams<E>, AD: Aux
         channel.consume(proof.quotient_polynomial_at_z, cs)?;
         channel.consume(proof.linearization_polynomial_at_z, cs)?;
 
-        let mut omega_inv = domain.generator.inverse().expect("should exist");
+        let omega_inv = domain.generator.inverse().expect("should exist");
+        let domain_size_decomposed = decompose_const_to_bits::<E, _>(&[required_domain_size as u64]);
+        let z_in_pow_domain_size = AllocatedNum::pow(cs, &z, &domain_size_decomposed)?;
+        let l_0_at_z = evaluate_lagrange_poly(cs, required_domain_size, 0, &omega_inv, z, z_in_pow_domain_size)?;
         
-
         // do the actual check for relationship at z
         {
             let mut lhs = proof.quotient_polynomial_at_z;
-            let vanishing_at_z = evaluate_vanishing_poly(cs, required_domain_size, omega_inv, 
-    cs: &mut CS, 
-    vahisning_size: usize,
-    omega_inv : &E::Fr, 
-    point: AllocatedNum<E>,
-    point_in_pow_n : AllocatedNum<E>,
-            let vanishing_at_z = evaluate_vanishing_for_size(&z, required_domain_size as u64);
-            lhs.mul_assign(&vanishing_at_z);
+            let vanishing_at_z = evaluate_vanishing_poly(cs, required_domain_size, &omega_inv, z.clone(), z_in_pow_domain_size.clone())?;
+            lhs = lhs.mul(cs, &vanishing_at_z)?;
 
             let mut quotient_linearization_challenge = E::Fr::one();
 
@@ -175,14 +171,15 @@ where E: Engine, T: ChannelGadget<E>, P: PlonkConstraintSystemParams<E>, AD: Aux
             // add public inputs
             {
                 for (idx, input) in proof.input_values.iter().enumerate() {
-                    let mut tmp = evaluate_lagrange_poly_at_point(idx, &domain, z)?;
-                    tmp.mul_assign(&input);
-
-                    rhs.add_assign(&tmp);
+                    let tmp = if idx == 0 {
+                        l_0_at_z.mul(cs, &input)?
+                    } else {
+                        let tmp = evaluate_lagrange_poly(cs, required_domain_size, idx, &omega_inv, z, z_in_pow_domain_size)?;
+                        tmp.mul(cs, &input)?
+                    }; 
+                    rhs = rhs.add(cs, &tmp)?;
                 }
             }
-
-            quotient_linearization_challenge.mul_assign(&alpha);
 
             // - \alpha (a + perm(z) * beta + gamma)*()*(d + gamma) & z(z*omega)
 
@@ -190,75 +187,66 @@ where E: Engine, T: ChannelGadget<E>, P: PlonkConstraintSystemParams<E>, AD: Aux
 
             for (w, p) in proof.wire_values_at_z.iter().zip(proof.permutation_polynomials_at_z.iter()) {
                 let mut tmp = *p;
-                tmp.mul_assign(&beta);
-                tmp.add_assign(&gamma);
-                tmp.add_assign(&w);
-                
-                z_part.mul_assign(&tmp);
+                tmp = tmp.mul(cs, &beta)?;
+                tmp = tmp.add(cs, &gamma)?;
+                tmp = tmp.add(cs, &w)?;
+                z_part = tmp.mul(cs, &tmp)?;
             }   
 
             // last poly value and gamma
             let mut tmp = gamma;
-            tmp.add_assign(&proof.wire_values_at_z.iter().rev().next().unwrap());
+            tmp = tmp.add(cs, &proof.wire_values_at_z.iter().rev().next().unwrap())?;
 
-            z_part.mul_assign(&tmp);
-            z_part.mul_assign(&quotient_linearization_challenge);
+            z_part = z_part.mul(cs, &tmp)?;
+            z_part = z_part.mul(cs, &alpha)?;
+            rhs = rhs.sub(cs, &z_part)?; 
 
-            rhs.sub_assign(&z_part);
-
-            quotient_linearization_challenge.mul_assign(&alpha);
+            let quotient_linearization_challenge = alpha.mul(cs, &alpha)?;
             
             // - L_0(z) * \alpha^2
+            let mut tmp = l_0_at_z.mul(cs, &quotient_linearization_challenge)?;
+            rhs = rhs.sub(cs, &tmp)?;
 
-            let mut l_0_at_z = evaluate_l0_at_point(required_domain_size as u64, z)?;
-            l_0_at_z.mul_assign(&quotient_linearization_challenge);
-
-            rhs.sub_assign(&l_0_at_z);
-
-            if lhs != rhs {
-                return Ok(false);
-            }
+            lhs.enforce_equal(cs, &rhs)?;
         }
 
-    let v = transcript.get_challenge();
+        let v = channel.produce_challenge(cs)?;
+        channel.consume_point(cs, proof.opening_at_z_proof)?;
+        channel.consume_point(cs, proof.opening_at_z_omega_proof)?;
 
-    commit_point_as_xy::<E, _>(&mut transcript, &proof.opening_at_z_proof);
+        let u = channel.produce_challenge(cs)?;
 
-    commit_point_as_xy::<E, _>(&mut transcript, &proof.opening_at_z_omega_proof);
+        // first let's reconstruct the linearization polynomial from
+        // honomorphic commitments, and simultaneously add (through the separation scalar "u")
+        // part for opening of z(X) at z*omega
 
-    let u = transcript.get_challenge();
+        // calculate the power to add z(X) commitment that is opened at x*omega
+        // it's r(X) + witness + all permutations + 1
+        let v_power_for_standalone_z_x_opening = 1 + 1 + P::STATE_WIDTH + (P::STATE_WIDTH-1);
 
-    let z_in_domain_size = z.pow(&[required_domain_size as u64]);
+        let virtual_commitment_for_linearization_poly = {
 
-    // first let's reconstruct the linearization polynomial from
-    // honomorphic commitments, and simultaneously add (through the separation scalar "u")
-    // part for opening of z(X) at z*omega
+            // main gate. Does NOT include public inputs
+            {
+                // Q_const(x)
+                let mut r = vk.selector_commitments[selector_q_const_index];
 
-    // calculate the power to add z(X) commitment that is opened at x*omega
-    // it's r(X) + witness + all permutations + 1
-    let v_power_for_standalone_z_x_opening = 1 + 1 + P::STATE_WIDTH + (P::STATE_WIDTH-1);
+                for i in 0..P::STATE_WIDTH {
+                    // Q_k(X) * K(z)
+                    let mut tmp = vk.selector_commitments[i].mul(cs, &proof.wire_values_at_z[i], None, self.params)?;
+                    r = r.add(cs, &mut tmp, self.params)?;
+                }
 
-    let virtual_commitment_for_linearization_poly = {
-        let mut r = E::G1::zero();
+                // Q_m(X) * A(z) * B(z)
+                let mut scalar = proof.wire_values_at_z[0];
+                scalar = scalar.mul(cs, &proof.wire_values_at_z[1])?;
+                let mut tmp = vk.selector_commitments[selector_q_m_index].mul(cs, &scalar, None, self.params)?;
+                r = r.add(cs, &mut tmp, self.params)?;
 
-        // main gate. Does NOT include public inputs
-        {
-            // Q_const(x)
-            r.add_assign_mixed(&verification_key.selector_commitments[selector_q_const_index]);
-
-            for i in 0..P::STATE_WIDTH {
-                // Q_k(X) * K(z)
-                r.add_assign(&verification_key.selector_commitments[i].mul(proof.wire_values_at_z[i].into_repr()));
+                // Q_d_next(X) * D(z*omega)
+                tmp = vk.next_step_selector_commitments[0].mul(cs, &proof.wire_values_at_z_omega[0], None, self.params)?;
+                r = r.add(cs, &mut tmp, self.params)?;
             }
-
-            // Q_m(X) * A(z) * B(z)
-            let mut scalar = proof.wire_values_at_z[0];
-            scalar.mul_assign(&proof.wire_values_at_z[1]);
-            r.add_assign(&verification_key.selector_commitments[selector_q_m_index].mul(scalar.into_repr()));
-
-            // Q_d_next(X) * D(z*omega)
-            r.add_assign(&verification_key.next_step_selector_commitments[0].mul(proof.wire_values_at_z_omega[0].into_repr()));
-        }
 
         // v * [alpha * (a + beta*z + gamma)(b + beta*k_1*z + gamma)()() * z(X) -
         // - \alpha * (a*perm_a(z)*beta + gamma)()()*beta*z(z*omega) * perm_d(X) +
@@ -268,71 +256,72 @@ where E: Engine, T: ChannelGadget<E>, P: PlonkConstraintSystemParams<E>, AD: Aux
 
         // [alpha * (a + beta*z + gamma)(b + beta*k_1*z + gamma)()() + alpha^2 * L_0(z)] * z(X)
         let grand_product_part_at_z = {
-            let mut scalar = E::Fr::one();
+            let mut scalar = AllocatedNum::dumb();
 
             // permutation part
-            for (wire, non_res) in proof.wire_values_at_z.iter()
-                            .zip(Some(E::Fr::one()).iter().chain(&non_residues)) 
+            for (i, (wire, non_res)) in proof.wire_values_at_z.iter()
+                            .zip(Some(E::Fr::one()).iter().chain(&vk.non_residues)).enumerate() 
             {
-                let mut tmp = z;
-                tmp.mul_assign(&non_res);
-                tmp.mul_assign(&beta);
-                tmp.add_assign(&wire);
-                tmp.add_assign(&gamma);
-
-                scalar.mul_assign(&tmp);
+                // tmp = non_res * z * beta + wire
+                let zero = E::Fr::zero();
+                let one = E::Fr::one();
+                let mut tmp = AllocatedNum::general_equation(cs, &z, &beta, &wire, non_res, &zero, &zero, &one, &zero)?;
+                // on first iteration: scalar = tmp + gamma
+                // else: scalar = scalar * (tmp + gamma)
+                if i == 0 {
+                    scalar = tmp.add(cs, &gamma)?;
+                }
+                else {
+                    tmp = tmp.add(cs, &gamma)?;
+                    scalar = scalar.mul(cs, &tmp)?;
+                }
             }
 
-            scalar.mul_assign(&alpha);
-
-            let l_0_at_z = evaluate_l0_at_point(required_domain_size as u64, z)?;
+            scalar = scalar.mul(cs, &alpha)?;
 
             // + L_0(z) * alpha^2
-            let mut tmp = l_0_at_z;
-            tmp.mul_assign(&alpha);
-            tmp.mul_assign(&alpha);
-            scalar.add_assign(&tmp);
-
-            // * v
-            // scalar.mul_assign(&v);
-
-            scalar
+            let tmp = l_0_at_z.mul(cs, &alpha)?.mul(cs, &alpha)?;
+            scalar.add(cs, &tmp)?
         };
 
         // v^{P} * u * z(X)
         let grand_product_part_at_z_omega = {
             // + v^{P} * u
-            let mut tmp = v.pow(&[v_power_for_standalone_z_x_opening as u64]);
-            tmp.mul_assign(&u);
-
-            tmp
+            let d = decompose_const_to_bits(&[v_power_for_standalone_z_x_opening as u64]);
+            v.pow(cs, d)?.mul(cs, &u)?
         };
 
         // \alpha * (a*perm_a(z)*beta + gamma)()()*beta*z(z*omega) * perm_d(X)
         let last_permutation_part_at_z = {
-            let mut scalar = E::Fr::one();
+            let mut scalar = AllocatedNum::dumb();
 
             // permutation part
-            for (wire, perm_at_z) in proof.wire_values_at_z.iter()
-                            .zip(&proof.permutation_polynomials_at_z) 
+            for (i, (wire, perm_at_z)) in proof.wire_values_at_z.iter()
+                            .zip(&proof.permutation_polynomials_at_z).enumerate() 
             {
-                let mut tmp = beta;
-                tmp.mul_assign(&perm_at_z);
-                tmp.add_assign(&wire);
-                tmp.add_assign(&gamma);
-
-                scalar.mul_assign(&tmp);
+                // tmp = perm_at_z * beta + wire
+                let zero = E::Fr::zero();
+                let one = E::Fr::one();
+                let mut tmp = AllocatedNum::general_equation(cs, &perm_at_z, &beta, &wire, &one, &zero, &zero, &one, &zero)?;
+                // on first iteration: scalar = tmp + gamma
+                // else: scalar = scalar * (tmp + gamma)
+                if i == 0 {
+                    scalar = tmp.add(cs, &gamma)?;
+                }
+                else {
+                    tmp = tmp.add(cs, &gamma)?;
+                    scalar = scalar.mul(cs, &tmp)?;
+                }
+                
             }
 
-            scalar.mul_assign(&beta);
-            scalar.mul_assign(&proof.grand_product_at_z_omega);
-            scalar.mul_assign(&alpha);
-            // scalar.mul_assign(&v);
-
+            scalar = scalar.mul(cs, &beta)?.mul(cs, &proof.grand_product_at_z_omega)?.mul(cs, &alpha)?;
             scalar
         };
 
         {
+            let mut tmp = proof.grand_product_commitment.mul(cs, &grand_product_part_at_z, None, self.params)?;
+            
             let mut tmp = proof.grand_product_commitment.mul(grand_product_part_at_z.into_repr());
             tmp.sub_assign(&verification_key.permutation_commitments.last().unwrap().mul(last_permutation_part_at_z.into_repr()));
             

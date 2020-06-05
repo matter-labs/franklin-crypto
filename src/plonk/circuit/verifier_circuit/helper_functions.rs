@@ -42,8 +42,8 @@ where E: Engine, CS: ConstraintSystem<E>
     // Z(X) = (X^n - 1) / (X - omega^(n-1)) 
     // note that omega^(n-1) = omega^(-1)
 
-    let mut numerator = point_in_pow_n.sub_constant(cs, E::Fr::one())?;
-    let mut denominator = point.sub_constant(cs, *omega_inv)?;
+    let numerator = point_in_pow_n.sub_constant(cs, E::Fr::one())?;
+    let denominator = point.sub_constant(cs, *omega_inv)?;
      
     numerator.div(cs, &denominator)
 }
@@ -65,7 +65,7 @@ pub fn evaluate_lagrange_poly<E: Engine, CS: ConstraintSystem<E>>(
     // L_k(omega) = 1 = L_0(omega * omega^-k)
     // L_k(z) = L_0(z * omega^-k) = (1/n-1) * (z^n - 1)/(z * omega^{-k} - 1)
 
-    let mut numerator  = point_in_pow_n.sub_constant(cs, E::Fr::one())?;
+    let numerator  = point_in_pow_n.sub_constant(cs, E::Fr::one())?;
     let omega_inv_pow = omega_inv.pow([poly_number as u64]);
 
     let mut denominator_lc : LinearCombination<E> = point.into();
@@ -81,15 +81,12 @@ pub fn evaluate_lagrange_poly<E: Engine, CS: ConstraintSystem<E>>(
     numerator.div(cs, &denominator)
 }
 
-pub fn convert_to_bits<E, CS, F>(
-    mut cs: CS,
+pub fn decompose_const_to_bits<E: Engine, F: AsRef<[u64]>>(
     n: F,
 ) -> Vec<Boolean>
-    where E: Engine, CS: ConstraintSystem<E>, F: AsRef<[u64]>
 {
-    
-    let res = Vec::with_capacity(<E::Fr as PrimeField>::NUM_BITS as usize);
-    let found_one = false;
+    let mut res = Vec::with_capacity(<E::Fr as PrimeField>::NUM_BITS as usize);
+    let mut found_one = false;
 
     for i in BitIterator::new(n) {
         if !found_one {

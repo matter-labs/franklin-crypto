@@ -1,4 +1,4 @@
-use crate::plonk::circuit::curve::sw_affine::AffinePoint;
+use crate::plonk::circuit::curve::sw_affine::*;
 use crate::plonk::circuit::bigint::field::*;
 use crate::plonk::circuit::allocated_num::*;
 use crate::plonk::circuit::boolean::*;
@@ -38,10 +38,10 @@ pub trait AuxData<E: Engine>
 
 fn add<'b, E: Engine, CS: ConstraintSystem<E>>(
     cs: &mut CS, 
-    x_m: &mut FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>, 
-    z_m: &mut FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>, 
-    x_n: &mut FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>,
-    z_n: &mut FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>,
+    x_m: FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>, 
+    z_m: FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>, 
+    x_n: FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>,
+    z_n: FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>,
     x: &FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>,
 
     params: &'b RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
@@ -49,16 +49,11 @@ fn add<'b, E: Engine, CS: ConstraintSystem<E>>(
 ) -> Result<(FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>, 
             FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>), SynthesisError> 
 { 
-    let (x_m_z_n, (red_x_m, red_z_n)) = x_m.mul(cs, *z_n)?;
-    *x_m = red_x_m;
-    *z_n = red_z_n;
+    let (x_m_z_n, (red_x_m, red_z_n)) = x_m.clone().mul(cs, z_n.clone())?;
+    let (x_n_z_m, (red_x_n, red_z_m)) = x_n.clone().mul(cs, z_m.clone())?;
 
-    let (x_n_z_m, (red_x_n, red_z_m)) = x_n.mul(cs, *z_m)?;
-    *x_n = red_x_n;
-    *z_m = red_z_m;
-
-    let x_m_x_n = x_m.mul(cs, *x_n)?.0;
-    let z_m_z_n = z_m.mul(cs, *z_n)?.0;
+    let x_m_x_n = x_m.mul(cs, x_n)?.0;
+    let z_m_z_n = z_m.mul(cs, z_n)?.0;
 
     let mut cnst = <<E::G1Affine as CurveAffine>::Base>::one();
     cnst.double();
@@ -69,7 +64,7 @@ fn add<'b, E: Engine, CS: ConstraintSystem<E>>(
     let mut temp1 = FieldElement::new_constant(cnst, params);
     temp1 = temp1.mul(cs, z_m_z_n)?.0;
 
-    let mut temp2 = x_m_z_n.add(cs, x_n_z_m)?.0;
+    let mut temp2 = x_m_z_n.clone().add(cs, x_n_z_m.clone())?.0;
     temp1 = temp1.mul(cs, temp2)?.0;
 
     temp2 = x_m_x_n.square(cs)?.0;
@@ -77,7 +72,7 @@ fn add<'b, E: Engine, CS: ConstraintSystem<E>>(
 
     temp1 = x_m_z_n.sub(cs, x_n_z_m)?.0;
     temp1 = temp1.square(cs)?.0;
-    let res_z = temp1.mul(cs, *x)?.0;
+    let res_z = temp1.mul(cs, x.clone())?.0;
 
     Ok((res_x, res_z))
 }
@@ -87,21 +82,21 @@ fn add<'b, E: Engine, CS: ConstraintSystem<E>>(
 
 fn double<'b, E: Engine, CS: ConstraintSystem<E>>(
     cs: &mut CS, 
-    x_n: &mut FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>, 
-    z_n: &mut FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>, 
+    x_n: FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>, 
+    z_n: FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>, 
 
     params: &'b RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
     b: &<E::G1Affine as CurveAffine>::Base, 
 ) -> Result<(FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>, 
             FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>), SynthesisError> 
 { 
-    let (x_n_2, x_n_red) = x_n.square(cs)?;
-    let (z_n_2, z_n_red) = z_n.square(cs)?;
-    *x_n = x_n_red.clone();
-    *z_n = z_n_red.clone();
+    let (x_n_2, x_n_red) = x_n.clone().square(cs)?;
+    let (z_n_2, z_n_red) = z_n.clone().square(cs)?;
+    //*x_n = x_n_red.clone();
+    //*z_n = z_n_red.clone();
 
-    let x_n_3 = x_n_2.mul(cs, *x_n)?.0;
-    let z_n_3 = z_n_2.mul(cs, *z_n)?.0;
+    let x_n_3 = x_n_2.mul(cs, x_n.clone())?.0;
+    let z_n_3 = z_n_2.mul(cs, z_n.clone())?.0;
 
     let mut cnst = <<E::G1Affine as CurveAffine>::Base>::one();
     cnst.double();
@@ -112,8 +107,8 @@ fn double<'b, E: Engine, CS: ConstraintSystem<E>>(
     let cnst_8_b = FieldElement::new_constant(cnst, params);
     let cnst_b = FieldElement::new_constant(*b, params);
 
-    let mut temp1 = z_n_3.mul(cs, cnst_8_b)?.0;
-    temp1 = x_n_3.sub(cs, temp1)?.0;
+    let mut temp1 = z_n_3.clone().mul(cs, cnst_8_b)?.0;
+    temp1 = x_n_3.clone().sub(cs, temp1)?.0;
     let res_x = x_n.mul(cs, temp1)?.0;
 
     temp1 = z_n_3.mul(cs, cnst_b)?.0;
@@ -139,8 +134,10 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
         params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>
     ) -> Result<Self, SynthesisError> 
     {
-        let point = AffinePoint::alloc(cs, value, params)?;
-        let is_zero = Boolean::and(cs, &point.x.is_zero(cs)?, &point.y.is_zero(cs)?)?;
+        let mut point = AffinePoint::alloc(cs, value, params)?;
+        let is_x_zero = point.x.is_zero(cs)?;
+        let is_y_zero = point.y.is_zero(cs)?;
+        let is_zero = Boolean::and(cs, &is_x_zero, &is_y_zero)?;
 
         Ok( WrappedAffinePoint {
             is_zero,
@@ -191,18 +188,18 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
         let x_equality_flag = self.point.x.equals(cs, &other.point.x)?;      
         let y_equality_flag = self.point.y.equals(cs, &other.point.y)?;    
         
-        let double_A_point = self.point.double(cs)?;
+        let double_A_point = self.point.clone().double(cs)?;
         self.point = double_A_point.1;
         let zero = AffinePoint::zero(params);
         let mut temp = AffinePoint::select(cs, &y_equality_flag, double_A_point.0, zero)?;
 
-        let add_A_B_point = self.point.add_unequal(cs, other.point)?;
+        let add_A_B_point = self.point.clone().add_unequal(cs, other.point.clone())?;
         self.point = (add_A_B_point.1).0;
         other.point = (add_A_B_point.1).1;
         temp = AffinePoint::select(cs, &x_equality_flag, temp, add_A_B_point.0)?;
 
-        temp = AffinePoint::select(cs, &self.is_zero, other.point, temp)?;
-        temp = AffinePoint::select(cs, &other.is_zero, self.point, temp)?;
+        temp = AffinePoint::select(cs, &self.is_zero, other.point.clone(), temp)?;
+        temp = AffinePoint::select(cs, &other.is_zero, self.point.clone(), temp)?;
                              
         let flag_cond1 = Boolean::and(cs, &self.is_zero, &other.is_zero)?;
         let flag_cond2 = Boolean::and(cs, &x_equality_flag, &y_equality_flag.not())?;
@@ -214,102 +211,156 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
         })
     }
 
-    // pub fn sub<CS: ConstraintSystem<E>>(
-    //     &mut self,
-    //     cs: &mut CS,
-    //     other: &mut Self,
-    //     params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
-    // ) -> Result<Self, SynthesisError> {
+    pub fn sub<CS: ConstraintSystem<E>>(
+        &mut self,
+        cs: &mut CS,
+        other: &mut Self,
+        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+    ) -> Result<Self, SynthesisError> {
 
-    //     // assume we have points A with coordinates (x_1, y_1) and point B with cooridnates (x_2, y_2)
-    //     // B == 0 --- (true) ----- res = A
-    //     //        |
-    //     //     (false)
-    //     //        |
-    //     //      A == 0 ---(true)----- res = -B
-    //     //        |
-    //     //     (false)
-    //     //        |
-    //     //    x_1 == x_2 ----(true)--- y1 == y2 ---(true)--- res = O
-    //     //        |                        |
-    //     //     (false)                  (false)
-    //     //        |                        |
-    //     //    res = sub(A, B)            res = double(A)
-    //     //
-    //     // we are going to construct this selection tree from backwards
+        // assume we have points A with coordinates (x_1, y_1) and point B with cooridnates (x_2, y_2)
+        // B == 0 --- (true) ----- res = A
+        //        |
+        //     (false)
+        //        |
+        //      A == 0 ---(true)----- res = -B
+        //        |
+        //     (false)
+        //        |
+        //    x_1 == x_2 ----(true)--- y1 == y2 ---(true)--- res = O
+        //        |                        |
+        //     (false)                  (false)
+        //        |                        |
+        //    res = sub(A, B)            res = double(A)
+        //
+        // we are going to construct this selection tree from backwards
 
-    //     // also our group is odd, so doubling on nonzero point is never zero
-    //     // res.is_zero = (A.is_zero && B.iz_zero) || (x_1 == x_2 & y_1 == y_2)
+        // also our group is odd, so doubling on nonzero point is never zero
+        // res.is_zero = (A.is_zero && B.iz_zero) || (x_1 == x_2 & y_1 == y_2)
 
-    //     let x_equality_flag = self.point.x.equals(cs, &other.point.x)?;      
-    //     let y_equality_flag = self.point.y.equals(cs, &other.point.y)?;    
+        let x_equality_flag = self.point.x.equals(cs, &other.point.x)?;      
+        let y_equality_flag = self.point.y.equals(cs, &other.point.y)?;    
         
-    //     let double_A_point = self.point.double(cs)?;
-    //     self.point = double_A_point.1;
-    //     let zero = AffinePoint::zero(params);
-    //     let mut temp = AffinePoint::select(cs, &y_equality_flag, zero, double_A_point.0)?;
+        let double_A_point = self.point.clone().double(cs)?;
+        self.point = double_A_point.1;
+        let zero = AffinePoint::zero(params);
+        let mut temp = AffinePoint::select(cs, &y_equality_flag, zero, double_A_point.0)?;
 
-    //     let sub_A_B_point = self.point.sub_unequal(cs, other.point)?;
-    //     self.point = (sub_A_B_point.1).0;
-    //     other.point = (sub_A_B_point.1).1;
-    //     temp = AffinePoint::select(cs, &x_equality_flag, temp, sub_A_B_point.0)?;
+        let sub_A_B_point = self.point.clone().sub_unequal(cs, other.point.clone())?;
+        self.point = (sub_A_B_point.1).0;
+        other.point = (sub_A_B_point.1).1;
+        temp = AffinePoint::select(cs, &x_equality_flag, temp, sub_A_B_point.0)?;
 
-    //     temp = AffinePoint::select(cs, &self.is_zero, other.point.negate(cs)?, temp)?;
-    //     temp = AffinePoint::select(cs, &other.is_zero, self.point, temp)?;
+        let negated_pt = other.point.negate(cs)?;
+        temp = AffinePoint::select(cs, &self.is_zero, negated_pt, temp)?;
+        temp = AffinePoint::select(cs, &other.is_zero, self.point.clone(), temp)?;
                              
-    //     let flag_cond1 = Boolean::and(cs, &self.is_zero, &other.is_zero)?;
-    //     let flag_cond2 = Boolean::and(cs, &x_equality_flag, &y_equality_flag)?;
-    //     let zero_flag = Boolean::or(cs, &flag_cond1, &flag_cond2)?;
+        let flag_cond1 = Boolean::and(cs, &self.is_zero, &other.is_zero)?;
+        let flag_cond2 = Boolean::and(cs, &x_equality_flag, &y_equality_flag)?;
+        let zero_flag = Boolean::or(cs, &flag_cond1, &flag_cond2)?;
 
-    //     Ok(WrappedAffinePoint {
-    //         is_zero: zero_flag,
-    //         point: temp,
-    //     })
-    // }
+        Ok(WrappedAffinePoint {
+            is_zero: zero_flag,
+            point: temp,
+        })
+    }
 
-    // pub fn double<CS: ConstraintSystem<E>>(
-    //     &mut self,
-    //     cs: &mut CS,
-    //     _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
-    // ) -> Result<Self, SynthesisError> {
+    pub fn double<CS: ConstraintSystem<E>>(
+        &mut self,
+        cs: &mut CS,
+        _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+    ) -> Result<Self, SynthesisError> {
         
-    //     //  A == O ----(true)---- A
-    //     //    |
-    //     //    |--------(false)--- double(A)
+        //  A == O ----(true)---- A
+        //    |
+        //    |--------(false)--- double(A)
 
 
-    //     let doubled = self.point.double(cs)?;
-    //     self.point = doubled.1;
+        let doubled = self.point.clone().double(cs)?;
+        self.point = doubled.1;
 
-    //     let res_point = AffinePoint::select(cs, &self.is_zero, self.point, doubled.0)?;
-    //     let res_flag = self.is_zero;
+        let res_point = AffinePoint::select(cs, &self.is_zero, self.point.clone(), doubled.0)?;
+        let res_flag = self.is_zero.clone();
 
-    //     Ok(WrappedAffinePoint {
-    //         is_zero: res_flag,
-    //         point: res_point,
-    //     })
-    // }
+        Ok(WrappedAffinePoint {
+            is_zero: res_flag,
+            point: res_point,
+        })
+    }
 
-    // pub fn is_on_curve<CS: ConstraintSystem<E>, AD: AuxData<E>>(
-    //     &self,
-    //     cs: &mut CS,
-    //     params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
-    //     aux_data: &AD,
-    // ) -> Result<Boolean, SynthesisError> {
+    pub fn negate<CS: ConstraintSystem<E>>(
+        &mut self,
+        cs: &mut CS,
+        _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+    ) -> Result<Self, SynthesisError> {
 
-    //     // either the point is zero, or satisfies the equation y^2 = x^3+b
-    //     let lhs = self.point.y.square(cs)?.0;
-    //     let (mut rhs, reduced_x) = self.point.x.square(cs)?;
-    //     rhs = rhs.mul(cs, reduced_x)?.0;
+        let (negated_y, y) = self.point.y.negated(cs)?;
+        self.point.y = y;
+        let negated_value = self.point.value.map(|x| {
+            let mut temp = x.clone();
+            temp.negate();
+            temp 
+        });
 
-    //     let b = FieldElement::new_constant(aux_data.get_b(), params);
-    //     rhs = rhs.add(cs, b)?.0;
+        let point = AffinePoint {
+            x: self.point.x.clone(),
+            y: negated_y,
+            value: negated_value,
+        };
 
-    //     let eq_flag = lhs.equals(cs, &rhs)?;
-    //     let is_on_curve = Boolean::or(cs, &self.is_zero, &eq_flag);
+        Ok(WrappedAffinePoint {
+            point: point,
+            is_zero: self.is_zero.clone(),
+        })
+    }
 
-    //     is_on_curve
-    // }
+    pub fn select<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        flag: &Boolean,
+        first: Self,
+        second: Self
+    ) -> Result<Self, SynthesisError> 
+    {
+        match flag {
+            Boolean::Constant(c) => {
+                if *c {
+                    return Ok(first.clone());
+                } else {
+                    return Ok(second.clone());
+                }
+            },
+            _ => {}
+        }
+
+        let point = AffinePoint::select(cs, flag, first.point, second.point)?;
+        let flag = Boolean::select(cs, flag, &first.is_zero, &second.is_zero)?;
+        
+        Ok(WrappedAffinePoint {
+            point: point,
+            is_zero: flag,
+        })
+    }
+
+    pub fn is_on_curve<CS: ConstraintSystem<E>, AD: AuxData<E>>(
+        &self,
+        cs: &mut CS,
+        params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        aux_data: &AD,
+    ) -> Result<Boolean, SynthesisError> {
+
+        // either the point is zero, or satisfies the equation y^2 = x^3+b
+        let lhs = self.point.y.clone().square(cs)?.0;
+        let (mut rhs, reduced_x) = self.point.x.clone().square(cs)?;
+        rhs = rhs.mul(cs, reduced_x)?.0;
+
+        let b = FieldElement::new_constant(aux_data.get_b(), params);
+        rhs = rhs.add(cs, b)?.0;
+
+        let eq_flag = lhs.equals(cs, &rhs)?;
+        let is_on_curve = Boolean::or(cs, &self.is_zero, &eq_flag);
+
+        is_on_curve
+    }
 
     pub fn subgroup_check<CS: ConstraintSystem<E>, AD: AuxData<E>>(
         &self,
@@ -327,9 +378,6 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
         // x_{m+n} = Q_{m+n}[x] = -4b z_m * z_n * (x_m*z_n + x_n*z_m) + (x_m * x_n)^2
         // z_{m+n} = Q_{m+n}[z] = x * (x_m * z_n - x_n * z_m)^2
 
-        
-        
-
         // Scalar multiplication using Montgomery’s ladder
         // INPUT: A point P on elliptic curve E and a positive integer n = (n_l...n_0) (binary decomposition of n: n_l = 1).
         // OUTPUT: The point [n]P.
@@ -345,7 +393,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
 
         let mut P_1_x = self.point.x.clone();
         let mut P_1_z = FieldElement::one(params);
-        let mut P_2_x = self.point.double(cs)?.0.x;
+        let mut P_2_x = self.point.clone().double(cs)?.0.x;
         let mut P_2_z = FieldElement::one(params);
 
         let mut found_one = false;
@@ -357,9 +405,9 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
 
                 if i {
                     // calcilate [2]P_2
-                    let (P_2_doubled_x, P_2_doubled_z) = double(cs, &mut P_2_x, &mut P_2_z, params, &b)?;
+                    let (P_2_doubled_x, P_2_doubled_z) = double(cs, P_2_x.clone(), P_2_z.clone(), params, &b)?;
                     // calculate P_1 ⊕ P_2
-                    let (P_1_2_x, P_1_2_z) = add(cs, &mut P_1_x, &mut P_1_z, &mut P_2_x, &mut P_2_z, 
+                    let (P_1_2_x, P_1_2_z) = add(cs, P_1_x, P_1_z, P_2_x, P_2_z, 
                         &mut self.point.x.clone(), params, &b)?;
 
                     P_1_x = P_1_2_x;
@@ -370,9 +418,9 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
                 }
                 else {
                     // calcilate [2]P_1
-                    let (P_1_doubled_x, P_1_doubled_z) = double(cs, &mut P_1_x, &mut P_1_z, params, &b)?;
+                    let (P_1_doubled_x, P_1_doubled_z) = double(cs, P_1_x.clone(), P_1_z.clone(), params, &b)?;
                     // calculate P_1 ⊕ P_2
-                    let (P_1_2_x, P_1_2_z) = add(cs, &mut P_1_x, &mut P_1_z, &mut P_2_x, &mut P_2_z, 
+                    let (P_1_2_x, P_1_2_z) = add(cs, P_1_x, P_1_z, P_2_x, P_2_z, 
                         &mut self.point.x.clone(), params, &b)?;
 
                     P_2_x = P_1_2_x;
@@ -394,11 +442,61 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
         // 1) the point was zero from the start 
         // 2) the point is zero at the end i.e. P_1_x = P_1_z = 0
         
-        let temp_flag = Boolean::and(cs, &P_1_x.is_zero(cs)?, &P_1_z.is_zero(cs)?)?;
+        let x_is_zero = P_1_x.is_zero(cs)?;
+        let z_is_zero = P_1_z.is_zero(cs)?;
+        let temp_flag = Boolean::and(cs, &x_is_zero, &z_is_zero)?;
         let subgroup_check = Boolean::or(cs, &temp_flag, &self.is_zero);
         
         subgroup_check
     }
+
+    pub fn mul<CS: ConstraintSystem<E>>(
+        &mut self,
+        cs: &mut CS,
+        scalar: &AllocatedNum::<E>,
+        bit_limit: Option<usize>,
+        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+    ) -> Result<Self, SynthesisError> 
+    {
+        let entries = decompose_allocated_num_into_skewed_table(cs, &scalar, bit_limit)?;
+        let entries_without_first_and_last = &entries[1..(entries.len() - 1)];
+        
+        let (negated_y, y) = self.point.y.negated(cs)?;
+        self.point.y = y;
+        let mut acc = self.clone();
+
+        let mut this_value = self.point.get_value();
+        let mut negated_value = self.point.get_value().map(|x| {
+            let mut temp = x;
+            temp.negate();
+            temp
+        });
+
+        for e in entries_without_first_and_last.iter() {
+            let (selected_y, _) = FieldElement::select(cs, e, self.point.y.clone(), negated_y.clone())?;
+            let selected_value = match (e.get_value(), this_value, negated_value) {
+                (Some(true), Some(val), _) => Some(val),
+                (Some(false), _, Some(val)) => Some(val),
+                _ => None,
+            };
+
+            let selected = WrappedAffinePoint {
+                is_zero: self.is_zero.clone(),
+                point: AffinePoint {x: self.point.x.clone(), y: selected_y, value: selected_value},
+            };
+
+            acc = acc.double(cs, params)?;
+            acc = acc.add(cs, &mut selected, params)?;  
+        }
+
+        let with_skew = acc.sub(cs, &mut self, params)?;
+
+        let last_entry = entries.last().unwrap();
+        let final_element = Self::select(cs, last_entry, with_skew, acc)?;
+
+        Ok(final_element)
+    }
+
 }
 
 
@@ -407,9 +505,9 @@ pub struct ProofGadget<'a, E: Engine> {
     pub num_inputs: usize,
     pub n: usize,
     pub input_values: Vec<AllocatedNum<E>>,
-    pub wire_commitments: Vec<AffinePoint<'a, E, E::G1Affine>>,
-    pub grand_product_commitment: AffinePoint<'a, E, E::G1Affine>,
-    pub quotient_poly_commitments: Vec<AffinePoint<'a, E, E::G1Affine>>,
+    pub wire_commitments: Vec<WrappedAffinePoint<'a, E>>,
+    pub grand_product_commitment: WrappedAffinePoint<'a, E>,
+    pub quotient_poly_commitments: Vec<WrappedAffinePoint<'a, E>>,
 
     pub wire_values_at_z: Vec<AllocatedNum<E>>,
     pub wire_values_at_z_omega: Vec<AllocatedNum<E>>,
@@ -418,8 +516,8 @@ pub struct ProofGadget<'a, E: Engine> {
     pub linearization_polynomial_at_z: AllocatedNum<E>,
     pub permutation_polynomials_at_z: Vec<AllocatedNum<E>>,
 
-    pub opening_at_z_proof: AffinePoint<'a, E, E::G1Affine>,
-    pub opening_at_z_omega_proof: AffinePoint<'a, E, E::G1Affine>,
+    pub opening_at_z_proof: WrappedAffinePoint<'a, E>,
+    pub opening_at_z_omega_proof: WrappedAffinePoint<'a, E>,
 }
 
 
@@ -436,13 +534,13 @@ impl<'a, E: Engine> ProofGadget<'a, E> {
         }).collect::<Result<Vec<_>, _>>()?;
 
         let wire_commitments = proof.wire_commitments.iter().map(|x| {
-            AffinePoint::alloc(cs, Some(*x), params)
+            WrappedAffinePoint::alloc(cs, Some(*x), params)
         }).collect::<Result<Vec<_>, _>>()?;
 
-        let grand_product_commitment = AffinePoint::alloc(cs, Some(proof.grand_product_commitment), params)?;
+        let grand_product_commitment = WrappedAffinePoint::alloc(cs, Some(proof.grand_product_commitment), params)?;
         
         let quotient_poly_commitments = proof.quotient_poly_commitments.iter().map(|x| {
-            AffinePoint::alloc(cs, Some(*x), params)
+            WrappedAffinePoint::alloc(cs, Some(*x), params)
         }).collect::<Result<Vec<_>, _>>()?;
 
         let wire_values_at_z = proof.wire_values_at_z.iter().map(|x| {
@@ -461,8 +559,8 @@ impl<'a, E: Engine> ProofGadget<'a, E> {
             AllocatedNum::alloc(cs, || Ok(*x))
         }).collect::<Result<Vec<_>, _>>()?;
 
-        let opening_at_z_proof = AffinePoint::alloc(cs, Some(proof.opening_at_z_proof), params)?;
-        let opening_at_z_omega_proof = AffinePoint::alloc(cs, Some(proof.opening_at_z_omega_proof), params)?;
+        let opening_at_z_proof = WrappedAffinePoint::alloc(cs, Some(proof.opening_at_z_proof), params)?;
+        let opening_at_z_omega_proof = WrappedAffinePoint::alloc(cs, Some(proof.opening_at_z_omega_proof), params)?;
        
         Ok(ProofGadget {
             num_inputs: proof.num_inputs,
@@ -490,9 +588,9 @@ impl<'a, E: Engine> ProofGadget<'a, E> {
 pub struct VerificationKeyGagdet<'a, E: Engine> {
     pub n: usize,
     pub num_inputs: usize,
-    pub selector_commitments: Vec<AffinePoint<'a, E, E::G1Affine>>,
-    pub next_step_selector_commitments: Vec<AffinePoint<'a, E, E::G1Affine>>,
-    pub permutation_commitments: Vec<AffinePoint<'a, E, E::G1Affine>>,
+    pub selector_commitments: Vec<WrappedAffinePoint<'a, E>>,
+    pub next_step_selector_commitments: Vec<WrappedAffinePoint<'a, E>>,
+    pub permutation_commitments: Vec<WrappedAffinePoint<'a, E>>,
     pub non_residues: Vec<E::Fr>,
 }
 
@@ -506,15 +604,15 @@ impl<'a, E: Engine> VerificationKeyGagdet<'a, E> {
     ) -> Result<Self, SynthesisError> {
 
         let selector_commitments = vk.selector_commitments.iter().map(|x| {
-            AffinePoint::alloc(cs, Some(*x), params)
+            WrappedAffinePoint::alloc(cs, Some(*x), params)
         }).collect::<Result<Vec<_>, _>>()?;
 
         let next_step_selector_commitments = vk.next_step_selector_commitments.iter().map(|x| {
-            AffinePoint::alloc(cs, Some(*x), params)
+            WrappedAffinePoint::alloc(cs, Some(*x), params)
         }).collect::<Result<Vec<_>, _>>()?;
 
         let permutation_commitments = vk.permutation_commitments.iter().map(|x| {
-            AffinePoint::alloc(cs, Some(*x), params)
+            WrappedAffinePoint::alloc(cs, Some(*x), params)
         }).collect::<Result<Vec<_>, _>>()?;
 
         Ok(VerificationKeyGagdet {

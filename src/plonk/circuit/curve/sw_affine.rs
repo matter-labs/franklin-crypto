@@ -396,7 +396,7 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         cs: &mut CS,
     ) -> Result<Self, SynthesisError>
     {
-        let new_y = self.y.negated(cs)?;
+        let new_y = self.y.clone().negated(cs)?;
         let value = self.get_value().map(|x| {
             let mut temp = x.clone();
             temp.negate();
@@ -404,7 +404,7 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         });
 
         Ok(AffinePoint {
-            x: self.x,
+            x: self.x.clone(),
             y: new_y.0,
             value,
         })
@@ -517,10 +517,12 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         second: Self
     ) -> Result<Self, SynthesisError> {
 
+        let x_value = first.get_value();
+        let y_value = second.get_value();
         let x = FieldElement::select(cs, flag, first.x, second.x)?;
         let y = FieldElement::select(cs, flag, first.y, second.y)?;
 
-        let value = match (flag.get_value(), first.get_value(), second.get_value()) {
+        let value = match (flag.get_value(), x_value, y_value) {
             (Some(true), Some(p), _) => Some(p),
             (Some(false), _, Some(p)) => Some(p),
             (_, _, _) => None
@@ -760,7 +762,7 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
     }
 }
 
-fn decompose_allocated_num_into_skewed_table<E: Engine, CS: ConstraintSystem<E>>(
+pub fn decompose_allocated_num_into_skewed_table<E: Engine, CS: ConstraintSystem<E>>(
     cs: &mut CS,
     num: &AllocatedNum<E>,
     bit_limit: Option<usize>
