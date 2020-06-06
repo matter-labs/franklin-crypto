@@ -158,6 +158,32 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
         }
     }
 
+    pub fn constant(
+        value: E::G1Affine,
+        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>
+    ) -> Self {
+        let is_zero = Boolean::constant(value.is_zero());
+        let point = AffinePoint::constant(value, params);
+
+        WrappedAffinePoint {
+            is_zero,
+            point,
+        }  
+    }
+
+    pub fn equals<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+        other: &Self,
+        _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+    ) -> Result<Boolean, SynthesisError> 
+    {
+        let pt_check = self.point.equals(cs, &other.point)?;
+        let flag_check = Boolean::not(&Boolean::xor(cs, &self.is_zero, &other.is_zero)?);
+        // pt_check || flag_check
+        Boolean::and(cs, &pt_check, &flag_check)
+    }
+
     pub fn add<CS: ConstraintSystem<E>>(
         &mut self,
         cs: &mut CS,
@@ -294,7 +320,8 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
         _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
     ) -> Result<Self, SynthesisError> {
 
-        let (negated_y, y) = self.point.y.negated(cs)?;
+        // cloning is inevitable: again it's only RUST, and not powerful C++
+        let (negated_y, y) = self.point.y.clone().negated(cs)?;
         self.point.y = y;
         let negated_value = self.point.value.map(|x| {
             let mut temp = x.clone();
@@ -461,12 +488,13 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
         let entries = decompose_allocated_num_into_skewed_table(cs, &scalar, bit_limit)?;
         let entries_without_first_and_last = &entries[1..(entries.len() - 1)];
         
-        let (negated_y, y) = self.point.y.negated(cs)?;
+        // again cloning: it's tooooooo difficult to get rid of unnecessary clonning in RUST
+        let (negated_y, y) = self.point.y.clone().negated(cs)?;
         self.point.y = y;
         let mut acc = self.clone();
 
-        let mut this_value = self.point.get_value();
-        let mut negated_value = self.point.get_value().map(|x| {
+        let this_value = self.point.get_value();
+        let negated_value = self.point.get_value().map(|x| {
             let mut temp = x;
             temp.negate();
             temp
@@ -480,7 +508,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
                 _ => None,
             };
 
-            let selected = WrappedAffinePoint {
+            let mut selected = WrappedAffinePoint {
                 is_zero: self.is_zero.clone(),
                 point: AffinePoint {x: self.point.x.clone(), y: selected_y, value: selected_value},
             };
@@ -489,7 +517,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
             acc = acc.add(cs, &mut selected, params)?;  
         }
 
-        let with_skew = acc.sub(cs, &mut self, params)?;
+        let with_skew = acc.sub(cs, self, params)?;
 
         let last_entry = entries.last().unwrap();
         let final_element = Self::select(cs, last_entry, with_skew, acc)?;

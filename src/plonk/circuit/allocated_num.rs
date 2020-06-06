@@ -518,6 +518,43 @@ impl<E: Engine> AllocatedNum<E> {
         })
     }
 
+    // returns c * x * y, where c = const
+    pub fn mul_scaled<CS>(
+        cs: &mut CS,
+        x: &Self, 
+        y: &Self,
+        c: &E::Fr,
+    ) -> Result<Self, SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let mut out_value = None;
+        let out = cs.alloc(|| {
+            let mut x_val = *x.value.get()?;
+            let mut y_val = *y.value.get()?;
+
+            let mut tmp = x_val;
+            tmp.mul_assign(&y_val);
+            tmp.mul_assign(c);
+
+            out_value = Some(tmp);
+            Ok(tmp)
+        })?;
+
+        let mut mul_term = ArithmeticTerm::from_variable(x.variable).mul_by_variable(y.variable);
+        mul_term.scale(c);
+        let out_term = ArithmeticTerm::from_variable(out);
+        
+        let mut term = MainGateTerm::new();
+        term.add_assign(mul_term);
+        term.sub_assign(out_term);
+        cs.allocate_main_gate(term)?;
+
+        Ok(AllocatedNum {
+            value: out_value,
+            variable: out,
+        })
+    }
+
     pub fn square<CS>(
         &self,
         cs: &mut CS,
@@ -705,6 +742,7 @@ impl<E: Engine> AllocatedNum<E> {
             tmp.add_assign(q_const);
             total.add_assign(&tmp);
 
+            out_value = Some(total);
             Ok(total)
         })?;
 

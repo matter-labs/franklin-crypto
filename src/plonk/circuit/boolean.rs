@@ -832,7 +832,7 @@ impl Boolean {
             (&Boolean::Constant(false), _, x) => Ok(x.clone()),
             (_, &Boolean::Constant(false), &Boolean::Constant(false)) => Ok(Boolean::Constant(false)),
             (_, &Boolean::Constant(true), &Boolean::Constant(true)) => Ok(Boolean::Constant(true)),
-            (&cond, &a, &b) => {
+            (cond, a, b) => {
                 
                 // cond && a ^ (not cond) && b = c;
 
