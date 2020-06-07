@@ -667,6 +667,9 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
     ) -> Result<Self, SynthesisError> 
     {
         // mul_advanced will be used to BLS12_381 and mul_naive will be used for BN256 (which is of prime order)
+        // TODO: I think we may get completely rid of using Q by the following simple observation:
+        // if P != 0 and scalar != 0 then scalar * P != 0
+        // however, Q trick still be useful for multiexponentiation (I missed the usefullness of multiexp even in this silly case)
         
         let res = match aux_data.get_G() {
             Some(ref Q) => self.mul_advanced(cs, scalar, bit_limit, params, Q),
