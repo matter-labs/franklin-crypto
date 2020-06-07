@@ -1,11 +1,13 @@
 use crate::plonk::circuit::curve::sw_affine::*;
 use crate::plonk::circuit::bigint::field::*;
+use crate::plonk::circuit::bigint::bigint::*;
 use crate::plonk::circuit::allocated_num::*;
 use crate::plonk::circuit::boolean::*;
 
 use crate::bellman::pairing::{
     Engine,
     CurveAffine,
+    CurveProjective,
 };
 
 use crate::bellman::pairing::ff::{
@@ -21,16 +23,21 @@ use crate::bellman::{
 use crate::bellman::plonk::better_better_cs::cs::{
     Variable, 
     ConstraintSystem,
+    PlonkConstraintSystemParams,
 };
 
-use crate::bellman::plonk::better_cs::cs::PlonkConstraintSystemParams;
 use crate::bellman::plonk::better_cs::keys::{Proof, VerificationKey};
+use crate::bellman::plonk::better_cs::cs::PlonkConstraintSystemParams as OldCSParams;
+use num_bigint::BigUint;
 
 
 pub trait AuxData<E: Engine>
 {
     fn get_b(&self) -> <E::G1Affine as CurveAffine>::Base;
     fn get_group_order(&self) -> &[u64];
+    // get point G not located in the main subgroup
+    // possible for BLS12-381 and not possible for BN
+    fn get_G(&self) -> Option<E::G1Affine>;
 }
 
 // x_{m+n} = Q_{m+n}[x] = -4b z_m * z_n * (x_m*z_n + x_n*z_m) + (x_m * x_n)^2
@@ -128,10 +135,11 @@ pub struct WrappedAffinePoint<'a, E: Engine> {
 
 impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
 
-    pub fn alloc<CS: ConstraintSystem<E>>(
+    pub fn alloc<CS: ConstraintSystem<E>, AD: AuxData<E>>(
         cs: &mut CS,
         value: Option<E::G1Affine>,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>
+        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        aux_data: &AD,
     ) -> Result<Self, SynthesisError> 
     {
         let mut point = AffinePoint::alloc(cs, value, params)?;
@@ -139,10 +147,36 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
         let is_y_zero = point.y.is_zero(cs)?;
         let is_zero = Boolean::and(cs, &is_x_zero, &is_y_zero)?;
 
-        Ok( WrappedAffinePoint {
+        let res = WrappedAffinePoint {
             is_zero,
             point,
-        }) 
+        };
+
+        let is_on_curve = res.is_on_curve(cs, params, aux_data)?;
+        let subgroup_check = res.subgroup_check(cs, params, aux_data)?;
+        let is_valid_point = Boolean::and(cs, &is_on_curve, &subgroup_check)?;
+        Boolean::enforce_equal(cs, &is_valid_point, &Boolean::constant(true))?;
+
+        Ok(res)
+    }
+
+    pub fn alloc_unchecked<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        value: Option<E::G1Affine>,
+        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+    ) -> Result<Self, SynthesisError> 
+    {
+        let mut point = AffinePoint::alloc(cs, value, params)?;
+        let is_x_zero = point.x.is_zero(cs)?;
+        let is_y_zero = point.y.is_zero(cs)?;
+        let is_zero = Boolean::and(cs, &is_x_zero, &is_y_zero)?;
+
+        let res = WrappedAffinePoint {
+            is_zero,
+            point,
+        };
+
+        Ok(res)
     }
 
     pub fn zero(
@@ -477,7 +511,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
         subgroup_check
     }
 
-    pub fn mul<CS: ConstraintSystem<E>>(
+    fn mul_naive<CS: ConstraintSystem<E>>(
         &mut self,
         cs: &mut CS,
         scalar: &AllocatedNum::<E>,
@@ -525,6 +559,122 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
         Ok(final_element)
     }
 
+    fn mul_advanced<CS: ConstraintSystem<E>>(
+        &mut self,
+        cs: &mut CS,
+        scalar: &AllocatedNum::<E>,
+        bit_limit: Option<usize>,
+        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        Q: &E::G1Affine,
+    ) -> Result<Self, SynthesisError> 
+    {
+        // let r (prime) be the order of the subgroup G we are working in
+        // let gen be any fixed point on our curve of order p != 1 coprime to 2*r (p may not be prime here)
+        // then 2^k Q + n * P (self = P) is never zero, or otherwise:
+        // 2^k  Q \in G =>  2^k * r * Q == 0 => p = ord(Q) | 2^k * r => gcd(2 * r, p) != 1 => 
+        // which contradicts our assumption on the order of Q 
+        // in such circumstances using add_unequal and double_add is completely safe, as the only corner cases 
+        // in which such functions do not work are exactly when 2^k * Q + n * P == O for some k, n \in Z_{>= 0},
+        // which will never happen
+        
+        let entries = decompose_allocated_num_into_skewed_table(cs, &scalar, bit_limit)?;
+        let entries_without_first_and_last = &entries[1..(entries.len() - 1)];
+
+        let generator = AffinePoint::constant(*Q, params);
+        let (mut acc, (this, gen)) = self.point.clone().add_unequal(cs, generator)?;
+
+        let mut x = this.x;
+        let y = this.y;
+        let mut num_doubles = 0;
+
+        let entries_without_first_and_last = &entries[1..(entries.len() - 1)];
+        let (minus_y, y) = y.negated(cs)?;
+
+        let this_value = self.point.get_value();
+        let negated_value = self.point.get_value().map(|x| {
+            let mut temp = x;
+            temp.negate();
+            temp
+        });
+
+        for e in entries_without_first_and_last.iter() {
+            let (selected_y, _) = FieldElement::select(cs, e, y.clone(), minus_y.clone())?;
+            let selected_value = match (e.get_value(), this_value, negated_value) {
+                (Some(true), Some(val), _) => Some(val),
+                (Some(false), _, Some(val)) => Some(val),
+                _ => None,
+            };
+            let selected_point = AffinePoint {
+                x: x,
+                y: selected_y,
+                value: selected_value,
+            };
+
+            let (new_acc, (old_acc, t)) = acc.double_and_add(cs, selected_point)?;
+            acc = new_acc;
+            x = t.x;
+            num_doubles += 1;
+        }
+
+        let (with_skew, (acc, this)) = acc.sub_unequal(cs, self.point.clone())?;
+        let last_entry = entries.last().unwrap();
+        let final_acc = AffinePoint::select(cs, last_entry, with_skew, acc)?;
+
+        // assume we have points A with coordinates (x_1, y_1) and auxiliarly generator G with cooridnates (x_2, y_2)
+        // A == 0 --- (true) ----- res = A
+        //        |
+        //     (false)
+        //        |
+        //   calculate B = final_acc;
+        //   it is safe: on every step we would add two nonzero points (see remark above)
+        //        |
+        //    B == num_doubles * Q ---- (true) --- res = O
+        //        |
+        //     (false)
+        //        |
+        //        |
+        //    res = sub(B, Q) 
+        //    res != O
+        //
+        // we are going to construct this selection tree from backwards
+
+        let shift = BigUint::from(1u64) << num_doubles;
+        let as_scalar_repr = biguint_to_repr::<E::Fr>(shift);
+        let offset_value = Q.mul(as_scalar_repr).into_affine();
+        let offset = AffinePoint::constant(offset_value, params);
+
+        let acc_equals_offset_flag = final_acc.equals(cs, &offset)?;
+        let (acc_minus_offset, _) = final_acc.sub_unequal(cs, offset)?;
+        
+        let zero = AffinePoint::zero(params);
+        let mut res_point = AffinePoint::select(cs, &acc_equals_offset_flag, zero.clone(), acc_minus_offset)?;
+        res_point = AffinePoint::select(cs, &self.is_zero, zero, res_point)?;
+
+        let is_zero_flag = Boolean::or(cs, &self.is_zero, &acc_equals_offset_flag)?;
+        Ok(WrappedAffinePoint {
+            point: res_point,
+            is_zero: is_zero_flag,
+        })
+    }
+
+    pub fn mul<CS: ConstraintSystem<E>, AD: AuxData<E>>(
+        &mut self,
+        cs: &mut CS,
+        scalar: &AllocatedNum::<E>,
+        bit_limit: Option<usize>,
+        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        aux_data: &AD,
+    ) -> Result<Self, SynthesisError> 
+    {
+        // mul_advanced will be used to BLS12_381 and mul_naive will be used for BN256 (which is of prime order)
+        
+        let res = match aux_data.get_G() {
+            Some(ref Q) => self.mul_advanced(cs, scalar, bit_limit, params, Q),
+            None => self.mul_naive(cs, scalar, bit_limit, params),
+        };
+
+        res
+    }
 }
 
 
@@ -551,10 +701,11 @@ pub struct ProofGadget<'a, E: Engine> {
 
 impl<'a, E: Engine> ProofGadget<'a, E> {
     
-    pub fn alloc<CS: ConstraintSystem<E>, P: PlonkConstraintSystemParams<E>>(
+    pub fn alloc<CS: ConstraintSystem<E>, P: OldCSParams<E>, AD: AuxData<E>>(
         cs: &mut CS,
         proof: Proof<E, P>,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>
+        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        aux_data: &AD,
     ) -> Result<Self, SynthesisError> {
 
         let input_values = proof.input_values.iter().map(|x| {
@@ -562,13 +713,13 @@ impl<'a, E: Engine> ProofGadget<'a, E> {
         }).collect::<Result<Vec<_>, _>>()?;
 
         let wire_commitments = proof.wire_commitments.iter().map(|x| {
-            WrappedAffinePoint::alloc(cs, Some(*x), params)
+            WrappedAffinePoint::alloc(cs, Some(*x), params, aux_data)
         }).collect::<Result<Vec<_>, _>>()?;
 
-        let grand_product_commitment = WrappedAffinePoint::alloc(cs, Some(proof.grand_product_commitment), params)?;
+        let grand_product_commitment = WrappedAffinePoint::alloc(cs, Some(proof.grand_product_commitment), params, aux_data)?;
         
         let quotient_poly_commitments = proof.quotient_poly_commitments.iter().map(|x| {
-            WrappedAffinePoint::alloc(cs, Some(*x), params)
+            WrappedAffinePoint::alloc(cs, Some(*x), params, aux_data)
         }).collect::<Result<Vec<_>, _>>()?;
 
         let wire_values_at_z = proof.wire_values_at_z.iter().map(|x| {
@@ -587,8 +738,8 @@ impl<'a, E: Engine> ProofGadget<'a, E> {
             AllocatedNum::alloc(cs, || Ok(*x))
         }).collect::<Result<Vec<_>, _>>()?;
 
-        let opening_at_z_proof = WrappedAffinePoint::alloc(cs, Some(proof.opening_at_z_proof), params)?;
-        let opening_at_z_omega_proof = WrappedAffinePoint::alloc(cs, Some(proof.opening_at_z_omega_proof), params)?;
+        let opening_at_z_proof = WrappedAffinePoint::alloc(cs, Some(proof.opening_at_z_proof), params, aux_data)?;
+        let opening_at_z_omega_proof = WrappedAffinePoint::alloc(cs, Some(proof.opening_at_z_omega_proof), params, aux_data)?;
        
         Ok(ProofGadget {
             num_inputs: proof.num_inputs,
@@ -625,22 +776,23 @@ pub struct VerificationKeyGagdet<'a, E: Engine> {
 
 impl<'a, E: Engine> VerificationKeyGagdet<'a, E> {
     
-    pub fn alloc<CS: ConstraintSystem<E>, P: PlonkConstraintSystemParams<E>>(
+    pub fn alloc<CS: ConstraintSystem<E>, P: OldCSParams<E>, AD: AuxData<E>>(
         cs: &mut CS,
         vk:  VerificationKey<E, P>,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>
+        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        aux_data: &AD,
     ) -> Result<Self, SynthesisError> {
 
         let selector_commitments = vk.selector_commitments.iter().map(|x| {
-            WrappedAffinePoint::alloc(cs, Some(*x), params)
+            WrappedAffinePoint::alloc(cs, Some(*x), params, aux_data)
         }).collect::<Result<Vec<_>, _>>()?;
 
         let next_step_selector_commitments = vk.next_step_selector_commitments.iter().map(|x| {
-            WrappedAffinePoint::alloc(cs, Some(*x), params)
+            WrappedAffinePoint::alloc(cs, Some(*x), params, aux_data)
         }).collect::<Result<Vec<_>, _>>()?;
 
         let permutation_commitments = vk.permutation_commitments.iter().map(|x| {
-            WrappedAffinePoint::alloc(cs, Some(*x), params)
+            WrappedAffinePoint::alloc(cs, Some(*x), params, aux_data)
         }).collect::<Result<Vec<_>, _>>()?;
 
         Ok(VerificationKeyGagdet {
