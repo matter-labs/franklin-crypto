@@ -12,6 +12,7 @@ mod test {
         Field,
         PrimeField,
         BitIterator,
+        ScalarEngine,
     };
 
     use crate::bellman::{
@@ -38,10 +39,26 @@ mod test {
     use crate::bellman::plonk::commitments::transcript::*;
     use crate::bellman::kate_commitment::*;
     use crate::bellman::plonk::fft::cooley_tukey_ntt::*;
+    use crate::bellman::plonk::better_better_cs::cs::{
+        TrivialAssembly, 
+        Circuit, 
+        PlonkCsWidth4WithNextStepParams, 
+        Width4MainGateWithDNext
+    };
 
+    use super::super::aux_data::*;
     use super::super::data_structs::*;
     use super::super::verifying_circuit::*;
-    
+    use super::super::channel::*;
+    use crate::plonk::circuit::curve::sw_affine::*;
+    use crate::plonk::circuit::bigint::field::*;
+    use crate::plonk::circuit::rescue::*;
+    use crate::rescue::RescueEngine;
+    use crate::bellman::pairing::bn256::{Bn256};
+    use crate::rescue::bn256::Bn256RescueParams;
+    use crate::rescue::bn256::rescue_transcript::RescueTranscript;
+    use crate::bellman::plonk::commitments::transcript::Transcript;
+
 
     #[derive(Clone)]
     pub struct BenchmarkCircuit<E: Engine>{
@@ -126,8 +143,15 @@ mod test {
         }
     }
 
-
-    pub fn recursion_test<E: Engine, T: Transcript<E::Fr>>(a: E::Fr, b: E::Fr, num_steps: usize) -> Result<(), SynthesisError>
+    pub fn recursion_test<E, T, CG, AD>(
+        a: E::Fr, 
+        b: E::Fr, 
+        num_steps: usize,
+        channel_params: &CG::Params,
+        rns_params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        transcript_params: <T as Prng<E::Fr>>::Params,
+    )
+    where E: Engine, T: Transcript<E::Fr>, CG: ChannelGadget<E>, AD: AuxData<E>
     {
         let worker = Worker::new();
         let output = fibbonacci(&a, &b, num_steps);
@@ -141,9 +165,9 @@ mod test {
         };
 
         let mut assembly = OldActualAssembly::<E>::new();
-        circuit.clone().synthesize(&mut assembly)?;
+        circuit.clone().synthesize(&mut assembly).expect("should synthesize");
         assembly.finalize();
-        let setup = assembly.setup(&worker)?;
+        let setup = assembly.setup(&worker).expect("should setup");
 
         let crs_mons = Crs::<E, CrsForMonomialForm>::crs_42(setup.permutation_polynomials[0].size(), &worker);
         let crs_vals = Crs::<E, CrsForLagrangeForm>::crs_42(setup.permutation_polynomials[0].size(), &worker);
@@ -152,15 +176,15 @@ mod test {
             &setup, 
             &worker, 
             &crs_mons
-        ).unwrap();
+        ).expect("should create vk");
 
         let precomputations = SetupPolynomialsPrecomputations::from_setup(
             &setup, 
             &worker
-        ).unwrap();
+        ).expect("should create precomputations");
 
         let mut prover = OldActualProver::<E>::new();
-        circuit.synthesize(&mut prover)?;
+        circuit.synthesize(&mut prover).expect("should synthesize");
         prover.finalize();
 
         let size = setup.permutation_polynomials[0].size();
@@ -168,6 +192,8 @@ mod test {
         let omegas_bitreversed = BitReversedOmegas::<E::Fr>::new_for_domain_size(size.next_power_of_two());
         let omegas_inv_bitreversed = 
             <OmegasInvBitreversed::<E::Fr> as CTPrecomputations::<E::Fr>>::new_for_domain_size(size.next_power_of_two());
+
+        println!("BEFORE PROOVE");
 
         let proof = prover.prove::<T, _, _>(
             &worker,
@@ -177,32 +203,46 @@ mod test {
             &crs_mons,
             &omegas_bitreversed,
             &omegas_inv_bitreversed,
-        )?;
+            transcript_params.clone(),
+        ).expect("should prove");
 
-        let (is_valid, arg1, arg2) = verify::<_, _, T>(&proof, &verification_key)?;
+        println!("DONE");
+
+        let (is_valid, arg1, arg2) = verify::<_, _, T>(&proof, &verification_key, transcript_params).expect("should verify");
 
         assert!(is_valid);
 
-        let verifier_circuit = PlonkVerifierCircuit<'a, E, T, P, OldP, AD> 
-        where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, OldP: OldCSParams<E>, P: PlonkConstraintSystemParams<E>
-        {
-            _engine_marker : std::marker::PhantomData<E>,
-            _channel_marker : std::marker::PhantomData<T>,
-            _cs_params_marker: std::marker::PhantomData<P>,
+        let verifier_circuit = PlonkVerifierCircuit::<E, CG, PlonkCsWidth4WithNextStepParams, OldActualParams, AD>::new(
+            channel_params, 
+            vec![a, b, output], 
+            vec![arg1.unwrap(), arg2.unwrap()], 
+            proof, 
+            verification_key, 
+            AD::new(), 
+            rns_params,
+        );
 
-            channel_params: T::Params,
+        let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+        verifier_circuit.synthesize(&mut cs).expect("should synthesize");
 
-            public_inputs : Vec<E::Fr>,
-            supposed_outputs: Vec<E::G1Affine>,
-            proof: Cell<Option<Proof<E, OldP>>>,
-            vk: Cell<Option<VerificationKey<E, OldP>>>,
-            aux_data: AD,
-            params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
-        }
-                //test_constraint_system_is_satisfied;
-        }
+        println!("number of gates: {}", cs.n());
+        assert!(cs.is_satisfied());
+    }
 
-        cs.synthesize();
+    #[test]
+    fn bn256_recursion_test() 
+    {   
+        let a = <Bn256 as ScalarEngine>::Fr::one();
+        let b = <Bn256 as ScalarEngine>::Fr::one();
+        let num_steps = 100;
+
+        let rns_params = RnsParameters::<Bn256, <Bn256 as Engine>::Fq>::new_for_field(68, 110, 4);
+        let rescue_params = Bn256RescueParams::new_checked_2_into_1();
+ 
+        recursion_test::<Bn256, RescueTranscript<Bn256>, RescueChannelGadget<Bn256>, BN256AuxData>(
+            a, b, num_steps, &rescue_params, &rns_params, &rescue_params,
+        );
+    }
 }
 
         

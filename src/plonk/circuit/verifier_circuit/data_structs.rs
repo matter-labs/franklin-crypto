@@ -3,6 +3,7 @@ use crate::plonk::circuit::bigint::field::*;
 use crate::plonk::circuit::bigint::bigint::*;
 use crate::plonk::circuit::allocated_num::*;
 use crate::plonk::circuit::boolean::*;
+use super::aux_data::AuxData;
 
 use crate::bellman::pairing::{
     Engine,
@@ -30,15 +31,6 @@ use crate::bellman::plonk::better_cs::keys::{Proof, VerificationKey};
 use crate::bellman::plonk::better_cs::cs::PlonkConstraintSystemParams as OldCSParams;
 use num_bigint::BigUint;
 
-
-pub trait AuxData<E: Engine>
-{
-    fn get_b(&self) -> <E::G1Affine as CurveAffine>::Base;
-    fn get_group_order(&self) -> &[u64];
-    // get point G not located in the main subgroup
-    // possible for BLS12-381 and not possible for BN
-    fn get_G(&self) -> Option<E::G1Affine>;
-}
 
 // x_{m+n} = Q_{m+n}[x] = -4b z_m * z_n * (x_m*z_n + x_n*z_m) + (x_m * x_n)^2
 // z_{m+n} = Q_{m+n}[z] = x * (x_m * z_n - x_n * z_m)^2

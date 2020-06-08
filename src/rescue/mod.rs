@@ -374,12 +374,12 @@ pub fn make_keyed_params<E: RescueEngine>(
 
     new_params
 }
-
+#[derive(Clone)]
 enum RescueOpMode<E: RescueEngine> {
     AccumulatingToAbsorb(Vec<E::Fr>),
     SqueezedInto(Vec<E::Fr>)
 }
-
+#[derive(Clone)]
 pub struct StatefulRescue<'a, E: RescueEngine> {
     params: &'a E::Params,
     internal_state: Vec<E::Fr>,

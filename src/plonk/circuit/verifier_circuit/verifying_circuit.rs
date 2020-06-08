@@ -34,6 +34,7 @@ use crate::plonk::circuit::allocated_num::*;
 use super::channel::*;
 use super::data_structs::*;
 use super::helper_functions::*;
+use super::aux_data::AuxData;
 
 use std::cell::Cell;
 
@@ -45,7 +46,7 @@ where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, OldP: OldCSParams<E>, P: P
     _channel_marker : std::marker::PhantomData<T>,
     _cs_params_marker: std::marker::PhantomData<P>,
 
-    channel_params: T::Params,
+    channel_params: &'a T::Params,
 
     public_inputs : Vec<E::Fr>,
     supposed_outputs: Vec<E::G1Affine>,
@@ -60,7 +61,7 @@ impl<'a, E, T, P, OldP, AD> PlonkVerifierCircuit<'a, E, T, P, OldP, AD>
 where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, P: PlonkConstraintSystemParams<E>, OldP: OldCSParams<E>
 {
     pub fn new(
-        channel_params: T::Params, 
+        channel_params: &'a T::Params, 
         public_inputs: Vec<E::Fr>, 
         supposed_outputs: Vec<E::G1Affine>,
         proof: Proof<E, OldP>,
@@ -98,7 +99,7 @@ where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, P: PlonkConstraintSystemPa
 
         assert!(P::CAN_ACCESS_NEXT_TRACE_STEP);
 
-        let mut channel = T::new(&self.channel_params);
+        let mut channel = T::new(self.channel_params);
 
         let actual_proof = self.proof.replace(None);
         let actual_vk = self.vk.replace(None);

@@ -10,6 +10,8 @@ use self::num_bigint::{BigUint, BigInt};
 use self::num_integer::{Integer, ExtendedGcd};
 use self::num_traits::{ToPrimitive, Zero, One};
 
+pub mod rescue_transcript;
+
 impl RescueEngine for bn256::Bn256 {
     type Params = Bn256RescueParams;
 }
