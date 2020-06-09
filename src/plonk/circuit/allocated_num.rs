@@ -310,13 +310,16 @@ impl<E: Engine> AllocatedNum<E> {
     ) -> Result<Boolean, SynthesisError>
         where CS: ConstraintSystem<E> 
     {
+
         let flag_value = self.get_value().map(|x| x.is_zero());
         let flag = AllocatedBit::alloc_unchecked(cs, flag_value)?;
 
+
         let inv_value = if let Some(value) = self.get_value() {
-            value.inverse()
+            //value.inverse()
+            Some(E::Fr::zero())
         } else {
-            None
+            Some(E::Fr::zero())
         };
 
         let inv = Self::alloc(
@@ -325,6 +328,8 @@ impl<E: Engine> AllocatedNum<E> {
                 Ok(*inv_value.get()?)
             }
         )?;
+
+    
 
         //  inv * X = (1 - flag) => inv * X + flag - 1 = 0
         //  flag * X = 0

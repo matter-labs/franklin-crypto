@@ -480,11 +480,11 @@ impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
         match self.mode {
             RescueOpMode::AccumulatingToAbsorb(ref mut into) => {
                 let rate = self.params.rate() as usize;
-                assert_eq!(into.len(), rate, "padding was necessary!");
+                //assert_eq!(into.len(), rate, "padding was necessary!");
                 // two cases
                 // either we have accumulated enough already and should to 
                 // a mimc round before accumulating more, or just accumulate more
-                for i in 0..rate {
+                for i in 0..into.len() {
                     self.internal_state[i].add_assign(&into[i]);
                 }
                 self.internal_state = rescue_mimc::<E>(self.params, &self.internal_state);

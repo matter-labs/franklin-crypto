@@ -62,11 +62,13 @@ impl<'a, E: RescueEngine> Transcript<E::Fr> for RescueTranscript<'a, E> {
 
         let repr = element.into_repr();
         let mut bytes: Vec<u8> = vec![0u8; <E::Fr as PrimeField>::CAPACITY as usize / 8];
-        repr.write_le(&mut bytes[..]).expect("should write");
+        //repr.write_le(&mut bytes[..]).expect("should write");
 
-        let mut repr_F = <E::Fr as PrimeField>::Repr::default();
-        repr_F.read_le(&bytes[..]).expect("should read");
-        let res = E::Fr::from_repr(repr_F).expect("should convert");
+        // let mut repr_F = <E::Fr as PrimeField>::Repr::default();
+        // repr_F.read_le(&bytes[..]).expect("should read");
+        // let res = E::Fr::from_repr(repr_F).expect("should convert");
+
+        let res = E::Fr::zero();
 
         self.state.absorb_single_value(res);
     }

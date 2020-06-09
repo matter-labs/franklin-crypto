@@ -61,7 +61,7 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
     ) -> Result<Self, SynthesisError> {
         let (x, y) = match value {
             Some(v) => {
-                assert!(!v.is_zero());
+                //assert!(!v.is_zero());
                 let (x, y) = v.into_xy_unchecked();
 
                 (Some(x), Some(y))
@@ -96,7 +96,7 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         value: G,
         params: &'a RnsParameters<E, G::Base>
     ) -> Self {
-        assert!(!value.is_zero());
+        //assert!(!value.is_zero());
         let (x, y) = value.into_xy_unchecked();
 
         let x = FieldElement::new_constant(
@@ -253,11 +253,11 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let other_x = other.x;
         let other_y = other.y;
 
-        let this_x_base = this_x.base_field_limb.get_value().unwrap();
-        let this_y_base = this_y.base_field_limb.get_value().unwrap();
+        // let this_x_base = this_x.base_field_limb.get_value().unwrap();
+        // let this_y_base = this_y.base_field_limb.get_value().unwrap();
 
-        let other_x_base = other_x.base_field_limb.get_value().unwrap();
-        let other_y_base = other_y.base_field_limb.get_value().unwrap();
+        // let other_x_base = other_x.base_field_limb.get_value().unwrap();
+        // let other_y_base = other_y.base_field_limb.get_value().unwrap();
 
         let (this_y_negated, this_y) = this_y.negated(cs)?;
         let (this_x_negated, this_x) = this_x.negated(cs)?;

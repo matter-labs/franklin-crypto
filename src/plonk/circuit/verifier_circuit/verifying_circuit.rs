@@ -99,7 +99,11 @@ where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, P: PlonkConstraintSystemPa
 
         assert!(P::CAN_ACCESS_NEXT_TRACE_STEP);
 
+        println!("A");
+
         let mut channel = T::new(self.channel_params);
+
+        println!("AA");
 
         let actual_proof = self.proof.replace(None);
         let actual_vk = self.vk.replace(None);
@@ -107,6 +111,7 @@ where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, P: PlonkConstraintSystemPa
         let mut proof = ProofGadget::alloc(cs, actual_proof.unwrap(), self.params, &self.aux_data)?;
         let mut vk = VerificationKeyGagdet::alloc(cs, actual_vk.unwrap(), self.params, &self.aux_data)?;
         
+        println!("B");
         if proof.n != vk.n {
             return Err(SynthesisError::MalformedVerifyingKey);
         }
@@ -168,6 +173,8 @@ where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, P: PlonkConstraintSystemPa
 
         channel.consume(proof.quotient_polynomial_at_z.clone(), cs)?;
         channel.consume(proof.linearization_polynomial_at_z.clone(), cs)?;
+
+        println!("C");
 
         let omega_inv = domain.generator.inverse().expect("should exist");
         let domain_size_decomposed = decompose_const_to_bits::<E, _>(&[required_domain_size as u64]);
@@ -240,6 +247,7 @@ where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, P: PlonkConstraintSystemPa
         // calculate the power to add z(X) commitment that is opened at x*omega
         // it's r(X) + witness + all permutations + 1
         let v_power_for_standalone_z_x_opening = 1 + 1 + P::STATE_WIDTH + (P::STATE_WIDTH-1);
+        println!("D");
 
         let mut virtual_commitment_for_linearization_poly = {
 
@@ -252,7 +260,9 @@ where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, P: PlonkConstraintSystemPa
 
                 for i in 0..P::STATE_WIDTH {
                     // Q_k(X) * K(z)
+                    println!("E");
                     let mut tmp = vk.selector_commitments[i].mul(cs, &proof.wire_values_at_z[i], None, self.params, &self.aux_data)?;
+                    println!("G");
                     r = r.add(cs, &mut tmp, self.params)?;
                 }
 

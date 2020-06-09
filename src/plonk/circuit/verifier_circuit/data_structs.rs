@@ -144,10 +144,17 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
             point,
         };
 
-        let is_on_curve = res.is_on_curve(cs, params, aux_data)?;
-        let subgroup_check = res.subgroup_check(cs, params, aux_data)?;
-        let is_valid_point = Boolean::and(cs, &is_on_curve, &subgroup_check)?;
-        Boolean::enforce_equal(cs, &is_valid_point, &Boolean::constant(true))?;
+        
+
+        // let is_on_curve = res.is_on_curve(cs, params, aux_data)?;
+        
+        // let subgroup_check = res.subgroup_check(cs, params, aux_data)?;
+        
+        // let is_valid_point = Boolean::and(cs, &is_on_curve, &subgroup_check)?;
+        
+        // Boolean::enforce_equal(cs, &is_valid_point, &Boolean::constant(true))?;
+
+        
 
         Ok(res)
     }
@@ -402,16 +409,22 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
     ) -> Result<Boolean, SynthesisError> {
 
         // either the point is zero, or satisfies the equation y^2 = x^3+b
+       
         let lhs = self.point.y.clone().square(cs)?.0;
+        
         let (mut rhs, reduced_x) = self.point.x.clone().square(cs)?;
+        
         rhs = rhs.mul(cs, reduced_x)?.0;
+        
 
         let b = FieldElement::new_constant(aux_data.get_b(), params);
+       
         rhs = rhs.add(cs, b)?.0;
+   
 
         let eq_flag = lhs.equals(cs, &rhs)?;
+        
         let is_on_curve = Boolean::or(cs, &self.is_zero, &eq_flag);
-
         is_on_curve
     }
 
@@ -470,7 +483,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
                     P_2_z = P_2_doubled_z;
                 }
                 else {
-                    // calcilate [2]P_1
+                    // calculate [2]P_1
                     let (P_1_doubled_x, P_1_doubled_z) = double(cs, P_1_x.clone(), P_1_z.clone(), params, &b)?;
                     // calculate P_1 ⊕ P_2
                     let (P_1_2_x, P_1_2_z) = add(cs, P_1_x, P_1_z, P_2_x, P_2_z, 
@@ -515,7 +528,9 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
         let entries_without_first_and_last = &entries[1..(entries.len() - 1)];
         
         // again cloning: it's tooooooo difficult to get rid of unnecessary clonning in RUST
+        
         let (negated_y, y) = self.point.y.clone().negated(cs)?;
+   
         self.point.y = y;
         let mut acc = self.clone();
 
@@ -539,11 +554,16 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
                 point: AffinePoint {x: self.point.x.clone(), y: selected_y, value: selected_value},
             };
 
+           
             acc = acc.double(cs, params)?;
+            
             acc = acc.add(cs, &mut selected, params)?;  
+            
         }
 
+        
         let with_skew = acc.sub(cs, self, params)?;
+        
 
         let last_entry = entries.last().unwrap();
         let final_element = Self::select(cs, last_entry, with_skew, acc)?;
@@ -568,11 +588,14 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
         // in such circumstances using add_unequal and double_add is completely safe, as the only corner cases 
         // in which such functions do not work are exactly when 2^k * Q + n * P == O for some k, n \in Z_{>= 0},
         // which will never happen
+
+        println!("start");
         
         let entries = decompose_allocated_num_into_skewed_table(cs, &scalar, bit_limit)?;
         let entries_without_first_and_last = &entries[1..(entries.len() - 1)];
 
-        let generator = AffinePoint::constant(*Q, params);
+        //let generator = AffinePoint::constant(*Q, params);
+        let generator = AffinePoint::alloc(cs, None, params)?;
         let (mut acc, (this, gen)) = self.point.clone().add_unequal(cs, generator)?;
 
         let mut x = this.x;
@@ -629,7 +652,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
         //    res != O
         //
         // we are going to construct this selection tree from backwards
-
+        println!("here");
         let shift = BigUint::from(1u64) << num_doubles;
         let as_scalar_repr = biguint_to_repr::<E::Fr>(shift);
         let offset_value = Q.mul(as_scalar_repr).into_affine();
@@ -665,7 +688,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> {
         
         let res = match aux_data.get_G() {
             Some(ref Q) => self.mul_advanced(cs, scalar, bit_limit, params, Q),
-            None => self.mul_naive(cs, scalar, bit_limit, params),
+            None => self.mul_advanced(cs, scalar, bit_limit, params, &E::G1Affine::one()),
         };
 
         res
@@ -703,38 +726,44 @@ impl<'a, E: Engine> ProofGadget<'a, E> {
         aux_data: &AD,
     ) -> Result<Self, SynthesisError> {
 
+        println!("C");
+        
         let input_values = proof.input_values.iter().map(|x| {
-            AllocatedNum::alloc_input(cs, || Ok(*x))
+            AllocatedNum::alloc_input(cs, || Err(SynthesisError::AssignmentMissing))
         }).collect::<Result<Vec<_>, _>>()?;
 
+        println!("C");
+
         let wire_commitments = proof.wire_commitments.iter().map(|x| {
-            WrappedAffinePoint::alloc(cs, Some(*x), params, aux_data)
+            WrappedAffinePoint::alloc(cs, None, params, aux_data)
         }).collect::<Result<Vec<_>, _>>()?;
+
+        println!("C");
 
         let grand_product_commitment = WrappedAffinePoint::alloc(cs, Some(proof.grand_product_commitment), params, aux_data)?;
         
         let quotient_poly_commitments = proof.quotient_poly_commitments.iter().map(|x| {
-            WrappedAffinePoint::alloc(cs, Some(*x), params, aux_data)
+            WrappedAffinePoint::alloc(cs, None, params, aux_data)
         }).collect::<Result<Vec<_>, _>>()?;
 
         let wire_values_at_z = proof.wire_values_at_z.iter().map(|x| {
-            AllocatedNum::alloc(cs, || Ok(*x))
+            AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))
         }).collect::<Result<Vec<_>, _>>()?;
 
         let wire_values_at_z_omega = proof.wire_values_at_z_omega.iter().map(|x| {
-            AllocatedNum::alloc(cs, || Ok(*x))
+            AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))
         }).collect::<Result<Vec<_>, _>>()?;
 
-        let grand_product_at_z_omega = AllocatedNum::alloc(cs, || Ok(proof.grand_product_at_z_omega))?; 
-        let quotient_polynomial_at_z = AllocatedNum::alloc(cs, || Ok(proof.quotient_polynomial_at_z))?; 
-        let linearization_polynomial_at_z = AllocatedNum::alloc(cs, || Ok(proof.linearization_polynomial_at_z))?;  
+        let grand_product_at_z_omega = AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?; 
+        let quotient_polynomial_at_z = AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?; 
+        let linearization_polynomial_at_z = AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?;  
 
         let permutation_polynomials_at_z = proof.permutation_polynomials_at_z.iter().map(|x| {
             AllocatedNum::alloc(cs, || Ok(*x))
         }).collect::<Result<Vec<_>, _>>()?;
 
-        let opening_at_z_proof = WrappedAffinePoint::alloc(cs, Some(proof.opening_at_z_proof), params, aux_data)?;
-        let opening_at_z_omega_proof = WrappedAffinePoint::alloc(cs, Some(proof.opening_at_z_omega_proof), params, aux_data)?;
+        let opening_at_z_proof = WrappedAffinePoint::alloc(cs, None, params, aux_data)?;
+        let opening_at_z_omega_proof = WrappedAffinePoint::alloc(cs, None, params, aux_data)?;
        
         Ok(ProofGadget {
             num_inputs: proof.num_inputs,
@@ -779,15 +808,15 @@ impl<'a, E: Engine> VerificationKeyGagdet<'a, E> {
     ) -> Result<Self, SynthesisError> {
 
         let selector_commitments = vk.selector_commitments.iter().map(|x| {
-            WrappedAffinePoint::alloc(cs, Some(*x), params, aux_data)
+            WrappedAffinePoint::alloc(cs, None, params, aux_data)
         }).collect::<Result<Vec<_>, _>>()?;
 
         let next_step_selector_commitments = vk.next_step_selector_commitments.iter().map(|x| {
-            WrappedAffinePoint::alloc(cs, Some(*x), params, aux_data)
+            WrappedAffinePoint::alloc(cs, None, params, aux_data)
         }).collect::<Result<Vec<_>, _>>()?;
 
         let permutation_commitments = vk.permutation_commitments.iter().map(|x| {
-            WrappedAffinePoint::alloc(cs, Some(*x), params, aux_data)
+            WrappedAffinePoint::alloc(cs, None, params, aux_data)
         }).collect::<Result<Vec<_>, _>>()?;
 
         Ok(VerificationKeyGagdet {

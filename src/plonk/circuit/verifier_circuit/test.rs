@@ -224,7 +224,7 @@ mod test {
 
         let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
         verifier_circuit.synthesize(&mut cs).expect("should synthesize");
-
+        cs.finalize();
         println!("number of gates: {}", cs.n());
         assert!(cs.is_satisfied());
     }
@@ -234,7 +234,7 @@ mod test {
     {   
         let a = <Bn256 as ScalarEngine>::Fr::one();
         let b = <Bn256 as ScalarEngine>::Fr::one();
-        let num_steps = 100;
+        let num_steps = 1000;
 
         let rns_params = RnsParameters::<Bn256, <Bn256 as Engine>::Fq>::new_for_field(68, 110, 4);
         let rescue_params = Bn256RescueParams::new_checked_2_into_1();
