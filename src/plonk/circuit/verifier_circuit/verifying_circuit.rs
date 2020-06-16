@@ -255,30 +255,29 @@ OldP: OldCSParams<E>, WP: WrappedAffinePoint<'a, E>
 
         let mut virtual_commitment_for_linearization_poly = {
 
-            let mut r;
+            let mut r = vk.selector_commitments[selector_q_const_index].clone();
+            let mut points: Vec<WP> = vec![];
+            let mut scalars: Vec<AllocatedNum<E>> = vec![];
 
             // main gate. Does NOT include public inputs
             {
                 // Q_const(x)
-                r = vk.selector_commitments[selector_q_const_index].clone();
-
                 for i in 0..P::STATE_WIDTH {
                     // Q_k(X) * K(z)
                     // here multiexp may be used
-                    let mut tmp = vk.selector_commitments[i].mul(cs, &proof.wire_values_at_z[i], None, self.params, &self.aux_data)?;
-                    r = r.add(cs, &mut tmp, self.params)?;
+                    points.push(vk.selector_commitments[i].clone());
+                    scalars.push(proof.wire_values_at_z[i].clone());
                 }
 
                 // Q_m(X) * A(z) * B(z)
                 // add to multiexp as well
                 let mut scalar = proof.wire_values_at_z[0].clone();
                 scalar = scalar.mul(cs, &proof.wire_values_at_z[1])?;
-                let mut tmp = vk.selector_commitments[selector_q_m_index].mul(cs, &scalar, None, self.params, &self.aux_data)?;
-                r = r.add(cs, &mut tmp, self.params)?;
+                points.push(vk.selector_commitments[selector_q_m_index].clone());
+                scalars.push(scalar);
 
-                // Q_d_next(X) * D(z*omega)
-                tmp = vk.next_step_selector_commitments[0].mul(cs, &proof.wire_values_at_z_omega[0], None, self.params, &self.aux_data)?;
-                r = r.add(cs, &mut tmp, self.params)?;
+                points.push(vk.next_step_selector_commitments[0].clone());
+                scalars.push(proof.wire_values_at_z_omega[0].clone());
             }
 
             // v * [alpha * (a + beta*z + gamma)(b + beta*k_1*z + gamma)()() * z(X) -
@@ -355,15 +354,15 @@ OldP: OldCSParams<E>, WP: WrappedAffinePoint<'a, E>
 
             {
                 // also add to multiexp
-                let mut tmp1 = proof.grand_product_commitment.mul(cs, &grand_product_part_at_z, None, self.params, &self.aux_data)?;
-                 
-                let mut tmp2 = vk.permutation_commitments.last_mut().unwrap().mul(
-                    cs, &last_permutation_part_at_z, None, self.params, &self.aux_data)?;
-                     
-                tmp1 = tmp1.sub(cs, &mut tmp2, self.params)?;
-               
-                r = r.add(cs, &mut tmp1, self.params)?;
+                points.push(proof.grand_product_commitment.clone());
+                scalars.push(grand_product_part_at_z);
+                
+                points.push(vk.permutation_commitments.last_mut().unwrap().negate(cs, self.params)?);
+                scalars.push(last_permutation_part_at_z);
             }
+
+            let mut tmp = WP::multiexp(cs, &scalars[..], &points[..], None, self.params, &self.aux_data)?;
+            r = r.add(cs, &mut tmp, self.params)?;
 
             r = r.mul(cs, &v, None, self.params, &self.aux_data)?;
             let mut tmp = proof.grand_product_commitment.mul(cs, &grand_product_part_at_z_omega, None, self.params, &self.aux_data)?;
@@ -377,11 +376,14 @@ OldP: OldCSParams<E>, WP: WrappedAffinePoint<'a, E>
 
         let mut commitments_aggregation = proof.quotient_poly_commitments[0].clone();
 
+        let mut scalars : Vec<AllocatedNum<E>> = vec![];
+        let mut points: Vec<WP> = vec![];
+
         let mut current = z_in_pow_domain_size.clone();
         for part in proof.quotient_poly_commitments.iter_mut().skip(1) {
             //second multiexp
-            let mut temp = part.mul(cs, &current, None, self.params, &self.aux_data)?;
-            commitments_aggregation = commitments_aggregation.add(cs, &mut temp, self.params)?;
+            points.push(part.clone());
+            scalars.push(current.clone());
             current = current.mul(cs, &z_in_pow_domain_size)?;
         }
 
@@ -392,8 +394,8 @@ OldP: OldCSParams<E>, WP: WrappedAffinePoint<'a, E>
         for com in proof.wire_commitments.iter_mut() {
             // add to second multiexp as well
             multiopening_challenge = multiopening_challenge.mul(cs, &v)?; 
-            let mut tmp = com.mul(cs, &multiopening_challenge, None, self.params, &self.aux_data)?;
-            commitments_aggregation = commitments_aggregation.add(cs, &mut tmp, self.params)?;
+            points.push(com.clone());
+            scalars.push(multiopening_challenge.clone());
         }
 
         // and for all permutation polynomials except the last one
@@ -403,8 +405,10 @@ OldP: OldCSParams<E>, WP: WrappedAffinePoint<'a, E>
         for com in vk.permutation_commitments[0..(arr_len - 1)].iter_mut() {
             // v^{1+STATE_WIDTH + STATE_WIDTH - 1}
             // second multiexp
-            let mut tmp = com.mul(cs, &multiopening_challenge, None, self.params, &self.aux_data)?;
-            commitments_aggregation = commitments_aggregation.add(cs, &mut tmp, self.params)?;
+            // TODOL check if we should increment the challenge
+            //multiopening_challenge = multiopening_challenge.mul(cs, &v)?; 
+            points.push(com.clone());
+            scalars.push(multiopening_challenge.clone());
         }
         
         // we skip z(X) at z
@@ -415,8 +419,8 @@ OldP: OldCSParams<E>, WP: WrappedAffinePoint<'a, E>
         multiopening_challenge = multiopening_challenge.mul(cs, &v)?; 
         let scalar = multiopening_challenge.mul(cs, &u)?;
         // add to second multiexp
-        let mut tmp = proof.wire_commitments.last_mut().unwrap().mul(cs, &scalar, None, self.params, &self.aux_data)?;
-        commitments_aggregation = commitments_aggregation.add(cs, &mut tmp, self.params)?;
+        points.push(proof.wire_commitments.last_mut().unwrap().clone());
+        scalars.push(scalar);
 
         // subtract the opening value using one multiplication
 
@@ -452,13 +456,12 @@ OldP: OldCSParams<E>, WP: WrappedAffinePoint<'a, E>
             aggregated_value = aggregated_value.add(cs, &tmp)?;
         }
 
-        println!("ttt");
-
         // make equivalent of (f(x) - f(z))
         // also add to second multiexp
-        let mut tmp = WP::constant(E::G1Affine::one(), self.params);
-        tmp = tmp.mul(cs, &aggregated_value, None, self.params, &self.aux_data)?;
-        commitments_aggregation = commitments_aggregation.sub(cs, &mut tmp, self.params)?;
+        let mut val = E::G1Affine::one();
+        val.negate();
+        points.push(WP::constant(val, self.params));
+        scalars.push(aggregated_value);
 
         // next, we need to check that
         // e(proof_for_z + u*proof_for_z_omega, g2^x) = 
@@ -472,13 +475,15 @@ OldP: OldCSParams<E>, WP: WrappedAffinePoint<'a, E>
         arg1 = arg1.add(cs, &mut proof.opening_at_z_proof, self.params)?;
 
         // to second multiexp
-        let mut tmp = proof.opening_at_z_proof.mul(cs, &z, None, self.params, &self.aux_data)?;
-        let mut arg2 = commitments_aggregation.add(cs, &mut tmp, self.params)?;
+        points.push(proof.opening_at_z_proof.clone());
+        scalars.push(z.clone());
       
         let scalar = AllocatedNum::mul_scaled(cs, &z, &u, &domain.generator)?;
-        let mut tmp = proof.opening_at_z_omega_proof.mul(cs, &scalar, None, self.params, &self.aux_data)?;
+        points.push(proof.opening_at_z_omega_proof.clone());
+        scalars.push(scalar);
+        let mut tmp = WP::multiexp(cs, &scalars[..], &points[..], None, self.params, &self.aux_data)?;
         //to second multiexp
-        arg2 = arg2.add(cs, &mut tmp, self.params)?;
+        let arg2 = commitments_aggregation.add(cs, &mut tmp, self.params)?;
 
         // check if arg_i = supposed_output_i
         // TODO: suppused_outputs shoulf be definitely public

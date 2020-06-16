@@ -714,7 +714,7 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
             current_round_entries.truncate(0);
         }
 
-        println!("acc value = {}", acc.get_value().unwrap());
+        //println!("acc value = {}", acc.get_value().unwrap());
 
         // subtract
  
