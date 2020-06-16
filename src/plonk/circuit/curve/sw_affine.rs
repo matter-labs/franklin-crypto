@@ -112,7 +112,7 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let new = Self {
             x,
             y,
-            value: Some(value)
+            value: Some(value),
         };
 
         new
@@ -195,16 +195,19 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let (this_x_minus_new_x, (this_x, new_x)) = this_x.sub(cs, new_x)?;
         let (new_y, _) = lambda.fma_with_addition_chain(cs, this_x_minus_new_x, vec![this_y_negated])?;
 
-        let new_value = match (this_value, other_value) {
-            (Some(this), Some(other)) => {
-                assert!(this != other);
-                let mut tmp = this.into_projective();
-                tmp.add_assign_mixed(&other);
+        // let new_value = match (this_value, other_value) {
+        //     // (Some(this), Some(other)) => {
+        //     //     assert!(this != other);
+        //     //     let mut tmp = this.into_projective();
+        //     //     tmp.add_assign_mixed(&other);
 
-                Some(tmp.into_affine())
-            },
-            _ => None
-        };
+        //     //     Some(tmp.into_affine())
+        //     // },
+        //     // _ => None
+        //     None
+        // };
+
+        let new_value = None;
    
         let new = Self {
             x: new_x,

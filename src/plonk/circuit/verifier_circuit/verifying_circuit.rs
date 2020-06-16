@@ -34,17 +34,21 @@ use crate::plonk::circuit::allocated_num::*;
 use super::channel::*;
 use super::data_structs::*;
 use super::helper_functions::*;
-use super::aux_data::AuxData;
+use super::affine_point_wrapper::aux_data::AuxData;
+use super::affine_point_wrapper::WrappedAffinePoint;
 
 use std::cell::Cell;
 
 
-pub struct PlonkVerifierCircuit<'a, E, T, P, OldP, AD> 
-where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, OldP: OldCSParams<E>, P: PlonkConstraintSystemParams<E>
+pub struct PlonkVerifierCircuit<'a, E, T, P, OldP, AD, WP> 
+where 
+E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, OldP: OldCSParams<E>, 
+P: PlonkConstraintSystemParams<E>, WP: WrappedAffinePoint<'a, E>,
 {
     _engine_marker : std::marker::PhantomData<E>,
     _channel_marker : std::marker::PhantomData<T>,
     _cs_params_marker: std::marker::PhantomData<P>,
+    _point_wrapper_marker: std::marker::PhantomData<WP>,
 
     channel_params: &'a T::Params,
 
@@ -57,8 +61,10 @@ where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, OldP: OldCSParams<E>, P: P
 }
 
 
-impl<'a, E, T, P, OldP, AD> PlonkVerifierCircuit<'a, E, T, P, OldP, AD> 
-where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, P: PlonkConstraintSystemParams<E>, OldP: OldCSParams<E>
+impl<'a, E, T, P, OldP, AD, WP> PlonkVerifierCircuit<'a, E, T, P, OldP, AD, WP> 
+where 
+E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, P: PlonkConstraintSystemParams<E>, 
+OldP: OldCSParams<E>, WP: WrappedAffinePoint<'a, E>,
 {
     pub fn new(
         channel_params: &'a T::Params, 
@@ -76,6 +82,7 @@ where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, P: PlonkConstraintSystemPa
             _engine_marker : std::marker::PhantomData::<E>,
             _channel_marker : std::marker::PhantomData::<T>,
             _cs_params_marker: std::marker::PhantomData::<P>,
+            _point_wrapper_marker: std::marker::PhantomData::<WP>,
 
             channel_params,
             public_inputs,
@@ -89,8 +96,10 @@ where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, P: PlonkConstraintSystemPa
     }
 }
 
-impl<'a, E, T, P, OldP, AD> Circuit<E> for PlonkVerifierCircuit<'a, E, T, P, OldP, AD> 
-where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, P: PlonkConstraintSystemParams<E>, OldP: OldCSParams<E>
+impl<'a, E, T, P, OldP, AD, WP> Circuit<E> for PlonkVerifierCircuit<'a, E, T, P, OldP, AD, WP> 
+where 
+E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, P: PlonkConstraintSystemParams<E>, 
+OldP: OldCSParams<E>, WP: WrappedAffinePoint<'a, E>
 {
     fn synthesize<CS: ConstraintSystem<E>>(
         &self,
@@ -99,19 +108,14 @@ where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, P: PlonkConstraintSystemPa
 
         assert!(P::CAN_ACCESS_NEXT_TRACE_STEP);
 
-        println!("A");
-
         let mut channel = T::new(self.channel_params);
-
-        println!("AA");
 
         let actual_proof = self.proof.replace(None);
         let actual_vk = self.vk.replace(None);
 
-        let mut proof = ProofGadget::alloc(cs, actual_proof.unwrap(), self.params, &self.aux_data)?;
-        let mut vk = VerificationKeyGagdet::alloc(cs, actual_vk.unwrap(), self.params, &self.aux_data)?;
+        let mut proof = ProofGadget::<E, WP>::alloc(cs, actual_proof.unwrap(), self.params, &self.aux_data)?;
+        let mut vk = VerificationKeyGagdet::<E, WP>::alloc(cs, actual_vk.unwrap(), self.params, &self.aux_data)?;
         
-        println!("B");
         if proof.n != vk.n {
             return Err(SynthesisError::MalformedVerifyingKey);
         }
@@ -260,13 +264,13 @@ where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, P: PlonkConstraintSystemPa
 
                 for i in 0..P::STATE_WIDTH {
                     // Q_k(X) * K(z)
-                    println!("E");
+                    // here multiexp may be used
                     let mut tmp = vk.selector_commitments[i].mul(cs, &proof.wire_values_at_z[i], None, self.params, &self.aux_data)?;
-                    println!("G");
                     r = r.add(cs, &mut tmp, self.params)?;
                 }
 
                 // Q_m(X) * A(z) * B(z)
+                // add to multiexp as well
                 let mut scalar = proof.wire_values_at_z[0].clone();
                 scalar = scalar.mul(cs, &proof.wire_values_at_z[1])?;
                 let mut tmp = vk.selector_commitments[selector_q_m_index].mul(cs, &scalar, None, self.params, &self.aux_data)?;
@@ -348,12 +352,16 @@ where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, P: PlonkConstraintSystemPa
                 scalar
             };
 
+
             {
+                // also add to multiexp
                 let mut tmp1 = proof.grand_product_commitment.mul(cs, &grand_product_part_at_z, None, self.params, &self.aux_data)?;
+                 
                 let mut tmp2 = vk.permutation_commitments.last_mut().unwrap().mul(
                     cs, &last_permutation_part_at_z, None, self.params, &self.aux_data)?;
+                     
                 tmp1 = tmp1.sub(cs, &mut tmp2, self.params)?;
-                
+               
                 r = r.add(cs, &mut tmp1, self.params)?;
             }
 
@@ -371,6 +379,7 @@ where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, P: PlonkConstraintSystemPa
 
         let mut current = z_in_pow_domain_size.clone();
         for part in proof.quotient_poly_commitments.iter_mut().skip(1) {
+            //second multiexp
             let mut temp = part.mul(cs, &current, None, self.params, &self.aux_data)?;
             commitments_aggregation = commitments_aggregation.add(cs, &mut temp, self.params)?;
             current = current.mul(cs, &z_in_pow_domain_size)?;
@@ -381,6 +390,7 @@ where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, P: PlonkConstraintSystemPa
 
         // do the same for wires
         for com in proof.wire_commitments.iter_mut() {
+            // add to second multiexp as well
             multiopening_challenge = multiopening_challenge.mul(cs, &v)?; 
             let mut tmp = com.mul(cs, &multiopening_challenge, None, self.params, &self.aux_data)?;
             commitments_aggregation = commitments_aggregation.add(cs, &mut tmp, self.params)?;
@@ -392,11 +402,11 @@ where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, P: PlonkConstraintSystemPa
         let arr_len = vk.permutation_commitments.len();
         for com in vk.permutation_commitments[0..(arr_len - 1)].iter_mut() {
             // v^{1+STATE_WIDTH + STATE_WIDTH - 1}
-            
+            // second multiexp
             let mut tmp = com.mul(cs, &multiopening_challenge, None, self.params, &self.aux_data)?;
             commitments_aggregation = commitments_aggregation.add(cs, &mut tmp, self.params)?;
         }
-
+        
         // we skip z(X) at z
         multiopening_challenge = multiopening_challenge.mul(cs, &v)?; 
 
@@ -404,6 +414,7 @@ where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, P: PlonkConstraintSystemPa
         // using multiopening challenge and u
         multiopening_challenge = multiopening_challenge.mul(cs, &v)?; 
         let scalar = multiopening_challenge.mul(cs, &u)?;
+        // add to second multiexp
         let mut tmp = proof.wire_commitments.last_mut().unwrap().mul(cs, &scalar, None, self.params, &self.aux_data)?;
         commitments_aggregation = commitments_aggregation.add(cs, &mut tmp, self.params)?;
 
@@ -441,8 +452,11 @@ where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, P: PlonkConstraintSystemPa
             aggregated_value = aggregated_value.add(cs, &tmp)?;
         }
 
+        println!("ttt");
+
         // make equivalent of (f(x) - f(z))
-        let mut tmp = WrappedAffinePoint::constant(E::G1Affine::one(), self.params);
+        // also add to second multiexp
+        let mut tmp = WP::constant(E::G1Affine::one(), self.params);
         tmp = tmp.mul(cs, &aggregated_value, None, self.params, &self.aux_data)?;
         commitments_aggregation = commitments_aggregation.sub(cs, &mut tmp, self.params)?;
 
@@ -457,18 +471,20 @@ where E: Engine, T: ChannelGadget<E>, AD: AuxData<E>, P: PlonkConstraintSystemPa
         let mut arg1 = proof.opening_at_z_omega_proof.mul(cs, &u, None, self.params, &self.aux_data)?;
         arg1 = arg1.add(cs, &mut proof.opening_at_z_proof, self.params)?;
 
+        // to second multiexp
         let mut tmp = proof.opening_at_z_proof.mul(cs, &z, None, self.params, &self.aux_data)?;
         let mut arg2 = commitments_aggregation.add(cs, &mut tmp, self.params)?;
       
         let scalar = AllocatedNum::mul_scaled(cs, &z, &u, &domain.generator)?;
         let mut tmp = proof.opening_at_z_omega_proof.mul(cs, &scalar, None, self.params, &self.aux_data)?;
+        //to second multiexp
         arg2 = arg2.add(cs, &mut tmp, self.params)?;
 
         // check if arg_i = supposed_output_i
         // TODO: suppused_outputs shoulf be definitely public
 
-        let supposed_output_0 = WrappedAffinePoint::alloc_unchecked(cs, Some(self.supposed_outputs[0]), self.params)?;
-        let supposed_output_1 = WrappedAffinePoint::alloc_unchecked(cs, Some(self.supposed_outputs[1]), self.params)?;
+        let supposed_output_0 = WrappedAffinePoint::alloc_unchecked(cs, None, self.params)?;
+        let supposed_output_1 = WrappedAffinePoint::alloc_unchecked(cs, None, self.params)?;
 
         let comp1 = arg1.equals(cs, &supposed_output_0, self.params)?;
         let comp2 = arg2.equals(cs, &supposed_output_1, self.params)?;

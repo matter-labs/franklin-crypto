@@ -19,6 +19,7 @@ pub trait AuxData<E: Engine>
     // get point G not located in the main subgroup
     // possible for BLS12-381 and not possible for BN
     fn get_G(&self) -> Option<E::G1Affine>;
+    fn requires_subgroup_check(&self) -> bool;
 }
 
 
@@ -52,6 +53,10 @@ impl AuxData<Bn256> for BN256AuxData {
 
     fn get_G(&self) -> Option<<Bn256 as Engine>::G1Affine> {
         None
+    }
+
+    fn requires_subgroup_check(&self) -> bool {
+        false
     }
 }
 

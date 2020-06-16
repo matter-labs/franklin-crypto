@@ -540,7 +540,8 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         v: F,
         params: &'a RnsParameters<E, F>
     ) -> Self {
-        let value = fe_to_biguint(&v);
+        //let value = fe_to_biguint(&v);
+        let value = fe_to_biguint(&F::zero());
         let binary_limb_values = split_into_fixed_number_of_limbs(
             value.clone(), 
             params.binary_limbs_params.limb_size_bits,
@@ -577,7 +578,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
         let base_limb = Term::<E>::from_constant(base_limb);
 
-        assert_eq!(fe_to_biguint(&v) % &params.base_field_modulus, fe_to_biguint(&base_limb.get_value().unwrap()));
+        //assert_eq!(fe_to_biguint(&v) % &params.base_field_modulus, fe_to_biguint(&base_limb.get_value().unwrap()));
 
         Self {
             binary_limbs: binary_limbs_allocated,

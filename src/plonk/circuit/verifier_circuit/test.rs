@@ -46,7 +46,8 @@ mod test {
         Width4MainGateWithDNext
     };
 
-    use super::super::aux_data::*;
+    use super::super::affine_point_wrapper::aux_data::*;
+    use super::super::affine_point_wrapper::*;
     use super::super::data_structs::*;
     use super::super::verifying_circuit::*;
     use super::super::channel::*;
@@ -59,6 +60,8 @@ mod test {
     use crate::rescue::bn256::rescue_transcript::RescueTranscript;
     use crate::bellman::plonk::commitments::transcript::Transcript;
 
+    use crate::plonk::circuit::verifier_circuit::affine_point_wrapper::with_zero_flag::WrapperWithFlag;
+    use crate::plonk::circuit::verifier_circuit::affine_point_wrapper::without_flag_unchecked::WrapperUnchecked;
 
     #[derive(Clone)]
     pub struct BenchmarkCircuit<E: Engine>{
@@ -143,15 +146,15 @@ mod test {
         }
     }
 
-    pub fn recursion_test<E, T, CG, AD>(
+    pub fn recursion_test<'a, E, T, CG, AD, WP>(
         a: E::Fr, 
         b: E::Fr, 
         num_steps: usize,
-        channel_params: &CG::Params,
-        rns_params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        channel_params: &'a CG::Params,
+        rns_params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
         transcript_params: <T as Prng<E::Fr>>::Params,
     )
-    where E: Engine, T: Transcript<E::Fr>, CG: ChannelGadget<E>, AD: AuxData<E>
+    where E: Engine, T: Transcript<E::Fr>, CG: ChannelGadget<E>, AD: AuxData<E>, WP: WrappedAffinePoint<'a, E>
     {
         let worker = Worker::new();
         let output = fibbonacci(&a, &b, num_steps);
@@ -212,7 +215,8 @@ mod test {
 
         assert!(is_valid);
 
-        let verifier_circuit = PlonkVerifierCircuit::<E, CG, PlonkCsWidth4WithNextStepParams, OldActualParams, AD>::new(
+        let verifier_circuit = 
+        PlonkVerifierCircuit::<E, CG, PlonkCsWidth4WithNextStepParams, OldActualParams, AD, WP>::new(
             channel_params, 
             vec![a, b, output], 
             vec![arg1.unwrap(), arg2.unwrap()], 
@@ -239,7 +243,7 @@ mod test {
         let rns_params = RnsParameters::<Bn256, <Bn256 as Engine>::Fq>::new_for_field(68, 110, 4);
         let rescue_params = Bn256RescueParams::new_checked_2_into_1();
  
-        recursion_test::<Bn256, RescueTranscript<Bn256>, RescueChannelGadget<Bn256>, BN256AuxData>(
+        recursion_test::<Bn256, RescueTranscript<Bn256>, RescueChannelGadget<Bn256>, BN256AuxData, WrapperUnchecked<Bn256>>(
             a, b, num_steps, &rescue_params, &rns_params, &rescue_params,
         );
     }
