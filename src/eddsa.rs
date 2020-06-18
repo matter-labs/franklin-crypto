@@ -920,6 +920,11 @@ mod baby_tests {
         // in contrast to redjubjub, in this implementation out-of-group R is NOT allowed!
         let vktorsion = PublicKey(vk.0.add(&p8, params));
         assert!(!vktorsion.verify(msg, &sig, p_g, params));
+
+        let rtorsion = sig.r.add(&p8, params);
+        let mut sig_torsion = sig;
+        sig_torsion.r = rtorsion;
+        assert!(!vk.verify(msg, &sig_torsion, p_g, params));
     }
 
     // #[test]

@@ -69,11 +69,10 @@ pub struct RnsParameters<E: Engine, F: PrimeField>{
     // -modulus of represented field in base field
     pub represented_field_modulus_negated_in_base_field: E::Fr,
 
-    pub limb_witness_size: usize,
-
     pub range_check_info: RangeConstraintInfo,
 
     pub prefer_single_limb_allocation: bool,
+    pub prefer_single_limb_carry_propagation: bool,
 
     pub (crate) _marker: std::marker::PhantomData<F>
 }
@@ -196,16 +195,12 @@ impl<'a, E: Engine, F: PrimeField> RnsParameters<E, F>{
             binary_limbs_max_values: binary_limbs_max_values_if_in_field.clone(),
             represented_field_modulus_negated_limbs_biguints : negated_modulus_chunks,
             represented_field_modulus_negated_limbs,
-            limb_witness_size: 2,
             represented_field_modulus_negated_in_base_field: repr_modulus_negated,
             range_check_info: strategy,
             prefer_single_limb_allocation: prefer_single_limb_allocation,
+            prefer_single_limb_carry_propagation: false,
             _marker: std::marker::PhantomData
         };
-
-        // println!("fresh: {}, {} bits", freshly_allocated_max_value.to_str_radix(16), freshly_allocated_max_value.bits());
-
-        // println!("max: {}, {} bits", new.max_representable_value().to_str_radix(16), new.max_representable_value().bits());
 
         if freshly_allocated_max_value >= new.max_representable_value() {
             panic!("Newly allocated value will have limit of {} ({} bits) that is larger than max intermediate value {} ({} bits) before forced reduction",
@@ -225,6 +220,14 @@ impl<'a, E: Engine, F: PrimeField> RnsParameters<E, F>{
         } else {
             self.prefer_single_limb_allocation == false && self.binary_limbs_params.limb_size_bits % self.range_check_info.optimal_multiple == 0
         }
+    }
+
+    pub fn set_prefer_double_limb_carry_propagation(&mut self, value: bool) {
+        self.prefer_single_limb_carry_propagation = !value;
+    }
+
+    pub fn propagate_carries_using_double_limbs(&self) -> bool {
+        !self.prefer_single_limb_carry_propagation
     }
 }
 
@@ -315,49 +318,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         }
 
         Self::coarsely_allocate_from_single_limb_witnesses(cs, &witnesses, false, params)
-
-        // let mut binary_limbs_allocated = Vec::with_capacity(binary_limbs.len());
-
-        // for ((l, &width), max_val) in binary_limbs.into_iter()
-        //     .zip(params.binary_limbs_bit_widths.iter())
-        //     .zip(params.binary_limbs_max_values.iter().cloned()) 
-        // {
-        //     if width == 0 {
-        //         assert!(max_val.is_zero());
-        //         binary_limbs_allocated.push(Self::zero_limb());
-        //     } else {
-        //         let a = AllocatedNum::alloc(cs, || {
-        //             Ok(*l.get()?)
-        //         })?;
-
-        //         let _ = create_range_constraint_chain(cs, &a, width);
-        //         let term = Term::from_allocated_num(a);
-
-        //         let limb = Limb::<E>::new(
-        //             term,
-        //             max_val
-        //         );
-
-        //         binary_limbs_allocated.push(limb);
-        //     }
-        // }
-
-        // let a = AllocatedNum::alloc(cs, || {
-        //     Ok(*base_limb.get()?)
-        // })?;
-
-        // let base_limb = Term::from_allocated_num(a);
-
-        // assert_eq!(fe_to_biguint(&value.unwrap()) % &params.base_field_modulus, fe_to_biguint(&base_limb.get_value().unwrap()));
-
-        // let new = Self {
-        //     binary_limbs: binary_limbs_allocated,
-        //     base_field_limb: base_limb,
-        //     representation_params: params,
-        //     value,
-        // };
-
-        // Ok(new)
     }
 
     /// Allocate a field element from witnesses for individual binary(!) limbs,
@@ -610,7 +570,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         top_limb_may_overflow: bool,
         params: &'a RnsParameters<E, F>
     ) -> Result<Self, SynthesisError> {
-        assert!(params.num_binary_limbs == params.limb_witness_size * witnesses.len());
+        assert!(params.num_binary_limbs == 2 * witnesses.len());
         // until we make better handling of a case that top limb should be zero
         // we make sure that 
         assert!(params.num_limbs_for_in_field_representation & 1 == 0);
@@ -636,7 +596,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                     let limb_values = split_into_fixed_number_of_limbs(
                         v, 
                         params.binary_limbs_params.limb_size_bits, 
-                        params.limb_witness_size
+                        2
                     );
 
                     assert!(limb_values.len() == 2);
@@ -703,14 +663,14 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                         let limb_values = split_some_into_fixed_number_of_limbs(
                             Some(v), 
                             params.binary_limbs_params.limb_size_bits, 
-                            params.limb_witness_size
+                            2
                         );
 
                         limb_values
                     } else {
                         value_is_none = true;
 
-                        vec![None; params.limb_witness_size]
+                        vec![None; 2]
                     };
 
                     let low_idx = witness_idx*2;
@@ -1632,9 +1592,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
     ) -> Result<(Self, (Self, Self)), SynthesisError> {
         let params = self.representation_params;
 
-        let mut final_value = self.get_field_value();
-        final_value = final_value.mul(&other.get_field_value());
-
         let this = self.reduce_if_necessary(cs)?;
         let other = other.reduce_if_necessary(cs)?;
 
@@ -1671,17 +1628,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             some_biguint_to_fe(&r), 
             params
         )?;
-
-        // let r_wit = Self::slice_into_double_limb_witnesses(r, cs, params)?;
-    
-        // let r_elem = Self::from_double_size_limb_witnesses(
-        //     cs, 
-        //     &r_wit, 
-        //     false, 
-        //     params
-        // )?;
-
-        assert_eq!(fe_to_biguint(&final_value.unwrap()) % &params.base_field_modulus, fe_to_biguint(&r_elem.base_field_limb.get_value().unwrap()));
 
         // we constraint a * b = q*p + rem
 
@@ -1738,15 +1684,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             some_biguint_to_fe(&r), 
             params
         )?;
-
-        // let r_wit = Self::slice_into_double_limb_witnesses(r, cs, params)?;
-    
-        // let r_elem = Self::from_double_size_limb_witnesses(
-        //     cs, 
-        //     &r_wit, 
-        //     false, 
-        //     params
-        // )?;
 
         // we constraint a * b = q*p + rem
 
@@ -1829,17 +1766,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             params
         )?;
 
-        // let r_wit = Self::slice_into_double_limb_witnesses(r, cs, params)?;
-    
-        // let r_elem = Self::from_double_size_limb_witnesses(
-        //     cs, 
-        //     &r_wit, 
-        //     false, 
-        //     params
-        // )?;
-
-        assert_eq!(fe_to_biguint(&final_value.unwrap()) % &params.base_field_modulus, fe_to_biguint(&r_elem.base_field_limb.get_value().unwrap()));
-
         Self::constraint_fma_with_multiple_additions(
             cs, 
             &this,
@@ -1917,17 +1843,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             params
         )?;
 
-        // let r_wit = Self::slice_into_double_limb_witnesses(r, cs, params)?;
-    
-        // let r_elem = Self::from_double_size_limb_witnesses(
-        //     cs, 
-        //     &r_wit, 
-        //     false, 
-        //     params
-        // )?;
-
-        assert_eq!(fe_to_biguint(&final_value.unwrap()) % &params.base_field_modulus, fe_to_biguint(&r_elem.base_field_limb.get_value().unwrap()));
-
         Self::constraint_square_with_multiple_additions(
             cs, 
             &this,
@@ -2002,15 +1917,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             some_biguint_to_fe::<F>(&result),
             params
         )?;
-
-        // let inv_wit = Self::slice_into_double_limb_witnesses(result, cs, params)?;
-    
-        // let inv_wit = Self::from_double_size_limb_witnesses(
-        //     cs, 
-        //     &inv_wit, 
-        //     false, 
-        //     params
-        // )?;
 
         Self::constraint_fma_with_multiple_additions(
             cs, 
@@ -2133,15 +2039,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             some_biguint_to_fe::<F>(&result),
             params
         )?;
-
-        // let result_wit = Self::slice_into_double_limb_witnesses(result, cs, params)?;
-    
-        // let result_wit = Self::from_double_size_limb_witnesses(
-        //     cs, 
-        //     &result_wit, 
-        //     false, 
-        //     params
-        // )?;
 
         assert!(result_wit.get_field_value().unwrap() == f);
 
@@ -2329,219 +2226,23 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
         let params = mul_a.representation_params;
 
-        Self::propagate_carries_using_double_limb_approach(
-            cs,
-            (result_limbs, collapsed_max_values),
-            addition_elements,
-            result_remainder_decomposition,
-            params
-        )?;
-
-        // // now we need to process over additions and remainder
-        // let mut collapsed_limbs = vec![];
-        // let mut collapsed_max_values = vec![];
-        // for (components, max_values_components) in result_limbs.into_iter()
-        //                                             .zip(expected_binary_max_values.into_iter()) 
-        // {
-        //     assert!(components.len() > 0);
-        //     let r = if components.len() == 1 {
-        //         components[0].clone()
-        //     } else {
-        //         let (base, other) = components.split_first().unwrap();
-        //         let r = base.add_multiple(cs, &other)?;
-
-        //         r
-        //     };
-
-        //     collapsed_limbs.push(r);
-
-        //     let mut max_value = BigUint::from(0u64);
-        //     for c in max_values_components.into_iter() {
-        //         max_value += c;
-        //     }
-
-        //     collapsed_max_values.push(max_value);
-        // }
-
-        // // also add max value contributions from additions
-        // // we do not add max values from remainder cause we expect it to cancel exactly
-        // let mut double_limb_max_bits = vec![];
-        // for i in (0..target_limbs).step_by(2) {
-        //     let mut max_value = BigUint::from(0u64);
-        //     max_value += &collapsed_max_values[i];
-        //     max_value += &collapsed_max_values[i+1] << params.binary_limbs_params.limb_size_bits;
-        //     for a in addition_elements.iter() {
-        //         max_value += a.binary_limbs[i].max_value();
-        //         max_value += a.binary_limbs[i+1].max_value() << params.binary_limbs_params.limb_size_bits;
-        //     }
-
-        //     let mut max_bits = max_value.bits() as usize;
-        //     if max_bits & 1 == 1 {
-        //         // we expect to constraint by two bits only
-        //         max_bits += 1;
-        //     }
-
-        //     double_limb_max_bits.push(max_bits);
-        // }
-
-        // let shift_right_one_limb_constant = params.binary_limbs_params.shift_right_by_limb_constant;
-        // let mut shift_right_two_limb_constant = shift_right_one_limb_constant;
-        // shift_right_two_limb_constant.square();
-
-        // let shift_left_one_limb_constant = params.binary_limbs_params.shift_left_by_limb_constant;
-        // let mut shift_left_two_limb_constant = shift_left_one_limb_constant;
-        // shift_left_two_limb_constant.square();
-
-        // // check that multiplications did not overflow
-        // // e.g that a[0] * b[0] - q[0] * p[0] - r[0] fits into two limbs max
-
-        // let mut minus_one = E::Fr::one();
-        // minus_one.negate();
-
-        // let mut double_limb_carries = vec![];
-
-        // let mut chunk_of_previous_carry = None;
-
-        // let last_idx = target_limbs - 1;
-
-        // for i in (0..target_limbs).step_by(2) {
-        //     let mut contributions = vec![];
-
-        //     let tmp = collapsed_limbs[i].clone();
-        //     contributions.push(tmp);
-
-        //     let mut tmp = collapsed_limbs[i+1].clone();
-        //     tmp.scale(&shift_left_one_limb_constant);
-        //     contributions.push(tmp);
-
-        //     for result_remainder in result_remainder_decomposition.iter() {
-        //         let mut tmp = result_remainder.binary_limbs[i].term.clone();
-        //         tmp.negate();
-        //         contributions.push(tmp);
-    
-        //         let mut tmp = result_remainder.binary_limbs[i+1].term.clone();
-        //         tmp.scale(&shift_left_one_limb_constant);
-        //         tmp.negate();
-        //         contributions.push(tmp);
-
-        //     }
-
-        //     for addition_element in addition_elements.iter() {
-        //         let tmp = addition_element.binary_limbs[i].term.clone();
-        //         contributions.push(tmp);
-
-        //         let mut tmp = addition_element.binary_limbs[i+1].term.clone();
-        //         tmp.scale(&shift_left_one_limb_constant);
-        //         contributions.push(tmp);
-        //     }
-
-        //     if let Some(previous) = chunk_of_previous_carry.take() {
-        //         contributions.push(previous);
-        //     }
-
-        //     // collapse contributions
-        //     let (base, other) = contributions.split_first().unwrap();
-        //     let mut r = base.add_multiple(cs, &other)?;
-
-        //     r.scale(&shift_right_two_limb_constant);
-
-        //     if i+1 != last_idx {
-        //         chunk_of_previous_carry = Some(r.clone());
-        //     };
-
-        //     double_limb_carries.push(r);
-        // }
-
-        // assert!(chunk_of_previous_carry.is_none());
-
-        // assert_eq!(double_limb_carries.len(), double_limb_max_bits.len());
-
-        // let mut previous_chunk: Option<(Num<E>, usize)> = None;
-
-        // let last_idx = double_limb_carries.len() - 1;
-
-        // // now we have to take each "double carry" and propagate it into other
-        // for (idx, (r, max_bits)) in double_limb_carries.into_iter()
-        //     .zip(double_limb_max_bits.into_iter())
-        //     .enumerate() 
-        // {
-        //     let this_carry_value = r.collapse_into_num(cs)?;
-
-        //     assert!(max_bits >= 2*params.binary_limbs_params.limb_size_bits);
-
-        //     let mut carry_max_bits = max_bits - 2*params.binary_limbs_params.limb_size_bits;
-        //     if carry_max_bits & 1 == 1 {
-        //         carry_max_bits += 1;
-        //     }
-
-        //     if let Some((previous_carry_value, previous_max_bits)) = previous_chunk.take() {
-        //         // we have some bits to constraint from the previous step
-        //         let mut shift_constant = E::Fr::one();
-        //         for _ in 0..previous_max_bits {
-        //             shift_constant.double();
-        //         }
-        //         let mut this_combined_with_previous = Term::<E>::from_num(this_carry_value);
-        //         let previous_term = Term::<E>::from_num(previous_carry_value.clone());
-        //         this_combined_with_previous.scale(&shift_constant);
-        //         let combined_carry_value = this_combined_with_previous.add(cs, &previous_term)?.collapse_into_num(cs)?;
-
-        //         let max_bits_from_both = carry_max_bits + previous_max_bits;
-
-        //         match combined_carry_value {
-        //             Num::Constant(val) => {
-        //                 let f = fe_to_biguint(&val);
-        //                 assert!(f.bits() as usize <= max_bits);
-        //             },
-        //             Num::Variable(var) => {
-        //                 let chain = create_range_constraint_chain(cs, &var, max_bits_from_both)?;
-        //                 assert!(max_bits_from_both % chain.len() == 0);
-        //                 let constraint_bits_per_step = max_bits_from_both / chain.len();
-        //                 let idx_for_higher_part = carry_max_bits / constraint_bits_per_step - 1;
-
-        //                 let high_part_in_chain = chain[idx_for_higher_part].clone();
-
-        //                 let mut shift = E::Fr::one();
-        //                 for _ in 0..previous_max_bits {
-        //                     shift.double();
-        //                 }
-
-        //                 let mut high_part_shifted_and_negated = Term::from_allocated_num(high_part_in_chain);
-        //                 high_part_shifted_and_negated.scale(&shift);
-        //                 high_part_shifted_and_negated.negate();
-
-        //                 let combined_term = Term::from_allocated_num(var);
-
-        //                 let lower_part = combined_term.add(cs, &high_part_shifted_and_negated)?;
-
-        //                 let v = match previous_carry_value {
-        //                     Num::Variable(p) => p,
-        //                     _ => {unreachable!()}
-        //                 };
-
-        //                 let low = lower_part.collapse_into_num(cs)?.get_variable();
-
-        //                 low.enforce_equal(cs, &v)?;
-        //             }
-        //         }
-        //     } else {
-        //         if idx == last_idx {
-        //             // this is a last chunk, so we have to enforce right away
-        //             match this_carry_value {
-        //                 Num::Constant(val) => {
-        //                     let f = fe_to_biguint(&val);
-        //                     assert!(f.bits() as usize <= carry_max_bits);
-        //                 },
-        //                 Num::Variable(var) => {
-        //                     let _ = create_range_constraint_chain(cs, &var, carry_max_bits)?;
-        //                 }
-        //             }
-        //         } else {
-        //             // combine with next
-        //             previous_chunk = Some((this_carry_value, carry_max_bits));
-        //         }   
-                
-        //     }
-        // }
+        if params.propagate_carries_using_double_limbs() {
+            Self::propagate_carries_using_double_limb_approach(
+                cs,
+                (result_limbs, collapsed_max_values),
+                addition_elements,
+                result_remainder_decomposition,
+                params
+            )?;
+        } else {
+            Self::propagate_carries_using_single_limb_approach(
+                cs,
+                (result_limbs, collapsed_max_values),
+                addition_elements,
+                result_remainder_decomposition,
+                params
+            )?;
+        }
 
         // now much more trivial part - multiply base field basis
 
@@ -2672,195 +2373,23 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
         let params = this.representation_params;
 
-        Self::propagate_carries_using_double_limb_approach(
-            cs,
-            (result_limbs, collapsed_max_values),
-            addition_elements,
-            result_remainder_decomposition,
-            params
-        )?;
-
-        // // also add max value contributions from additions
-        // // we do not add max values from remainder cause we expect it to cancel exactly
-        // let mut double_limb_max_bits = vec![];
-        // for i in (0..target_limbs).step_by(2) {
-        //     let mut max_value = BigUint::from(0u64);
-        //     max_value += &collapsed_max_values[i];
-        //     max_value += &collapsed_max_values[i+1] << params.binary_limbs_params.limb_size_bits;
-        //     for a in addition_elements.iter() {
-        //         max_value += a.binary_limbs[i].max_value();
-        //         max_value += a.binary_limbs[i+1].max_value() << params.binary_limbs_params.limb_size_bits;
-        //     }
-
-        //     let mut max_bits = (max_value.bits() as usize) + 1;
-        //     if max_bits & 1 == 1 {
-        //         // we expect to constraint by two bits only
-        //         max_bits += 1;
-        //     }
-
-        //     double_limb_max_bits.push(max_bits);
-        // }
-
-        // let shift_right_one_limb_constant = params.binary_limbs_params.shift_right_by_limb_constant;
-        // let mut shift_right_two_limb_constant = shift_right_one_limb_constant;
-        // shift_right_two_limb_constant.square();
-
-        // let shift_left_one_limb_constant = params.binary_limbs_params.shift_left_by_limb_constant;
-        // let mut shift_left_two_limb_constant = shift_left_one_limb_constant;
-        // shift_left_two_limb_constant.square();
-
-        // // check that multiplications did not overflow
-        // // e.g that a[0] * b[0] - q[0] * p[0] - r[0] fits into two limbs max
-
-        // let mut minus_one = E::Fr::one();
-        // minus_one.negate();
-
-        // let mut double_limb_carries = vec![];
-
-        // let mut chunk_of_previous_carry = None;
-
-        // let last_idx = target_limbs - 1;
-
-        // for i in (0..target_limbs).step_by(2) {
-        //     let mut contributions = vec![];
-
-        //     for c in result_limbs[i].iter() {
-        //         contributions.push(c.clone());
-        //     }
-
-        //     for c in result_limbs[i+1].iter() {
-        //         let mut tmp = c.clone();
-        //         tmp.scale(&shift_left_one_limb_constant);
-        //         contributions.push(tmp);
-        //     }
-
-        //     for result_remainder in result_remainder_decomposition.iter() {
-        //         let mut tmp = result_remainder.binary_limbs[i].term.clone();
-        //         tmp.negate();
-        //         contributions.push(tmp);
-    
-        //         let mut tmp = result_remainder.binary_limbs[i+1].term.clone();
-        //         tmp.scale(&shift_left_one_limb_constant);
-        //         tmp.negate();
-        //         contributions.push(tmp);
-        //     }
-
-        //     for addition_element in addition_elements.iter() {
-        //         let tmp = addition_element.binary_limbs[i].term.clone();
-        //         contributions.push(tmp);
-
-        //         let mut tmp = addition_element.binary_limbs[i+1].term.clone();
-        //         tmp.scale(&shift_left_one_limb_constant);
-        //         contributions.push(tmp);
-        //     }
-
-        //     if let Some(previous) = chunk_of_previous_carry.take() {
-        //         contributions.push(previous);
-        //     }
-
-        //     // collapse contributions
-        //     let (base, other) = contributions.split_first().unwrap();
-        //     let mut r = base.add_multiple(cs, &other)?;
-
-        //     r.scale(&shift_right_two_limb_constant);
-
-        //     if i+1 != last_idx {
-        //         chunk_of_previous_carry = Some(r.clone());
-        //     };
-
-        //     double_limb_carries.push(r);
-        // }
-
-        // assert!(chunk_of_previous_carry.is_none());
-
-        // assert_eq!(double_limb_carries.len(), double_limb_max_bits.len());
-
-        // let mut previous_chunk: Option<(Num<E>, usize)> = None;
-
-        // let last_idx = double_limb_carries.len() - 1;
-
-        // // now we have to take each "double carry" and propagate it into other
-        // for (idx, (r, max_bits)) in double_limb_carries.into_iter()
-        //     .zip(double_limb_max_bits.into_iter())
-        //     .enumerate() 
-        // {
-        //     let this_carry_value = r.collapse_into_num(cs)?;
-
-        //     assert!(max_bits >= 2*params.binary_limbs_params.limb_size_bits);
-
-        //     let mut carry_max_bits = max_bits - 2*params.binary_limbs_params.limb_size_bits;
-        //     if carry_max_bits & 1 == 1 {
-        //         carry_max_bits += 1;
-        //     }
-
-        //     if let Some((previous_carry_value, previous_max_bits)) = previous_chunk.take() {
-        //         // we have some bits to constraint from the previous step
-        //         let mut shift_constant = E::Fr::one();
-        //         for _ in 0..previous_max_bits {
-        //             shift_constant.double();
-        //         }
-        //         let mut this_combined_with_previous = Term::<E>::from_num(this_carry_value);
-        //         let previous_term = Term::<E>::from_num(previous_carry_value.clone());
-        //         this_combined_with_previous.scale(&shift_constant);
-        //         let combined_carry_value = this_combined_with_previous.add(cs, &previous_term)?.collapse_into_num(cs)?;
-
-        //         let max_bits_from_both = carry_max_bits + previous_max_bits;
-
-        //         match combined_carry_value {
-        //             Num::Constant(val) => {
-        //                 let f = fe_to_biguint(&val);
-        //                 assert!(f.bits() as usize <= max_bits);
-        //             },
-        //             Num::Variable(var) => {
-        //                 let chain = create_range_constraint_chain(cs, &var, max_bits_from_both)?;
-        //                 assert!(max_bits_from_both % chain.len() == 0);
-        //                 let constraint_bits_per_step = max_bits_from_both / chain.len();
-        //                 let idx_for_higher_part = carry_max_bits / constraint_bits_per_step - 1;
-
-        //                 let high_part_in_chain = chain[idx_for_higher_part].clone();
-
-        //                 let mut shift = E::Fr::one();
-        //                 for _ in 0..previous_max_bits {
-        //                     shift.double();
-        //                 }
-
-        //                 let mut high_part_shifted_and_negated = Term::from_allocated_num(high_part_in_chain);
-        //                 high_part_shifted_and_negated.scale(&shift);
-        //                 high_part_shifted_and_negated.negate();
-
-        //                 let combined_term = Term::from_allocated_num(var);
-
-        //                 let lower_part = combined_term.add(cs, &high_part_shifted_and_negated)?;
-
-        //                 let v = match previous_carry_value {
-        //                     Num::Variable(p) => p,
-        //                     _ => {unreachable!()}
-        //                 };
-
-        //                 let low = lower_part.collapse_into_num(cs)?.get_variable();
-
-        //                 low.enforce_equal(cs, &v)?;
-        //             }
-        //         }
-        //     } else {
-        //         if idx == last_idx {
-        //             // this is a last chunk, so we have to enforce right away
-        //             match this_carry_value {
-        //                 Num::Constant(val) => {
-        //                     let f = fe_to_biguint(&val);
-        //                     assert!(f.bits() as usize <= carry_max_bits);
-        //                 },
-        //                 Num::Variable(var) => {
-        //                     let _ = create_range_constraint_chain(cs, &var, carry_max_bits)?;
-        //                 }
-        //             }
-        //         } else {
-        //             // combine with next
-        //             previous_chunk = Some((this_carry_value, carry_max_bits));
-        //         }   
-                
-        //     }
-        // }
+        if params.propagate_carries_using_double_limbs() {
+            Self::propagate_carries_using_double_limb_approach(
+                cs,
+                (result_limbs, collapsed_max_values),
+                addition_elements,
+                result_remainder_decomposition,
+                params
+            )?;
+        } else {
+            Self::propagate_carries_using_single_limb_approach(
+                cs,
+                (result_limbs, collapsed_max_values),
+                addition_elements,
+                result_remainder_decomposition,
+                params
+            )?;
+        }
 
         // now much more trivial part - multiply base field basis
 
@@ -3070,98 +2599,104 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         }
 
         Ok(())
+    }
 
-        // let mut previous_chunk: Option<(Num<E>, usize)> = None;
+    fn propagate_carries_using_single_limb_approach<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        bases: (Vec<Vec<Term<E>>>, Vec<BigUint>),
+        add: &[Self],
+        sub: &[Self],
+        params: &RnsParameters<E, F>
+    ) -> Result<(), SynthesisError> {
+        let num_limbs = params.num_binary_limbs;
 
-        // let last_idx = double_limb_carries.len() - 1;
+        // keep track of the max values after additions
 
-        // let mut nums_to_constraint = vec![];
-        // let mut expected_widths = vec![];
+        let (result_limbs, collapsed_max_values) = bases;
 
+        let mut limb_max_bits = vec![];
 
+        // work over max bits
 
-        // // now we have to take each "double carry" and propagate it into other
-        // for (idx, (r, max_bits)) in double_limb_carries.into_iter()
-        //     .zip(double_limb_max_bits.into_iter())
-        //     .enumerate() 
-        // {
-        //     let this_carry_value = r.collapse_into_num(cs)?;
+        for (limb_idx, collapsed_limb_max_value) in collapsed_max_values.into_iter().enumerate() {
+            let mut max_value = collapsed_limb_max_value;
+            for a in add.iter() {
+                max_value += a.binary_limbs[limb_idx].max_value();
+            }
 
-        //     assert!(max_bits >= 2*params.binary_limbs_params.limb_size_bits);
+            let max_bits = max_value.bits() as usize;
 
-        //     let carry_max_bits = max_bits - 2*params.binary_limbs_params.limb_size_bits;
-        //     let carry_max_bits = make_multiple(carry_max_bits, params.range_check_info.minimal_multiple);
+            assert!(max_bits >= params.binary_limbs_params.limb_size_bits);
+            assert!(max_bits <= E::Fr::CAPACITY as usize);
 
-        //     if let Some((previous_carry_value, previous_max_bits)) = previous_chunk.take() {
-        //         // we have some bits to constraint from the previous step
-        //         let mut shift_constant = E::Fr::one();
-        //         for _ in 0..previous_max_bits {
-        //             shift_constant.double();
-        //         }
-        //         let mut this_combined_with_previous = Term::<E>::from_num(this_carry_value);
-        //         let previous_term = Term::<E>::from_num(previous_carry_value.clone());
-        //         this_combined_with_previous.scale(&shift_constant);
-        //         let combined_carry_value = this_combined_with_previous.add(cs, &previous_term)?.collapse_into_num(cs)?;
+            let carry_max_bits = max_bits - params.binary_limbs_params.limb_size_bits;
 
-        //         let max_bits_from_both = carry_max_bits + previous_max_bits;
+            limb_max_bits.push(carry_max_bits);
+        }
 
-        //         match combined_carry_value {
-        //             Num::Constant(val) => {
-        //                 let f = fe_to_biguint(&val);
-        //                 assert!(f.bits() as usize <= max_bits);
-        //             },
-        //             Num::Variable(var) => {
-        //                 let chain = create_range_constraint_chain(cs, &var, max_bits_from_both)?;
-        //                 assert!(max_bits_from_both % chain.len() == 0);
-        //                 let constraint_bits_per_step = max_bits_from_both / chain.len();
-        //                 let idx_for_higher_part = carry_max_bits / constraint_bits_per_step - 1;
+        let shift_right_one_limb_constant = params.binary_limbs_params.shift_right_by_limb_constant;
+        let shift_left_one_limb_constant = params.binary_limbs_params.shift_left_by_limb_constant;
 
-        //                 let high_part_in_chain = chain[idx_for_higher_part].clone();
+        // propagate carries
 
-        //                 let mut shift = E::Fr::one();
-        //                 for _ in 0..previous_max_bits {
-        //                     shift.double();
-        //                 }
+        let mut minus_one = E::Fr::one();
+        minus_one.negate();
 
-        //                 let mut high_part_shifted_and_negated = Term::from_allocated_num(high_part_in_chain);
-        //                 high_part_shifted_and_negated.scale(&shift);
-        //                 high_part_shifted_and_negated.negate();
+        let mut carries = vec![];
 
-        //                 let combined_term = Term::from_allocated_num(var);
+        let mut chunk_of_previous_carry = None;
 
-        //                 let lower_part = combined_term.add(cs, &high_part_shifted_and_negated)?;
+        for i in 0..num_limbs {
+            let mut contributions = vec![];
 
-        //                 let v = match previous_carry_value {
-        //                     Num::Variable(p) => p,
-        //                     _ => {unreachable!()}
-        //                 };
+            for c in result_limbs[i].iter() {
+                contributions.push(c.clone());
+            }
 
-        //                 let low = lower_part.collapse_into_num(cs)?.get_variable();
+            for result_remainder in sub.iter() {
+                let mut tmp = result_remainder.binary_limbs[i].term.clone();
+                tmp.negate();
+                contributions.push(tmp);
+            }
 
-        //                 low.enforce_equal(cs, &v)?;
-        //             }
-        //         }
-        //     } else {
-        //         if idx == last_idx {
-        //             // this is a last chunk, so we have to enforce right away
-        //             match this_carry_value {
-        //                 Num::Constant(val) => {
-        //                     let f = fe_to_biguint(&val);
-        //                     assert!(f.bits() as usize <= carry_max_bits);
-        //                 },
-        //                 Num::Variable(var) => {
-        //                     let _ = create_range_constraint_chain(cs, &var, carry_max_bits)?;
-        //                 }
-        //             }
-        //         } else {
-        //             // combine with next
-        //             previous_chunk = Some((this_carry_value, carry_max_bits));
-        //         }   
-                
-        //     }
-        // }
+            for addition_element in add.iter() {
+                let tmp = addition_element.binary_limbs[i].term.clone();
+                contributions.push(tmp);
+            }
 
-        // Ok(())
+            if let Some(previous) = chunk_of_previous_carry.take() {
+                contributions.push(previous);
+            }
+
+            // collapse contributions
+            let (base, other) = contributions.split_first().unwrap();
+            let mut r = base.add_multiple(cs, &other)?;
+
+            r.scale(&shift_right_one_limb_constant);
+
+            if i+1 == num_limbs {
+                // we don't need to propagate any further
+            } else {
+                chunk_of_previous_carry = Some(r.clone());
+            };
+
+            carries.push(r);
+        }
+
+        assert!(chunk_of_previous_carry.is_none());
+
+        assert_eq!(limb_max_bits.len(), carries.len());
+
+        // now we need to perform individual constraining
+
+        match params.range_check_info.strategy {
+            RangeConstraintStrategy::MultiTable => {
+                super::range_constraint_functions::adaptively_coarsely_constraint_multiple(cs, &carries, &limb_max_bits)?;
+            },
+            _ => unimplemented!("other forms of range constraining are not implemented")
+        }
+
+        Ok(())
     }
 
     fn cong_factor(value: BigUint, modulus: &BigUint) -> Option<usize> {

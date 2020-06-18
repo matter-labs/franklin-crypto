@@ -1743,13 +1743,15 @@ mod test {
 
         let strats = get_range_constraint_info(&cs);
 
-        let params = RnsParameters::<Bls12, Fq>::new_for_field_with_strategy(
-            80, 
+        let mut params = RnsParameters::<Bls12, Fq>::new_for_field_with_strategy(
+            96, 
             110, 
-            7, 
+            6, 
             strats[0],
             true
         );
+
+        params.set_prefer_double_limb_carry_propagation(false);
 
         let mut a_s = vec![];
         let mut b_s = vec![];
