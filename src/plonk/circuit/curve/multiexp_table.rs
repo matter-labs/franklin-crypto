@@ -156,8 +156,6 @@ impl<'a, E: Engine, G: CurveAffine> MultiexpTable<'a, E, G> where G::Base: Prime
         let (tmp_2, (original_3, original_2)) = chunk[3].clone().add_unequal(cs, chunk[2].clone())?;
         let (tmp_3, (original_3, original_2)) = original_3.sub_unequal(cs, original_2)?;
 
-        println!("Created pairs of points");
-
         // combinations of combinations of pairs
 
         let (entry_0, (tmp_2, tmp_0)) = tmp_2.add_unequal(cs, tmp_0)?;
@@ -177,8 +175,6 @@ impl<'a, E: Engine, G: CurveAffine> MultiexpTable<'a, E, G> where G::Base: Prime
         let entries = vec![
             entry_0, entry_1, entry_2, entry_3, entry_4, entry_5, entry_6, entry_7
         ];
-
-        println!("Created lookup entries of points");
 
         // now make individual lookup tables for each limb
 
@@ -222,8 +218,8 @@ impl<'a, E: Engine, G: CurveAffine> MultiexpTable<'a, E, G> where G::Base: Prime
         let (entry_0, (original_2, tmp_0)) = original_2.add_unequal(cs, tmp_0)?;
         let (entry_1, (original_2, tmp_1)) = original_2.add_unequal(cs, tmp_1)?;
 
-        let (entry_2, (original_2, tmp_1)) = original_2.sub_unequal(cs, tmp_1)?;
-        let (entry_3, (original_2, tmp_0)) = original_2.sub_unequal(cs, tmp_0)?;
+        let (entry_2, (original_2, _)) = original_2.sub_unequal(cs, tmp_1)?;
+        let (entry_3, (original_2, _)) = original_2.sub_unequal(cs, tmp_0)?;
 
         let params = entry_0.x.representation_params;
 
@@ -302,11 +298,11 @@ impl<'a, E: Engine, G: CurveAffine> MultiexpTable<'a, E, G> where G::Base: Prime
     ) -> Result<AffinePoint<'a, E, G>, SynthesisError> {
         assert!(bits.len() >= 2);
         assert!(bits.len() <= 4);
-        let negation_bit = bits[0].clone();
+        let negation_bit = bits.last().unwrap().clone();
 
         let mut selection_bits = Vec::with_capacity(bits.len() - 1);
 
-        for i in 1..bits.len() {
+        for i in (0..(bits.len()-1)).rev() {
             let bb = Boolean::xor(cs, &negation_bit, &bits[i])?;
 
             selection_bits.push(bb);
@@ -418,6 +414,19 @@ impl<'a, E: Engine, G: CurveAffine> MultiexpTable<'a, E, G> where G::Base: Prime
 
         let (final_y, _) = FieldElement::select(cs, &negation_bit, negated_y, selected_y)?;
 
+        let point_value = match (point_value, negation_bit.get_value()) {
+            (Some(mut val), Some(b)) => {
+                if b {
+                    val.negate();
+                }
+
+                Some(val)
+            },
+            _ => {
+                None
+            }
+        };
+
         let point = AffinePoint::<_, _> {
             x: selected_x,
             y: final_y,
@@ -511,7 +520,7 @@ impl<'a, E: Engine, G: CurveAffine> MultiexpTable<'a, E, G> where G::Base: Prime
                 queries.push(q);
             },
             3 => {
-                let w3 = self.width_two_table.as_ref().unwrap();
+                let w3 = self.width_three_table.as_ref().unwrap();
                 let q = Self::select_from_table_two_to_four(cs, w3, remainder, self.params)?;
                 queries.push(q);
             },

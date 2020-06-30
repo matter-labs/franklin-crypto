@@ -553,7 +553,9 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         params: &'a RnsParameters<E, F>
     ) -> Result<Self, SynthesisError> {
         if params.can_allocate_from_double_limb_witness() == true {
-            unimplemented!()
+            let slices = Self::slice_into_double_limb_witnesses(value, cs, params, true)?;
+
+            Self::from_double_size_limb_witnesses(cs, &slices, true, params)
         } else {
             assert!(params.binary_limbs_params.limb_size_bits % params.range_check_info.minimal_multiple == 0, 
                 "limb size must be divisible by range constraint strategy granularity");
@@ -935,6 +937,28 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         self.base_field_limb.is_constant()
     }
 
+    pub fn equals<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+        other: &Self
+    ) -> Result<Boolean, SynthesisError> {
+        let c = self.compute_congruency(cs, other)?;
+
+        let flag = match c.is_constant() {
+            true => {
+                let c = c.get_constant_value();
+                Ok(Boolean::constant(c.is_zero()))
+            },
+            false => {
+                let num = c.collapse_into_num(cs)?;
+                let n = num.get_variable();
+                n.is_zero(cs)
+            },
+        };
+       
+        flag
+    }
+
     pub fn negated<CS: ConstraintSystem<E>>(
         self,
         cs: &mut CS
@@ -999,6 +1023,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         // first perform actual reduction in the field that we try to represent
         let (q, rem) = if let Some(v) = self.get_value() {
             let (q, rem) = v.div_rem(&params.represented_field_modulus);
+            debug_assert_eq!(fe_to_biguint(&self.get_field_value().unwrap()), rem);
             (Some(q), Some(rem))
         } else {
             (None, None)
@@ -2593,7 +2618,10 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
         match params.range_check_info.strategy {
             RangeConstraintStrategy::MultiTable => {
-                super::range_constraint_functions::adaptively_coarsely_constraint_multiple(cs, &double_limb_carries, &double_limb_max_bits)?;
+                super::range_constraint_functions::adaptively_coarsely_constraint_multiple_with_multitable(cs, &double_limb_carries, &double_limb_max_bits)?;
+            },
+            RangeConstraintStrategy::CustomTwoBitGate => {
+                super::range_constraint_functions::adaptively_coarsely_constraint_multiple_with_two_bit_decomposition(cs, &double_limb_carries, &double_limb_max_bits)?;
             },
             _ => unimplemented!("other forms of range constraining are not implemented")
         }
@@ -2691,7 +2719,10 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
         match params.range_check_info.strategy {
             RangeConstraintStrategy::MultiTable => {
-                super::range_constraint_functions::adaptively_coarsely_constraint_multiple(cs, &carries, &limb_max_bits)?;
+                super::range_constraint_functions::adaptively_coarsely_constraint_multiple_with_multitable(cs, &carries, &limb_max_bits)?;
+            },
+            RangeConstraintStrategy::CustomTwoBitGate => {
+                super::range_constraint_functions::adaptively_coarsely_constraint_multiple_with_two_bit_decomposition(cs, &carries, &limb_max_bits)?;
             },
             _ => unimplemented!("other forms of range constraining are not implemented")
         }
@@ -2982,7 +3013,7 @@ mod test {
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         let init_function = move || {
-            let cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
 
             cs
         };
@@ -3096,7 +3127,7 @@ mod test {
     }
 
 
-    fn test_mul_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+    fn test_mul_on_random_witnesses<E: Engine, F: PrimeField, P: PlonkConstraintSystemParams<E>, I: Fn() -> TrivialAssembly::<E, P, Width4MainGateWithDNext>>(
         params: &RnsParameters<E, F>,
         init: &I
     ){
@@ -3151,7 +3182,7 @@ mod test {
         }
     }
 
-    fn test_allocation_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+    fn test_allocation_on_random_witnesses<E: Engine, F: PrimeField, P: PlonkConstraintSystemParams<E>, I: Fn() -> TrivialAssembly::<E, P, Width4MainGateWithDNext>>(
         params: &RnsParameters<E, F>,
         init: &I
     ){
@@ -3184,7 +3215,7 @@ mod test {
         }
     }
 
-    fn test_equality_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+    fn test_equality_on_random_witnesses<E: Engine, F: PrimeField, P: PlonkConstraintSystemParams<E>, I: Fn() -> TrivialAssembly::<E, P, Width4MainGateWithDNext>>(
         params: &RnsParameters<E, F>,
         init: &I
     ){
@@ -3224,7 +3255,7 @@ mod test {
         }
     }
 
-    fn test_non_equality_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+    fn test_non_equality_on_random_witnesses<E: Engine, F: PrimeField, P: PlonkConstraintSystemParams<E>, I: Fn() -> TrivialAssembly::<E, P, Width4MainGateWithDNext>>(
         params: &RnsParameters<E, F>,
         init: &I
     ){
@@ -3267,7 +3298,7 @@ mod test {
         }
     }
 
-    fn test_negation_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+    fn test_negation_on_random_witnesses<E: Engine, F: PrimeField, P: PlonkConstraintSystemParams<E>, I: Fn() -> TrivialAssembly::<E, P, Width4MainGateWithDNext>>(
         params: &RnsParameters<E, F>,
         init: &I
     ){
@@ -3305,7 +3336,7 @@ mod test {
         }
     }
 
-    fn test_square_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+    fn test_square_on_random_witnesses<E: Engine, F: PrimeField, P: PlonkConstraintSystemParams<E>, I: Fn() -> TrivialAssembly::<E, P, Width4MainGateWithDNext>>(
         params: &RnsParameters<E, F>,
         init: &I
     ){
@@ -3357,7 +3388,7 @@ mod test {
         }
     }
 
-    fn test_add_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+    fn test_add_on_random_witnesses<E: Engine, F: PrimeField, P: PlonkConstraintSystemParams<E>, I: Fn() -> TrivialAssembly::<E, P, Width4MainGateWithDNext>>(
         params: &RnsParameters<E, F>,
         init: &I
     ){
@@ -3389,7 +3420,6 @@ mod test {
     
             let (result, (a, b)) = a.add(&mut cs, b).unwrap();
 
-            cs.finalize();
             assert!(cs.is_satisfied());
 
             let mut m = a_f;
@@ -3418,7 +3448,7 @@ mod test {
     }
 
 
-    fn test_long_addition_chain_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+    fn test_long_addition_chain_on_random_witnesses<E: Engine, F: PrimeField, P: PlonkConstraintSystemParams<E>, I: Fn() -> TrivialAssembly::<E, P, Width4MainGateWithDNext>>(
         params: &RnsParameters<E, F>,
         init: &I
     ){
@@ -3455,7 +3485,7 @@ mod test {
         }
     }
 
-    fn test_long_subtraction_chain_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+    fn test_long_subtraction_chain_on_random_witnesses<E: Engine, F: PrimeField, P: PlonkConstraintSystemParams<E>, I: Fn() -> TrivialAssembly::<E, P, Width4MainGateWithDNext>>(
         params: &RnsParameters<E, F>,
         init: &I
     ){
@@ -3492,7 +3522,7 @@ mod test {
         }
     }
 
-    fn test_long_negation_chain_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+    fn test_long_negation_chain_on_random_witnesses<E: Engine, F: PrimeField, P: PlonkConstraintSystemParams<E>, I: Fn() -> TrivialAssembly::<E, P, Width4MainGateWithDNext>>(
         params: &RnsParameters<E, F>,
         init: &I
     ){
@@ -3529,7 +3559,7 @@ mod test {
         }
     }
 
-    fn test_sub_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+    fn test_sub_on_random_witnesses<E: Engine, F: PrimeField, P: PlonkConstraintSystemParams<E>, I: Fn() -> TrivialAssembly::<E, P, Width4MainGateWithDNext>>(
         params: &RnsParameters<E, F>,
         init: &I
     ){
@@ -3591,7 +3621,7 @@ mod test {
         }
     }
 
-    fn test_select_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+    fn test_select_on_random_witnesses<E: Engine, F: PrimeField, P: PlonkConstraintSystemParams<E>, I: Fn() -> TrivialAssembly::<E, P, Width4MainGateWithDNext>>(
         params: &RnsParameters<E, F>,
         init: &I
     ){
@@ -3658,7 +3688,7 @@ mod test {
         }
     }
 
-    fn test_conditional_negation_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+    fn test_conditional_negation_on_random_witnesses<E: Engine, F: PrimeField, P: PlonkConstraintSystemParams<E>, I: Fn() -> TrivialAssembly::<E, P, Width4MainGateWithDNext>>(
         params: &RnsParameters<E, F>,
         init: &I
     ){
@@ -3724,7 +3754,7 @@ mod test {
         }
     }
 
-    fn test_inv_mul_on_random_witnesses<E: Engine, F: PrimeField, I: Fn() -> TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>>(
+    fn test_inv_mul_on_random_witnesses<E: Engine, F: PrimeField, P: PlonkConstraintSystemParams<E>, I: Fn() -> TrivialAssembly::<E, P, Width4MainGateWithDNext>>(
         params: &RnsParameters<E, F>,
         init: &I
     ){

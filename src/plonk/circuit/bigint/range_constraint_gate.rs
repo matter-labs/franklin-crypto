@@ -9,29 +9,11 @@ use crate::bellman::pairing::ff::{
     BitIterator
 };
 
-use crate::bellman::{
-    SynthesisError,
-};
-
-use crate::bellman::plonk::better_better_cs::cs::{
-    Variable, 
-    ConstraintSystem,
-    ArithmeticTerm,
-    MainGateTerm,
-    Width4MainGateWithDNext,
-    MainGate,
-    GateInternal,
-    Gate,
-    LinearCombinationOfTerms,
-    PolynomialMultiplicativeTerm,
-    PolynomialInConstraint,
-    TimeDilation,
-    Coefficient,
-    PolyIdentifier,
-    AssembledPolynomialStorage,
-};
-
+use crate::bellman::SynthesisError;
+use crate::bellman::worker::Worker;
+use crate::bellman::plonk::better_better_cs::cs::*;
 use crate::bellman::plonk::polynomials::*;
+use crate::bellman::plonk::fft::cooley_tukey_ntt::*;
 
 use crate::circuit::{
     Assignment
@@ -84,7 +66,7 @@ impl<E: Engine> GateInternal<E> for TwoBitDecompositionRangecheckCustomGate {
         false
     }
 
-    fn linearizes_over(&self) -> Vec<PolyIdentifier> {
+    fn linearizes_over(&self) -> Vec<PolynomialInConstraint> {
         vec![
         ]
     }
@@ -150,14 +132,207 @@ impl<E: Engine> GateInternal<E> for TwoBitDecompositionRangecheckCustomGate {
 
     fn contribute_into_quotient(
         &self, 
-        poly_storage: &AssembledPolynomialStorage<E>,
+        domain_size: usize,
+        poly_storage: &mut AssembledPolynomialStorage<E>,
+        monomials_storage: & AssembledPolynomialStorageForMonomialForms<E>,
         challenges: &[E::Fr],
-        lde_factor: usize,
+        omegas_bitreversed: &BitReversedOmegas<E::Fr>,
+        _omegas_inv_bitreversed: &OmegasInvBitreversed<E::Fr>,
+        worker: &Worker
     ) -> Result<Polynomial<E::Fr, Values>, SynthesisError> {
-        assert_eq!(challenges.len(), 4);
-        unimplemented!()
+        assert!(domain_size.is_power_of_two());
+        assert_eq!(challenges.len(), <Self as GateInternal<E>>::num_quotient_terms(&self));
+
+        let lde_factor = poly_storage.lde_factor;
+        assert!(lde_factor.is_power_of_two());
+
+        assert!(poly_storage.is_bitreversed);
+
+        let coset_factor = E::Fr::multiplicative_generator();
+       
+        for p in <Self as GateInternal<E>>::all_queried_polynomials(&self).into_iter() {
+            ensure_in_map_or_create(&worker, 
+                p, 
+                domain_size, 
+                omegas_bitreversed, 
+                lde_factor, 
+                coset_factor, 
+                monomials_storage, 
+                poly_storage
+            )?;
+        }
+
+        let ldes_storage = &*poly_storage;
+
+        let a_ref = get_from_map_unchecked(
+            PolynomialInConstraint::VariablesPolynomial(0, TimeDilation(0)),
+            ldes_storage
+        );
+
+        let mut tmp = a_ref.clone(); // just allocate, we don't actually use it
+        drop(a_ref);
+
+        let a_raw_ref = get_from_map_unchecked(
+            PolynomialInConstraint::VariablesPolynomial(0, TimeDilation(0)),
+            ldes_storage
+        ).as_ref();
+
+        let b_raw_ref = get_from_map_unchecked(
+            PolynomialInConstraint::VariablesPolynomial(1, TimeDilation(0)),
+            ldes_storage
+        ).as_ref();
+
+        let c_raw_ref = get_from_map_unchecked(
+            PolynomialInConstraint::VariablesPolynomial(2, TimeDilation(0)),
+            ldes_storage
+        ).as_ref();
+
+        let d_raw_ref = get_from_map_unchecked(
+            PolynomialInConstraint::VariablesPolynomial(3, TimeDilation(0)),
+            ldes_storage
+        ).as_ref();
+
+        let d_next_raw_ref = get_from_map_unchecked(
+            PolynomialInConstraint::VariablesPolynomial(3, TimeDilation(1)),
+            ldes_storage
+        ).as_ref();
+
+        let one = E::Fr::one();
+        let mut two = one;
+        two.double();
+        let mut three = two;
+        three.add_assign(&one);
+        let mut four = two;
+        four.double();
+
+        // 4d - c \in [0, 4)
+        // 4c - b \in [0, 4)
+        // 4b - a \in [0, 4)
+        // 4a - d_next \in [0, 4)
+
+        tmp.map_indexed(&worker,
+            |i, el| {
+                let a_value = a_raw_ref[i];
+                let b_value = b_raw_ref[i];
+                let c_value = c_raw_ref[i];
+                let d_value = d_raw_ref[i];
+                let d_next_value = d_next_raw_ref[i];
+
+                let mut result = E::Fr::zero();
+
+                for (contribution_idx, (high, high_and_low)) in [
+                    (d_value, c_value),
+                    (c_value, b_value),
+                    (b_value, a_value),
+                    (a_value, d_next_value),
+                ].iter().enumerate() {
+                    let mut shifted_high = *high;
+                    shifted_high.mul_assign(&four);
+
+                    let mut low = *high_and_low;
+                    low.sub_assign(&shifted_high);
+
+                    let mut total = low;
+                    
+                    let mut tmp = low;
+                    tmp.sub_assign(&one);
+                    total.mul_assign(&tmp);
+
+                    let mut tmp = low;
+                    tmp.sub_assign(&two);
+                    total.mul_assign(&tmp);
+
+                    let mut tmp = low;
+                    tmp.sub_assign(&three);
+                    total.mul_assign(&tmp);
+
+                    total.mul_assign(&challenges[contribution_idx]);
+
+                    result.add_assign(&total);
+                }
+
+                *el = result;
+            }, 
+        );
+
+        Ok(tmp)
     }
-    
+
+    fn contribute_into_linearization(
+        &self, 
+        _domain_size: usize,
+        _at: E::Fr,
+        _queried_values: &std::collections::HashMap<PolynomialInConstraint, E::Fr>,
+        _monomials_storage: & AssembledPolynomialStorageForMonomialForms<E>,
+        _challenges: &[E::Fr],
+        _worker: &Worker
+    ) -> Result<Polynomial<E::Fr, Coefficients>, SynthesisError> {
+        unreachable!("this gate does not contribute into linearization");
+    }
+    fn contribute_into_verification_equation(
+        &self, 
+        _domain_size: usize,
+        _at: E::Fr,
+        queried_values: &std::collections::HashMap<PolynomialInConstraint, E::Fr>,
+        challenges: &[E::Fr],
+    ) -> Result<E::Fr, SynthesisError> {
+        assert_eq!(challenges.len(), <Self as GateInternal<E>>::num_quotient_terms(&self));
+
+        let a_value = *queried_values.get(&PolynomialInConstraint::VariablesPolynomial(0, TimeDilation(0)))
+            .ok_or(SynthesisError::AssignmentMissing)?;
+        let b_value = *queried_values.get(&PolynomialInConstraint::VariablesPolynomial(1, TimeDilation(0)))
+            .ok_or(SynthesisError::AssignmentMissing)?;
+        let c_value = *queried_values.get(&PolynomialInConstraint::VariablesPolynomial(2, TimeDilation(0)))
+            .ok_or(SynthesisError::AssignmentMissing)?;
+        let d_value = *queried_values.get(&PolynomialInConstraint::VariablesPolynomial(3, TimeDilation(0)))
+            .ok_or(SynthesisError::AssignmentMissing)?;
+        let d_next_value = *queried_values.get(&PolynomialInConstraint::VariablesPolynomial(3, TimeDilation(1)))
+            .ok_or(SynthesisError::AssignmentMissing)?;
+        
+        let mut result = E::Fr::zero();
+
+        let one = E::Fr::one();
+        let mut two = one;
+        two.double();
+        let mut three = two;
+        three.add_assign(&one);
+        let mut four = two;
+        four.double();
+
+        for (contribution_idx, (high, high_and_low)) in [
+            (d_value, c_value),
+            (c_value, b_value),
+            (b_value, a_value),
+            (a_value, d_next_value),
+        ].iter().enumerate() {
+            let mut shifted_high = *high;
+            shifted_high.mul_assign(&four);
+
+            let mut low = *high_and_low;
+            low.sub_assign(&shifted_high);
+
+            let mut total = low;
+            
+            let mut tmp = low;
+            tmp.sub_assign(&one);
+            total.mul_assign(&tmp);
+
+            let mut tmp = low;
+            tmp.sub_assign(&two);
+            total.mul_assign(&tmp);
+
+            let mut tmp = low;
+            tmp.sub_assign(&three);
+            total.mul_assign(&tmp);
+
+            total.mul_assign(&challenges[contribution_idx]);
+
+            result.add_assign(&total);
+        }
+
+        Ok(result)
+    }
+
     fn box_clone(&self) -> Box<dyn GateInternal<E>> {
         Box::from(self.clone())
     }

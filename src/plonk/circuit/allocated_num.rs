@@ -20,6 +20,8 @@ use crate::bellman::plonk::better_better_cs::cs::{
     MainGateTerm
 };
 
+use super::boolean::{AllocatedBit, Boolean};
+
 use crate::circuit::{
     Assignment
 };
@@ -51,6 +53,15 @@ impl<E: Engine> Num<E> {
             Num::Variable(v) => v.get_value(),
             Num::Constant(c) => Some(*c)
         }
+    }
+
+    pub fn is_zero<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Boolean, SynthesisError> {
+        let flag = match self {
+            Num::Constant(c) => Ok(Boolean::constant(c.is_zero())),
+            Num::Variable(var) => var.is_zero(cs),
+        };
+
+        flag
     }
 
     pub fn is_constant(&self) -> bool {
@@ -208,6 +219,51 @@ impl<E: Engine> AllocatedNum<E> {
         cs.allocate_main_gate(term)?;
 
         Ok(())
+    }
+
+    pub fn is_zero<CS>(
+        &self,
+        cs: &mut CS,
+    ) -> Result<Boolean, SynthesisError>
+        where CS: ConstraintSystem<E> 
+    {
+        let flag_value = self.get_value().map(|x| x.is_zero());
+        // let flag = AllocatedBit::alloc_unchecked(cs, flag_value)?;
+        let flag = AllocatedBit::alloc(cs, flag_value)?;
+
+        let inv_value = if let Some(value) = self.get_value() {
+            value.inverse()
+        } else {
+            Some(E::Fr::zero())
+        };
+
+        let inv = Self::alloc(
+            cs,
+            || {
+                Ok(*inv_value.get()?)
+            }
+        )?;
+
+        //  inv * X = (1 - flag) => inv * X + flag - 1 = 0
+        //  flag * X = 0
+        
+        let a_term = ArithmeticTerm::from_variable(self.variable).mul_by_variable(inv.variable);
+        let b_term = ArithmeticTerm::from_variable(flag.get_variable());
+        let c_term = ArithmeticTerm::constant(E::Fr::one());
+        let mut term = MainGateTerm::new();
+        term.add_assign(a_term);
+        term.add_assign(b_term);
+        term.sub_assign(c_term);
+        cs.allocate_main_gate(term)?;
+
+        let self_term = ArithmeticTerm::from_variable(self.variable).mul_by_variable(flag.get_variable());
+        let res_term = ArithmeticTerm::constant(E::Fr::one());
+        let mut term = MainGateTerm::new();
+        term.add_assign(self_term);
+        term.sub_assign(res_term);
+        cs.allocate_main_gate(term)?;
+
+        Ok(flag.into())
     }
 
     pub fn add<CS>(

@@ -11,12 +11,12 @@ pub mod poseidon;
 pub mod bigint;
 pub mod simple_term;
 pub mod curve;
-
+// pub mod verifier_circuit;
 
 use crate::bellman::pairing::Engine;
 use crate::bellman::plonk::better_better_cs::cs::PlonkConstraintSystemParams;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Width4WithCustomGates;
 
 impl<E: Engine> PlonkConstraintSystemParams<E> for Width4WithCustomGates {

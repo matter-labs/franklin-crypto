@@ -126,6 +126,17 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         self.value
     }
 
+    pub fn equals<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+        other: &Self,
+    ) -> Result<Boolean, SynthesisError> 
+    {
+        let x_check = self.x.equals(cs, &other.x)?;
+        let y_check = self.y.equals(cs, &other.y)?;
+        Boolean::and(cs, &x_check, &y_check)
+    }
+
     pub fn add_unequal<CS: ConstraintSystem<E>>(
         self,
         cs: &mut CS,
@@ -144,11 +155,23 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let this_value = self.get_value();
         let other_value = other.get_value();
 
+        debug_assert!(this_value.unwrap() != other_value.unwrap());
+
         let this_x = self.x;
         let this_y = self.y;
 
         let other_x = other.x;
         let other_y = other.y;
+
+        {
+            let (x, y) = this_value.unwrap().into_xy_unchecked();
+            debug_assert_eq!(x, this_x.get_field_value().unwrap());
+            debug_assert_eq!(y, this_y.get_field_value().unwrap());
+
+            let (x, y) = other_value.unwrap().into_xy_unchecked();
+            debug_assert_eq!(x, other_x.get_field_value().unwrap());
+            debug_assert_eq!(y, other_y.get_field_value().unwrap());
+        }
 
         let (this_y_negated, this_y) = this_y.negated(cs)?;
         let (this_x_negated, this_x) = this_x.negated(cs)?;
@@ -169,8 +192,6 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
 
         // lambda^2 + (-x' - x)
         let (new_x, (lambda, _)) = lambda.clone().square_with_addition_chain(cs, vec![other_x_negated, this_x_negated])?;
-
-        // return Ok((this_copy.clone(), (this_copy.clone(), this_copy.clone())));
 
         // lambda * (x - new_x) + (- y)
 
@@ -206,6 +227,15 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
             value: other_value
         };
 
+        debug_assert_eq!(new.x.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().0);
+        debug_assert_eq!(new.y.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().1);
+
+        debug_assert_eq!(this.x.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().0);
+        debug_assert_eq!(this.y.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().1);
+
+        debug_assert_eq!(other.x.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().0);
+        debug_assert_eq!(other.y.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().1);
+
         Ok((new, (this, other)))
     }
 
@@ -229,11 +259,23 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let this_value = self.get_value();
         let other_value = other.get_value();
 
+        debug_assert!(this_value.unwrap() != other_value.unwrap());
+
         let this_x = self.x;
         let this_y = self.y;
 
         let other_x = other.x;
         let other_y = other.y;
+
+        {
+            let (x, y) = this_value.unwrap().into_xy_unchecked();
+            debug_assert_eq!(x, this_x.get_field_value().unwrap());
+            debug_assert_eq!(y, this_y.get_field_value().unwrap());
+
+            let (x, y) = other_value.unwrap().into_xy_unchecked();
+            debug_assert_eq!(x, other_x.get_field_value().unwrap());
+            debug_assert_eq!(y, other_y.get_field_value().unwrap());
+        }
 
         let this_x_base = this_x.base_field_limb.get_value().unwrap();
         let this_y_base = this_y.base_field_limb.get_value().unwrap();
@@ -246,18 +288,12 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
 
         let (other_x_minus_this_x, (other_x, this_x_negated)) = other_x.add(cs, this_x_negated)?;
 
-        // let (other_x_minus_this_x, (other_x, this_x)) = other_x.sub(cs, this_x)?;
-
         let (other_x_negated, other_x) = other_x.negated(cs)?;
         let (other_y_negated, other_y) = other_y.negated(cs)?;
 
         // We may enforce it, but lambda calculation would not unsatisfiable if it's equal
         // this_x.enforce_not_equal(cs, &other_x)?;
         // this_y.enforce_not_equal(cs, &other_y)?;
-
-        // let (this_y_plus_other_y, (this_y, other_y)) = this_y.add(cs, other_y)?;
-
-        // let (lambda, (_, other_x_minus_this_x)) = this_y_plus_other_y.div(cs, other_x_minus_this_x)?;
 
         let (lambda, (mut tmp, _)) = FieldElement::div_from_addition_chain(cs, vec![other_y, this_y], other_x_minus_this_x)?;
 
@@ -302,6 +338,16 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
             y: other_y,
             value: other_value
         };
+
+        debug_assert_eq!(new.x.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().0);
+        debug_assert_eq!(new.y.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().1);
+
+        debug_assert_eq!(this.x.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().0);
+        debug_assert_eq!(this.y.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().1);
+
+        debug_assert_eq!(other.x.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().0);
+        debug_assert_eq!(other.y.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().1);
+
 
         Ok((new, (this, other)))
     }
@@ -370,6 +416,13 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
             value: this_value
         };
 
+
+        debug_assert_eq!(new.x.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().0);
+        debug_assert_eq!(new.y.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().1);
+
+        debug_assert_eq!(this.x.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().0);
+        debug_assert_eq!(this.y.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().1);
+
         Ok((new, this))
     }
 
@@ -386,13 +439,27 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let this_value = self.get_value();
         let other_value = other.get_value();
 
-        let this_copy = self.clone();
-
         let this_x = self.x;
         let this_y = self.y;
 
         let other_x = other.x;
         let other_y = other.y;
+
+        {
+            let this_x_val = this_x.get_field_value().unwrap();
+            let this_y_val = this_y.get_field_value().unwrap();
+    
+            let other_x_val = other_x.get_field_value().unwrap();
+            let other_y_val = other_y.get_field_value().unwrap();
+
+            let (x, y) = this_value.unwrap().into_xy_unchecked();
+            debug_assert_eq!(x, this_x_val);
+            debug_assert_eq!(y, this_y_val);
+
+            let (x, y) = other_value.unwrap().into_xy_unchecked();
+            debug_assert_eq!(x, other_x_val);
+            debug_assert_eq!(y, other_y_val);
+        }
 
         let (this_y_negated, this_y) = this_y.negated(cs)?;
         let (this_x_negated, this_x) = this_x.negated(cs)?;
@@ -415,7 +482,6 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let (new_x_minus_this_x, (new_x, this_x)) = new_x.sub(cs, this_x)?;
 
         let (two_y, this_y) = this_y.double(cs)?;
-        // let (two_y, (this_y, _)) = this_y.clone().add(cs, this_y)?;
 
         let (t0, (two_y, new_x_minus_this_x)) = two_y.div(cs, new_x_minus_this_x)?;
 
@@ -443,6 +509,8 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
             },
             _ => None
         };
+
+        let (x, y) = new_value.unwrap().into_xy_unchecked();
    
         let new = Self {
             x: new_x,
@@ -461,6 +529,16 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
             y: other_y,
             value: other_value
         };
+
+
+        debug_assert_eq!(new.x.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().0);
+        debug_assert_eq!(new.y.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().1);
+
+        debug_assert_eq!(this.x.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().0);
+        debug_assert_eq!(this.y.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().1);
+
+        debug_assert_eq!(other.x.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().0);
+        debug_assert_eq!(other.y.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().1);
 
         Ok((new, (this, other)))
     }
@@ -605,17 +683,17 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
         for s in scalars.iter() {
             let v = s.get_variable();
             let entries = decompose_allocated_num_into_skewed_table(cs, &v, bit_limit)?;
-            top_limit = entries.len() - 1;
+            if top_limit == 0 {
+                top_limit = entries.len() - 1;
+            } else {
+                assert_eq!(top_limit, entries.len() - 1);
+            }
             entries_per_scalar.push(entries);
         }
 
         assert!(top_limit > 0);
 
-        println!("Start making table");
-
         let table = super::multiexp_table::MultiexpTable::new(cs, points)?;
-
-        println!("Table is ready");
 
         // we add a random point to the accumulator to avoid having zero anywhere (with high probability)
         // and unknown discrete log allows us to be "safe"
@@ -949,6 +1027,7 @@ fn simulate_multiplication<E: Engine>(point: E::G1Affine, scalar: E::Fr, num_bit
 mod test {
     use super::*;
 
+    use crate::plonk::circuit::*;
     use crate::bellman::pairing::bn256::{Fq, Bn256, Fr, G1Affine};
 
     #[test]
@@ -959,7 +1038,7 @@ mod test {
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
 
             let a_f: G1Affine = rng.gen();
             let b_f: G1Affine = rng.gen();
@@ -1018,7 +1097,7 @@ mod test {
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
 
             let a_f: G1Affine = rng.gen();
             let b_f: G1Affine = rng.gen();
@@ -1069,7 +1148,7 @@ mod test {
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
 
             let a_f: G1Affine = rng.gen();
             let b_f: G1Affine = rng.gen();
@@ -1121,7 +1200,7 @@ mod test {
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
 
             let a_f: G1Affine = rng.gen();
 
@@ -1163,7 +1242,7 @@ mod test {
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
 
             let a_f: G1Affine = rng.gen();
             let b_f: G1Affine = rng.gen();
@@ -1182,10 +1261,21 @@ mod test {
     
             let (result, (a, b)) = a.double_and_add(&mut cs, b).unwrap();
 
+            let mut result_recalcualted = a_f.into_projective();
+            result_recalcualted.double();
+            result_recalcualted.add_assign_mixed(&b_f);
+
+            let result_recalcualted = result_recalcualted.into_affine();
+
             assert!(cs.is_satisfied());
+
+            let (x, y) = result_recalcualted.into_xy_unchecked();
 
             let x_fe = result.x.get_field_value().unwrap();
             let y_fe = result.y.get_field_value().unwrap();
+
+            assert_eq!(x_fe, x, "x coords mismatch between normal and circuit result");
+            assert_eq!(y_fe, y, "y coords mismatch between normal and circuit result");
 
             let (x, y) = result.get_value().unwrap().into_xy_unchecked();
 
@@ -1292,7 +1382,7 @@ mod test {
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         for i in 0..10 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
 
             let a_f: G1Affine = rng.gen();
             let mut b_f: Fr = Fr::one();
@@ -1356,7 +1446,7 @@ mod test {
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         for i in 0..10 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
 
             let a_f: G1Affine = rng.gen();
             let b_f: Fr = rng.gen();
@@ -1387,17 +1477,19 @@ mod test {
 
             let (x, y) = result.get_value().unwrap().into_xy_unchecked();
 
-            assert_eq!(x_fe, x, "x coords mismatch");
-            assert_eq!(y_fe, y, "y coords mismatch");
+            assert_eq!(x_fe, x, "x coords mismatch between value and coordinates");
+            assert_eq!(y_fe, y, "y coords mismatch between value and coordinates");
 
             let (x, y) = result_recalculated.into_xy_unchecked();
 
-            assert_eq!(x_fe, x, "x coords mismatch");
-            assert_eq!(y_fe, y, "y coords mismatch");
+            assert_eq!(x_fe, x, "x coords mismatch between expected result and circuit result");
+            assert_eq!(y_fe, y, "y coords mismatch between expected result and circuit result");
+
+            assert_eq!(result.get_value().unwrap(), result_recalculated, "mismatch between expected result and circuit result");
 
             let (x, y) = a_f.into_xy_unchecked();
-            assert_eq!(a.x.get_field_value().unwrap(), x, "x coords mismatch");
-            assert_eq!(a.y.get_field_value().unwrap(), y, "y coords mismatch");
+            assert_eq!(a.x.get_field_value().unwrap(), x, "x coords mismatch, input was mutated");
+            assert_eq!(a.y.get_field_value().unwrap(), y, "y coords mismatch, input was mutated");
 
             if i == 0 {
                 let base = cs.n();
@@ -1415,7 +1507,7 @@ mod test {
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         for i in 0..10 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
 
             let a_f: G1Affine = rng.gen();
             let b_f: Fr = rng.gen();
@@ -1446,17 +1538,19 @@ mod test {
 
             let (x, y) = result.get_value().unwrap().into_xy_unchecked();
 
-            assert_eq!(x_fe, x, "x coords mismatch");
-            assert_eq!(y_fe, y, "y coords mismatch");
+            assert_eq!(x_fe, x, "x coords mismatch between value and coordinates");
+            assert_eq!(y_fe, y, "y coords mismatch between value and coordinates");
 
             let (x, y) = result_recalculated.into_xy_unchecked();
 
-            assert_eq!(x_fe, x, "x coords mismatch");
-            assert_eq!(y_fe, y, "y coords mismatch");
+            assert_eq!(x_fe, x, "x coords mismatch between expected result and circuit result");
+            assert_eq!(y_fe, y, "y coords mismatch between expected result and circuit result");
+
+            assert_eq!(result.get_value().unwrap(), result_recalculated, "mismatch between expected result and circuit result");
 
             let (x, y) = a_f.into_xy_unchecked();
-            assert_eq!(a.x.get_field_value().unwrap(), x, "x coords mismatch");
-            assert_eq!(a.y.get_field_value().unwrap(), y, "y coords mismatch");
+            assert_eq!(a.x.get_field_value().unwrap(), x, "x coords mismatch, input was mutated");
+            assert_eq!(a.y.get_field_value().unwrap(), y, "y coords mismatch, input was mutated");
 
             if i == 0 {
                 let base = cs.n();
@@ -1474,7 +1568,7 @@ mod test {
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         for i in 0..10 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
 
             let mut a_s = vec![];
             let mut b_s = vec![];
@@ -1527,24 +1621,184 @@ mod test {
             let x_fe = result.x.get_field_value().unwrap();
             let y_fe = result.y.get_field_value().unwrap();
 
-            println!("x from limbs = {}", result.x.get_field_value().unwrap());
-            println!("x from value = {}", result.get_value().unwrap().into_xy_unchecked().0);
-            println!("expected x = {}", result_recalculated.into_xy_unchecked().0);
-
             let (x, y) = result.get_value().unwrap().into_xy_unchecked();
 
-            assert_eq!(x_fe, x, "x coords mismatch");
-            assert_eq!(y_fe, y, "y coords mismatch");
+            assert_eq!(x_fe, x, "x coords mismatch between value and coordinates");
+            assert_eq!(y_fe, y, "y coords mismatch between value and coordinates");
 
             let (x, y) = result_recalculated.into_xy_unchecked();
 
-            assert_eq!(x_fe, x, "x coords mismatch");
-            assert_eq!(y_fe, y, "y coords mismatch");
+            assert_eq!(x_fe, x, "x coords mismatch between expected result and circuit result");
+            assert_eq!(y_fe, y, "y coords mismatch between expected result and circuit result");
+
+            assert_eq!(result.get_value().unwrap(), result_recalculated, "mismatch between expected result and circuit result");
 
             if i == 0 {
                 let base = cs.n();
                 let _ = AffinePoint::multiexp(&mut cs, &b_n, &a_p, None).unwrap();
                 println!("Two points multiexp taken {} gates", cs.n() - base);
+            }
+        }
+    }
+
+    #[test]
+    fn test_base_curve_multiexp_3_on_random_witnesses(){
+        use rand::{XorShiftRng, SeedableRng, Rng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
+
+        for i in 0..10 {
+            let mut cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+
+            let mut a_s = vec![];
+            let mut b_s = vec![];
+            for _ in 0..3 {
+                let a_f: G1Affine = rng.gen();
+                let b_f: Fr = rng.gen();
+
+                a_s.push(a_f);
+                b_s.push(b_f);
+            }
+            
+            let mut a_p = vec![];
+            for a in a_s.iter() {
+                let a = AffinePoint::alloc(
+                    &mut cs, 
+                    Some(*a), 
+                    &params
+                ).unwrap();
+
+                a_p.push(a);
+            }
+
+            let mut b_n = vec![];
+
+            for b in b_s.iter() {
+                let b = AllocatedNum::alloc(
+                    &mut cs, 
+                    || {
+                        Ok(*b)
+                    }
+                ).unwrap();
+
+                let b = Num::Variable(b);
+                b_n.push(b);
+            }
+
+            let result = AffinePoint::multiexp(&mut cs, &b_n, &a_p, None).unwrap();
+
+            let mut result_recalculated = G1Affine::zero().into_projective();
+
+            for (a, b) in a_s.iter().zip(b_s.iter()) {
+                let tmp = a.mul(b.into_repr());
+                result_recalculated.add_assign(&tmp);
+            }
+
+            let result_recalculated = result_recalculated.into_affine();
+
+            assert!(cs.is_satisfied());
+
+            let x_fe = result.x.get_field_value().unwrap();
+            let y_fe = result.y.get_field_value().unwrap();
+
+            let (x, y) = result.get_value().unwrap().into_xy_unchecked();
+
+            assert_eq!(x_fe, x, "x coords mismatch between value and coordinates");
+            assert_eq!(y_fe, y, "y coords mismatch between value and coordinates");
+
+            let (x, y) = result_recalculated.into_xy_unchecked();
+
+            assert_eq!(x_fe, x, "x coords mismatch between expected result and circuit result");
+            assert_eq!(y_fe, y, "y coords mismatch between expected result and circuit result");
+
+            assert_eq!(result.get_value().unwrap(), result_recalculated, "mismatch between expected result and circuit result");
+
+            if i == 0 {
+                let base = cs.n();
+                let _ = AffinePoint::multiexp(&mut cs, &b_n, &a_p, None).unwrap();
+                println!("Three points multiexp taken {} gates", cs.n() - base);
+            }
+        }
+    }
+
+    #[test]
+    fn test_base_curve_multiexp_4_on_random_witnesses(){
+        use rand::{XorShiftRng, SeedableRng, Rng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
+
+        for i in 0..10 {
+            let mut cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+
+            let mut a_s = vec![];
+            let mut b_s = vec![];
+            for _ in 0..4 {
+                let a_f: G1Affine = rng.gen();
+                let b_f: Fr = rng.gen();
+
+                a_s.push(a_f);
+                b_s.push(b_f);
+            }
+            
+            let mut a_p = vec![];
+            for a in a_s.iter() {
+                let a = AffinePoint::alloc(
+                    &mut cs, 
+                    Some(*a), 
+                    &params
+                ).unwrap();
+
+                a_p.push(a);
+            }
+
+            let mut b_n = vec![];
+
+            for b in b_s.iter() {
+                let b = AllocatedNum::alloc(
+                    &mut cs, 
+                    || {
+                        Ok(*b)
+                    }
+                ).unwrap();
+
+                let b = Num::Variable(b);
+                b_n.push(b);
+            }
+
+            let result = AffinePoint::multiexp(&mut cs, &b_n, &a_p, None).unwrap();
+
+            let mut result_recalculated = G1Affine::zero().into_projective();
+
+            for (a, b) in a_s.iter().zip(b_s.iter()) {
+                let tmp = a.mul(b.into_repr());
+                result_recalculated.add_assign(&tmp);
+            }
+
+            let result_recalculated = result_recalculated.into_affine();
+
+            assert!(cs.is_satisfied());
+
+            let x_fe = result.x.get_field_value().unwrap();
+            let y_fe = result.y.get_field_value().unwrap();
+
+            let (x, y) = result.get_value().unwrap().into_xy_unchecked();
+
+            assert_eq!(x_fe, x, "x coords mismatch between value and coordinates");
+            assert_eq!(y_fe, y, "y coords mismatch between value and coordinates");
+
+            let (x, y) = result_recalculated.into_xy_unchecked();
+
+            assert_eq!(x_fe, x, "x coords mismatch between expected result and circuit result");
+            assert_eq!(y_fe, y, "y coords mismatch between expected result and circuit result");
+
+            assert_eq!(result.get_value().unwrap(), result_recalculated, "mismatch between expected result and circuit result");
+
+            if i == 0 {
+                let base = cs.n();
+                let _ = AffinePoint::multiexp(&mut cs, &b_n, &a_p, None).unwrap();
+                println!("Four points multiexp taken {} gates", cs.n() - base);
             }
         }
     }
@@ -1557,7 +1811,7 @@ mod test {
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
         for i in 0..10 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
 
             let mut a_s = vec![];
             let mut b_s = vec![];
@@ -1607,22 +1861,20 @@ mod test {
 
             assert!(cs.is_satisfied());
 
-            // let x_fe = result.x.get_field_value().unwrap();
-            // let y_fe = result.y.get_field_value().unwrap();
+            let x_fe = result.x.get_field_value().unwrap();
+            let y_fe = result.y.get_field_value().unwrap();
 
-            // println!("x from limbs = {}", result.x.get_field_value().unwrap());
-            // println!("x from value = {}", result.get_value().unwrap().into_xy_unchecked().0);
-            // println!("expected x = {}", result_recalculated.into_xy_unchecked().0);
+            let (x, y) = result.get_value().unwrap().into_xy_unchecked();
 
-            // let (x, y) = result.get_value().unwrap().into_xy_unchecked();
+            assert_eq!(x_fe, x, "x coords mismatch between value and coordinates");
+            assert_eq!(y_fe, y, "y coords mismatch between value and coordinates");
 
-            // assert_eq!(x_fe, x, "x coords mismatch");
-            // assert_eq!(y_fe, y, "y coords mismatch");
+            let (x, y) = result_recalculated.into_xy_unchecked();
 
-            // let (x, y) = result_recalculated.into_xy_unchecked();
+            assert_eq!(x_fe, x, "x coords mismatch between expected result and circuit result");
+            assert_eq!(y_fe, y, "y coords mismatch between expected result and circuit result");
 
-            // assert_eq!(x_fe, x, "x coords mismatch");
-            // assert_eq!(y_fe, y, "y coords mismatch");
+            assert_eq!(result.get_value().unwrap(), result_recalculated, "mismatch between expected result and circuit result");
 
             if i == 0 {
                 let base = cs.n();
@@ -1642,10 +1894,25 @@ mod test {
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         use crate::bellman::pairing::bls12_381::{Bls12, Fr, Fq, G1Affine, G1};
+
+        use super::super::super::bigint::get_range_constraint_info;
+
         let params = RnsParameters::<Bls12, Fq>::new_for_field(68, 110, 8);
 
         for i in 0..10 {
-            let mut cs = TrivialAssembly::<Bls12, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = TrivialAssembly::<Bls12, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+
+            // let strats = get_range_constraint_info(&cs);
+
+            // let mut params = RnsParameters::<Bls12, Fq>::new_for_field_with_strategy(
+            //     96, 
+            //     110, 
+            //     6, 
+            //     strats[0],
+            //     true
+            // );
+
+            // params.set_prefer_double_limb_carry_propagation(false);
 
             let mut a_s = vec![];
             let mut b_s = vec![];
@@ -1696,22 +1963,18 @@ mod test {
 
             assert!(cs.is_satisfied());
 
-            // let x_fe = result.x.get_field_value().unwrap();
-            // let y_fe = result.y.get_field_value().unwrap();
+            let x_fe = result.x.get_field_value().unwrap();
+            let y_fe = result.y.get_field_value().unwrap();
 
-            // println!("x from limbs = {}", result.x.get_field_value().unwrap());
-            // println!("x from value = {}", result.get_value().unwrap().into_xy_unchecked().0);
-            // println!("expected x = {}", result_recalculated.into_xy_unchecked().0);
+            let (x, y) = result.get_value().unwrap().into_xy_unchecked();
 
-            // let (x, y) = result.get_value().unwrap().into_xy_unchecked();
+            assert_eq!(x_fe, x, "x coords mismatch");
+            assert_eq!(y_fe, y, "y coords mismatch");
 
-            // assert_eq!(x_fe, x, "x coords mismatch");
-            // assert_eq!(y_fe, y, "y coords mismatch");
+            let (x, y) = result_recalculated.into_xy_unchecked();
 
-            // let (x, y) = result_recalculated.into_xy_unchecked();
-
-            // assert_eq!(x_fe, x, "x coords mismatch");
-            // assert_eq!(y_fe, y, "y coords mismatch");
+            assert_eq!(x_fe, x, "x coords mismatch");
+            assert_eq!(y_fe, y, "y coords mismatch");
 
             if i == 0 {
                 let base = cs.n();

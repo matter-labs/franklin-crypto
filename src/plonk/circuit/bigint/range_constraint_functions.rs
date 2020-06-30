@@ -38,6 +38,7 @@ use super::bigint::*;
 
 use crate::plonk::circuit::allocated_num::{AllocatedNum, Num};
 use crate::plonk::circuit::simple_term::{Term};
+use crate::plonk::circuit::linear_combination::LinearCombination;
 
 // enforces that this value is either `num_bits` long or a little longer 
 // up to a single range constraint width from the table
@@ -311,7 +312,7 @@ pub fn coarsely_enforce_using_multitable_into_single_gate<E: Engine, CS: Constra
     Ok(())
 }
 
-pub fn adaptively_coarsely_constraint_multiple<E: Engine, CS: ConstraintSystem<E>>(
+pub fn adaptively_coarsely_constraint_multiple_with_multitable<E: Engine, CS: ConstraintSystem<E>>(
     cs: &mut CS,
     terms: &[Term<E>],
     widths: &[usize]
@@ -395,6 +396,135 @@ pub fn adaptively_coarsely_constraint_multiple<E: Engine, CS: ConstraintSystem<E
     for (term, width) in remaining.into_iter() {
         let r = term.collapse_into_num(cs)?.get_variable();
         coarsely_enforce_using_multitable(cs, &r, width)?;
+    }
+
+    Ok(())
+}
+
+pub fn adaptively_coarsely_constraint_multiple_with_two_bit_decomposition<E: Engine, CS: ConstraintSystem<E>>(
+    cs: &mut CS,
+    terms: &[Term<E>],
+    widths: &[usize]
+) -> Result<(), SynthesisError> {
+    let strategies = get_range_constraint_info(&*cs);
+    assert_eq!(CS::Params::STATE_WIDTH, 4);
+    assert!(strategies.len() > 0);
+    assert!(strategies[0].strategy == RangeConstraintStrategy::CustomTwoBitGate);
+
+    // decomposition using custom gate has an overhead:
+    // - 8 bits would require 2 gates
+    // - 16 bits would require 3 gates
+    // etc
+    // due to use of d_next, so we take part of the next gate (until compiler is clever enough do to it for us)
+
+    // if we pack two elements into the "chain" then we need one gate to add them up,
+    // (ceil(bits/8) + 1) gates to make a range constraint and two more (ideally one, but it's cognitive overhead)
+    // gates to check that low == low, high == high
+
+    // so it's ceil(bits/8) + 3 for packing of two
+
+    // for packing of three we would have ceil(bits/8) + 4, 
+    // so it's not that important how many we pack up to ceil()
+
+    assert_eq!(terms.len(), widths.len());
+
+    let mut non_constant_terms = vec![];
+
+    for (t, w) in terms.iter().zip(widths.iter()) {
+        if t.is_constant() {
+            let value = t.get_constant_value();
+            let as_int = fe_to_biguint(&value);
+
+            assert!(as_int.bits() <= (*w as u64));
+        } else {
+            non_constant_terms.push((t.clone(), *w));
+        }
+    }
+
+    if non_constant_terms.len() == 0 {
+        return Ok(())
+    }
+
+    let capacity = ((E::Fr::CAPACITY / 8) * 8) as usize;
+
+    let mut chunks = non_constant_terms.chunks_exact(2);
+
+    for c in &mut chunks {
+        // align multiple of 2 bits
+
+        let w0 = make_multiple(c[0].1, 2);
+        let w1 = make_multiple(c[1].1, 2);
+
+        let total_required_width = w0 + w1;
+
+        let low_term = &c[0].0;
+        let high_term = &c[1].0;
+
+        if let Some(v) = low_term.get_value() {
+            let as_int = fe_to_biguint(&v);
+            assert!(as_int.bits() <= (c[0].1 as u64));
+        }
+
+        if let Some(v) = high_term.get_value() {
+            let as_int = fe_to_biguint(&v);
+            assert!(as_int.bits() <= (c[1].1 as u64));
+        }
+
+        if total_required_width <= capacity {
+            // add up the elements with 2^k shift, then constraint, then check that low == low
+            let one = E::Fr::one();
+
+            let mut shift = one;
+            let mut two = one;
+            two.double();
+
+            // shift high term by the number of bits required for low term
+            for _ in 0..w0 {
+                shift.mul_assign(&two);
+            }
+
+            let mut shifted_high = high_term.clone();
+            shifted_high.scale(&shift);
+
+            let terms_combined = shifted_high.add(cs, &low_term)?;
+            let terms_as_num = terms_combined.collapse_into_num(cs)?.get_variable();
+
+            let chain = create_range_constraint_chain(cs, &terms_as_num, total_required_width)?;
+
+            // now we need to check that high/low part actually never overflowed (cause we satisfy the range constraint
+            // on a combination low + 2^k * high).
+            let index_of_high_part = w1 / 2 - 1;
+
+            let peeked_high = &chain[index_of_high_part];
+
+            let high_as_term = Term::<E>::from_allocated_num(peeked_high.clone());
+            
+            let mut lc = LinearCombination::zero();
+            lc.add_assign_term(&high_term);
+
+            let mut minus_one = E::Fr::one();
+            minus_one.negate();
+            lc.add_assign_variable_with_coeff(&peeked_high, minus_one);
+
+            lc.enforce_zero(cs)?;
+        } else {
+            // just enforce separately
+            let terms_as_num = low_term.collapse_into_num(cs)?.get_variable();
+            let _chain = create_range_constraint_chain(cs, &terms_as_num, w0)?;
+
+            let terms_as_num = high_term.collapse_into_num(cs)?.get_variable();
+            let _chain = create_range_constraint_chain(cs, &terms_as_num, w1)?;
+        }
+    }
+
+    let remainder = chunks.remainder();
+
+    if remainder.len() == 1 {
+        let last_term = &remainder[0].0;
+        let last_width = remainder[0].1;
+
+        let terms_as_num = last_term.collapse_into_num(cs)?.get_variable();
+        let _chain = create_range_constraint_chain(cs, &terms_as_num, last_width)?;
     }
 
     Ok(())

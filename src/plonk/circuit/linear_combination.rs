@@ -34,6 +34,8 @@ use super::boolean::{
     Boolean
 };
 
+use super::simple_term::Term;
+
 pub struct LinearCombination<E: Engine> {
     pub(crate) value: Option<E::Fr>,
     pub(crate) terms: Vec<(E::Fr, Variable)>,
@@ -191,6 +193,21 @@ impl<E: Engine> LinearCombination<E> {
 
         self.value = newval;
         self.terms.push((coeff, variable.variable));
+    }
+
+    pub fn add_assign_term(
+        &mut self,
+        term: &Term<E>
+    )
+    {
+        if term.is_constant() {
+            self.add_assign_constant(term.get_constant_value());
+            return;
+        }
+
+        // otherwise add constant and scaled num separately
+        self.add_assign_constant(term.constant_term);
+        self.add_assign_number_with_coeff(&term.num, term.coeff);
     }
    
     pub fn add_assign_boolean_with_coeff(

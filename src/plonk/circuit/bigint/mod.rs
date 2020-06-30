@@ -147,7 +147,6 @@ pub fn create_range_constraint_chain<E: Engine, CS: ConstraintSystem<E>>(
     to_constraint: &AllocatedNum<E>, 
     num_bits: usize
 ) -> Result<Vec<AllocatedNum<E>>, SynthesisError> {
-    unreachable!("Disabled for now");
     assert!(num_bits > 0);
     assert!(num_bits & 1 == 0);
     assert_eq!(CS::Params::STATE_WIDTH, 4, "this only works for a state of width 4 for now");
@@ -181,6 +180,7 @@ pub fn create_range_constraint_chain<E: Engine, CS: ConstraintSystem<E>>(
         result.push(a);
     }
 
+    // last element is actually an element we want to constraint
     result.push(to_constraint.clone());
 
     let mut num_gates = num_bits / 8;
