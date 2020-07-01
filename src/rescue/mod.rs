@@ -6,6 +6,7 @@ use super::group_hash::GroupHasher;
 use rand::{Rand, Rng};
 
 pub mod bn256;
+pub mod rescue_transcript;
 
 pub trait SBox<E: Engine>: Sized + Clone {
     fn apply(&self, elements: &mut [E::Fr]);
@@ -374,12 +375,13 @@ pub fn make_keyed_params<E: RescueEngine>(
 
     new_params
 }
-
+#[derive(Clone, Debug)]
 enum RescueOpMode<E: RescueEngine> {
     AccumulatingToAbsorb(Vec<E::Fr>),
     SqueezedInto(Vec<E::Fr>)
 }
 
+#[derive(Clone, Debug)]
 pub struct StatefulRescue<'a, E: RescueEngine> {
     params: &'a E::Params,
     internal_state: Vec<E::Fr>,

@@ -44,7 +44,7 @@ use super::linear_combination::{
 
 /// Represents a variable in the constraint system which is guaranteed
 /// to be either zero or one.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AllocatedBit {
     variable: Variable,
     value: Option<bool>
@@ -291,6 +291,56 @@ impl AllocatedBit {
         })
     }
 
+    /// Performs an OR operation over the two operands, returning
+    /// an `AllocatedBit`.
+    pub fn or<E, CS>(
+        cs: &mut CS,
+        a: &Self,
+        b: &Self
+    ) -> Result<Self, SynthesisError>
+        where E: Engine,
+              CS: ConstraintSystem<E>
+    {
+        let mut result_value = None;
+
+        let result_var = cs.alloc(|| {
+            if *a.value.get()? || *b.value.get()? {
+                result_value = Some(true);
+
+                Ok(E::Fr::one())
+            } else {
+                result_value = Some(false);
+
+                Ok(E::Fr::zero())
+            }
+        })?;
+
+        // Constrain (1-a) * (1-b) = (1-c), ensuring c is 1 iff
+        // any of a, b are both 1.
+
+        // (a-1)(b-1) = (c-1) => ab-a-b+1 = c-1
+        // ab-a-b-c+2=0 
+
+        let mut two = E::Fr::one();
+        two.double();
+        let mut gate_term = MainGateTerm::new();
+
+        let mut multiplicative_term = ArithmeticTerm::from_variable(a.get_variable());
+        multiplicative_term = multiplicative_term.mul_by_variable(b.get_variable());
+        gate_term.add_assign(multiplicative_term);
+        gate_term.sub_assign(ArithmeticTerm::from_variable(a.get_variable()));
+        gate_term.sub_assign(ArithmeticTerm::from_variable(b.get_variable()));
+        gate_term.sub_assign(ArithmeticTerm::from_variable(result_var));
+        gate_term.add_assign(ArithmeticTerm::constant(two));
+
+        cs.allocate_main_gate(gate_term)?;
+
+        Ok(AllocatedBit {
+            variable: result_var,
+            value: result_value
+        })
+    }
+
     /// Calculates `a AND (NOT b)`.
     pub fn and_not<E, CS>(
         cs: &mut CS,
@@ -526,7 +576,7 @@ pub fn field_into_allocated_bits_le<E: Engine, CS: ConstraintSystem<E>, F: Prime
 
 /// This is a boolean value which may be either a constant or
 /// an interpretation of an `AllocatedBit`.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Boolean {
     /// Existential view of the boolean variable
     Is(AllocatedBit),
@@ -714,6 +764,35 @@ impl Boolean {
             // a AND b
             (&Boolean::Is(ref a), &Boolean::Is(ref b)) => {
                 Ok(Boolean::Is(AllocatedBit::and(cs, a, b)?))
+            }
+        }
+    }
+
+    /// Perform OR over two boolean operands
+    pub fn or<'a, E, CS>(
+        cs: &mut CS,
+        a: &'a Self,
+        b: &'a Self
+    ) -> Result<Self, SynthesisError>
+        where E: Engine,
+              CS: ConstraintSystem<E>
+    {
+        match (a, b) {
+            // true OR  x is always true
+            (&Boolean::Constant(true), _) | (_, &Boolean::Constant(true)) => Ok(Boolean::Constant(true)),
+            // false OR x is always x
+            (&Boolean::Constant(false), x) | (x, &Boolean::Constant(false)) => Ok(x.clone()),
+            // a OR (NOT b)
+            (&Boolean::Is(ref is), &Boolean::Not(ref not)) | (&Boolean::Not(ref not), &Boolean::Is(ref is)) => {
+                Ok(Boolean::Not(AllocatedBit::and_not(cs, not, is)?))
+            },
+            // (NOT a) OR (NOT b) = a NOR b
+            (&Boolean::Not(ref a), &Boolean::Not(ref b)) => {
+                Ok(Boolean::Not(AllocatedBit::and(cs, a, b)?))
+            },
+            // a OR b
+            (&Boolean::Is(ref a), &Boolean::Is(ref b)) => {
+                Ok(Boolean::Is(AllocatedBit::or(cs, a, b)?))
             }
         }
     }

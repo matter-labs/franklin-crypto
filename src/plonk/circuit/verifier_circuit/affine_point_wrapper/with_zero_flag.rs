@@ -115,8 +115,12 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperWithFlag<'a, E> {
     ) -> Result<Self, SynthesisError> 
     {
         let mut point = AffinePoint::alloc(cs, value, params)?;
-        let is_x_zero = point.x.is_zero(cs)?;
-        let is_y_zero = point.y.is_zero(cs)?;
+        let (is_x_zero, x) = point.x.clone().is_zero(cs)?;
+        let (is_y_zero, y) = point.y.clone().is_zero(cs)?;
+
+        point.x = x;
+        point.y = y;
+
         let is_zero = Boolean::and(cs, &is_x_zero, &is_y_zero)?;
 
         let res = WrapperWithFlag {
@@ -146,8 +150,12 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperWithFlag<'a, E> {
     ) -> Result<Self, SynthesisError> 
     {
         let mut point = AffinePoint::alloc(cs, value, params)?;
-        let is_x_zero = point.x.is_zero(cs)?;
-        let is_y_zero = point.y.is_zero(cs)?;
+        let (is_x_zero, x) = point.x.clone().is_zero(cs)?;
+        let (is_y_zero, y) = point.y.clone().is_zero(cs)?;
+
+        point.x = x;
+        point.y = y;
+
         let is_zero = Boolean::and(cs, &is_x_zero, &is_y_zero)?;
 
         let res = WrapperWithFlag {

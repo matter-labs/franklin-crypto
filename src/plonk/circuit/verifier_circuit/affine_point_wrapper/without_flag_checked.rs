@@ -131,8 +131,9 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperChecked<'a, E> {
         _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
     ) -> Result<Self, SynthesisError>
     {
+        let (negated, _) = self.point.clone().negate(cs)?;
         let res = WrapperChecked { 
-            point: self.point.negate(cs)?,
+            point: negated,
         };
         Ok(res)
     }
@@ -144,9 +145,12 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperChecked<'a, E> {
         second: Self
     ) -> Result<Self, SynthesisError>
     {
+        let (selected, _) = AffinePoint::select(cs, flag, first.point, second.point)?;
+
         let res = WrapperChecked { 
-            point: AffinePoint::select(cs, flag, first.point, second.point)?,
+            point: selected
         };
+
         Ok(res)
     }
     

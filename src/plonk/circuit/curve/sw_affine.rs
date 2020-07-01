@@ -118,6 +118,22 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         new
     }
 
+    pub fn zero(
+        params: &'a RnsParameters<E, G::Base>
+    ) -> Self
+    {
+        let x = FieldElement::zero(params);
+        let y = FieldElement::zero(params);
+
+        let new = Self {
+            x,
+            y,
+            value: Some(G::zero())
+        };
+
+        new
+    }
+
     pub fn is_constant(&self) -> bool {
         self.x.is_constant() & self.y.is_constant()
     }
@@ -135,6 +151,42 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let x_check = self.x.equals(cs, &other.x)?;
         let y_check = self.y.equals(cs, &other.y)?;
         Boolean::and(cs, &x_check, &y_check)
+    }
+
+    pub fn negate<CS: ConstraintSystem<E>>(
+        self,
+        cs: &mut CS,
+    ) -> Result<(Self, Self), SynthesisError> {
+        let this_value = self.get_value();
+
+        let this_x = self.x;
+        let this_y = self.y;
+
+        let (this_y_negated, this_y) = this_y.negated(cs)?;
+       
+        let new_value = match this_value {
+            Some(this) => {
+                let mut tmp = this;
+                tmp.negate();
+
+                Some(tmp)
+            },
+            _ => None
+        };
+   
+        let new = Self {
+            x: this_x.clone(),
+            y: this_y_negated,
+            value: new_value
+        };
+
+        let this = Self {
+            x: this_x,
+            y: this_y,
+            value: this_value
+        };
+
+        Ok((new, this))
     }
 
     pub fn add_unequal<CS: ConstraintSystem<E>>(
@@ -551,6 +603,44 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         unimplemented!()
     }
 
+    pub fn select<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        flag: &Boolean,
+        first: Self,
+        second: Self
+    ) -> Result<(Self, (Self, Self)), SynthesisError> {
+
+        let first_value = first.get_value();
+        let second_value = second.get_value();
+        let (x, (first_x, second_x)) = FieldElement::select(cs, flag, first.x, second.x)?;
+        let (y, (first_y, second_y)) = FieldElement::select(cs, flag, first.y, second.y)?;
+
+        let value = match (flag.get_value(), first_value, second_value) {
+            (Some(true), Some(p), _) => Some(p),
+            (Some(false), _, Some(p)) => Some(p),
+            (_, _, _) => None
+        };
+
+        let selected = AffinePoint { 
+            x : x, 
+            y : y, 
+            value 
+        };
+
+        let first = Self {
+            x: first_x,
+            y: first_y,
+            value: first_value
+        };
+
+        let second = Self {
+            x: second_x,
+            y: second_y,
+            value: second_value
+        };
+
+        Ok((selected, (first, second)))
+    }
 }
 
 impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
@@ -778,7 +868,7 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
     }
 }
 
-fn decompose_allocated_num_into_skewed_table<E: Engine, CS: ConstraintSystem<E>>(
+pub fn decompose_allocated_num_into_skewed_table<E: Engine, CS: ConstraintSystem<E>>(
     cs: &mut CS,
     num: &AllocatedNum<E>,
     bit_limit: Option<usize>

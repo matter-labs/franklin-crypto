@@ -959,6 +959,48 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         flag
     }
 
+    // pub fn is_zero<CS: ConstraintSystem<E>>(
+    //     &mut self,
+    //     cs: &mut CS,
+    // ) -> Result<Boolean, SynthesisError> 
+    // {
+    //     let x = self.clone();
+    //     let x = x.reduce_if_necessary(cs)?;
+  
+    //     let num = x.base_field_limb.collapse_into_num(cs)?;
+    //     let mut flag = num.is_zero(cs)?;
+        
+    //     for limb in self.binary_limbs.iter() {
+    //         let num = limb.term.collapse_into_num(cs)?;
+    //         let is_num_zero = num.is_zero(cs)?;
+    //         flag = Boolean::and(cs, &flag, &is_num_zero)?;
+    //     }
+
+    //     *self = x;
+        
+    //     Ok(flag)
+    // }
+
+    pub fn is_zero<CS: ConstraintSystem<E>>(
+        self,
+        cs: &mut CS,
+    ) -> Result<(Boolean, Self), SynthesisError> 
+    {
+        let x = self;
+        let x = x.reduce_if_necessary(cs)?;
+  
+        let num = x.base_field_limb.collapse_into_num(cs)?;
+        let mut flag = num.is_zero(cs)?;
+        
+        for limb in self.binary_limbs.iter() {
+            let num = limb.term.collapse_into_num(cs)?;
+            let is_num_zero = num.is_zero(cs)?;
+            flag = Boolean::and(cs, &flag, &is_num_zero)?;
+        }
+        
+        Ok((flag, x))
+    }
+
     pub fn negated<CS: ConstraintSystem<E>>(
         self,
         cs: &mut CS

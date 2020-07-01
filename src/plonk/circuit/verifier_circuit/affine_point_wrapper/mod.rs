@@ -126,6 +126,6 @@ pub trait WrappedAffinePoint<'a, E: Engine>: Sized + Clone {
 }
 
 
-pub mod with_zero_flag;
+// pub mod with_zero_flag;
 pub mod without_flag_unchecked;
 pub mod without_flag_checked;

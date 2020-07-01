@@ -137,6 +137,88 @@ impl<E: Engine> AllocatedNum<E> {
         })
     }
 
+    pub fn alloc_input<CS, F>(
+        cs: &mut CS,
+        value: F,
+    ) -> Result<Self, SynthesisError>
+        where CS: ConstraintSystem<E>,
+            F: FnOnce() -> Result<E::Fr, SynthesisError>
+    {
+        let mut new_value = None;
+        let var = cs.alloc_input(
+            || {
+                let tmp = value()?;
+
+                new_value = Some(tmp);
+
+                Ok(tmp)
+            }
+        )?;
+
+        Ok(AllocatedNum {
+            value: new_value,
+            variable: var
+        })
+    }
+
+    // allocate a variable with value "one"
+    pub fn one<CS: ConstraintSystem<E>>(cs: &mut CS) -> Self {
+        use std::sync::Once;
+
+        static INIT: Once = Once::new();
+        static mut VAR: Option<Variable> = None;
+
+        unsafe {
+            INIT.call_once(|| {
+                let var = cs.get_explicit_one().expect("must get an explicit once from CS");
+                let allocated = Self {
+                    value: Some(E::Fr::one()),
+                    variable: var
+                };
+                allocated.assert_equal_to_constant(cs, E::Fr::one());
+                VAR = Some(allocated.get_variable());
+            });
+        }
+
+        let var = unsafe {
+            VAR.unwrap()
+        };
+     
+        AllocatedNum {
+            value: Some(E::Fr::one()),
+            variable: var,
+        }
+    }
+
+    // allocate a variable with value "zero"
+    pub fn zero<CS: ConstraintSystem<E>>(cs: &mut CS) -> Self {
+        use std::sync::Once;
+
+        static INIT: Once = Once::new();
+        static mut VAR: Option<Variable> = None;
+
+        unsafe {
+            INIT.call_once(|| {
+                let var = cs.get_explicit_zero().expect("must get an explicit once from CS");
+                let allocated = Self {
+                    value: Some(E::Fr::zero()),
+                    variable: var
+                };
+                allocated.assert_equal_to_constant(cs, E::Fr::zero());
+                VAR = Some(allocated.get_variable());
+            });
+        }
+
+        let var = unsafe {
+            VAR.unwrap()
+        };
+     
+        AllocatedNum {
+            value: Some(E::Fr::zero()),
+            variable: var,
+        }
+    }
+
     pub fn enforce_equal<CS>(
         &self,
         cs: &mut CS,
@@ -300,6 +382,40 @@ impl<E: Engine> AllocatedNum<E> {
         })
     }
 
+    pub fn sub<CS>(
+        &self,
+        cs: &mut CS,
+        other: &Self
+    ) -> Result<Self, SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let mut value = None;
+
+        let subtraction_result = cs.alloc(|| {
+            let mut tmp = *self.value.get()?;
+            tmp.sub_assign(other.value.get()?);
+
+            value = Some(tmp);
+
+            Ok(tmp)
+        })?;
+
+        let self_term = ArithmeticTerm::from_variable(self.variable);
+        let other_term = ArithmeticTerm::from_variable(other.variable);
+        let result_term = ArithmeticTerm::from_variable(subtraction_result);
+        let mut term = MainGateTerm::new();
+        term.add_assign(self_term);
+        term.sub_assign(other_term);
+        term.sub_assign(result_term);
+
+        cs.allocate_main_gate(term)?;
+
+        Ok(AllocatedNum {
+            value: value,
+            variable: subtraction_result
+        })
+    }
+
     pub fn add_constant<CS>(
         &self,
         cs: &mut CS,
@@ -332,6 +448,19 @@ impl<E: Engine> AllocatedNum<E> {
             value: value,
             variable: addition_result
         })
+    }
+
+    pub fn sub_constant<CS>(
+        &self,
+        cs: &mut CS,
+        constant: E::Fr
+    ) -> Result<Self, SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let mut c = constant;
+        c.negate();
+
+        self.add_constant(cs, c)
     }
 
     pub fn mul<CS>(
@@ -373,6 +502,146 @@ impl<E: Engine> AllocatedNum<E> {
         where CS: ConstraintSystem<E>
     {
         self.mul(cs, &self)
+    }
+
+
+    /// Takes two allocated numbers (a, b) and returns
+    /// a if the condition is true, and b
+    /// otherwise.
+    /// Most often to be used with b = 0
+    pub fn conditionally_select<CS>(
+        cs: &mut CS,
+        a: &Self,
+        b: &Self,
+        condition: &Boolean
+    ) -> Result<Self, SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let res = match condition {
+            Boolean::Constant(flag) => if *flag { a.clone() } else { b.clone() },
+            
+            Boolean::Is(cond) => {
+                let c = Self::alloc(
+                    cs,
+                    || {
+                        if *cond.get_value().get()? {
+                            Ok(*a.value.get()?)
+                        } else {
+                            Ok(*b.value.get()?)
+                        }
+                    }
+                )?;
+
+                // a * condition + b*(1-condition) = c ->
+                // (a - b) *condition - c + b = 0
+
+                let a_minus_b = a.sub(cs, b)?;
+
+                let mut main_term = MainGateTerm::<E>::new();
+                let mut term = ArithmeticTerm::from_variable(a_minus_b.get_variable()).mul_by_variable(cond.get_variable());
+                main_term.add_assign(term);
+                main_term.sub_assign(ArithmeticTerm::from_variable(c.get_variable()));
+                main_term.add_assign(ArithmeticTerm::from_variable(b.get_variable()));
+
+                c
+            },
+
+            Boolean::Not(cond) => {
+                let c = Self::alloc(
+                    cs,
+                    || {
+                        if *cond.get_value().get()? {
+                            Ok(*b.value.get()?)
+                        } else {
+                            Ok(*a.value.get()?)
+                        }
+                    }
+                )?;
+
+                // b * condition + a*(1-condition) = c ->
+                // ( b - a) * condition - c + a = 0
+
+                let b_minus_a = b.sub(cs, a)?;
+
+                let mut main_term = MainGateTerm::<E>::new();
+                let mut term = ArithmeticTerm::from_variable(b_minus_a.get_variable()).mul_by_variable(cond.get_variable());
+                main_term.add_assign(term);
+
+                main_term.sub_assign(ArithmeticTerm::from_variable(c.get_variable()));
+                main_term.add_assign(ArithmeticTerm::from_variable(a.get_variable()));
+
+                c
+            }
+        };
+        
+        Ok(res)
+
+    }
+
+    pub fn div<CS>(
+        &self,
+        cs: &mut CS,
+        other: &Self
+    ) -> Result<Self, SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let mut value = None;
+
+        let quotient= cs.alloc(|| {
+            let mut tmp = *other.value.get()?;
+            tmp = *tmp.inverse().get()?;
+        
+            tmp.mul_assign(self.value.get()?);
+
+            value = Some(tmp);
+
+            Ok(tmp)
+        })?;
+
+        let self_term = ArithmeticTerm::from_variable(quotient).mul_by_variable(other.variable);
+        let result_term = ArithmeticTerm::from_variable(self.variable);
+        let mut term = MainGateTerm::new();
+        term.add_assign(self_term);
+        term.sub_assign(result_term);
+
+        cs.allocate_main_gate(term)?;
+
+        Ok(AllocatedNum {
+            value: value,
+            variable: quotient
+        })
+    }
+
+    // Montgomery double and add algorithm
+    pub fn pow<CS, F>(cs: &mut CS, base: &Self, d: F) -> Result<Self, SynthesisError> 
+    where CS: ConstraintSystem<E>, F: AsRef<[Boolean]>
+    {
+        let mut r0 = Self::one(cs);
+        let mut r1 = base.clone();
+
+        for b in d.as_ref().iter() {
+            // RO = RO * R1 if b == 1 else R0^2
+            // R1 = R1^2 if b == 1 else R0 * R1
+            let r0_squared = r0.square(cs)?;
+            let r1_squared = r1.square(cs)?;
+            let r0_times_r1 = r0.mul(cs, &r1)?;
+            
+            r0 = AllocatedNum::conditionally_select(
+                cs,
+                &r0_times_r1,
+                &r0_squared,
+                b,
+            )?;
+
+            r1 = AllocatedNum::conditionally_select(
+                cs,
+                &r1_squared,
+                &r0_times_r1,
+                b,
+            )?;
+        }
+
+        Ok(r0)
     }
 }
 

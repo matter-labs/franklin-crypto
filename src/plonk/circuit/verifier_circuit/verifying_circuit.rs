@@ -288,7 +288,7 @@ OldP: OldCSParams<E>, WP: WrappedAffinePoint<'a, E>
 
             // [alpha * (a + beta*z + gamma)(b + beta*k_1*z + gamma)()() + alpha^2 * L_0(z)] * z(X)
             let grand_product_part_at_z = {
-                let mut scalar = AllocatedNum::dumb();
+                let mut scalar = None;
 
                 // permutation part
                 for (i, (wire, non_res)) in proof.wire_values_at_z.iter()
@@ -300,13 +300,19 @@ OldP: OldCSParams<E>, WP: WrappedAffinePoint<'a, E>
                     let mut tmp = AllocatedNum::general_equation(cs, &z, &beta, &wire, non_res, &zero, &zero, &one, &zero)?;
                     // on first iteration: scalar = tmp + gamma
                     // else: scalar = scalar * (tmp + gamma)
-                    if i == 0 {
-                        scalar = tmp.add(cs, &gamma)?;
-                    }
-                    else {
+
+                    if let Some(existing_scalar) = scalar.take() {
                         tmp = tmp.add(cs, &gamma)?;
-                        scalar = scalar.mul(cs, &tmp)?;
-                    }
+                        let s = existing_scalar.mul(cs, &tmp)?;
+
+                        scalar = Some(s);
+                    } else {
+                        let s = tmp.add(cs, &gamma)?;
+
+                        scalar = Some(s);
+                    } 
+
+                    assert!(scalar.is_some());
                 }
 
                 scalar = scalar.mul(cs, &alpha)?;
@@ -325,7 +331,7 @@ OldP: OldCSParams<E>, WP: WrappedAffinePoint<'a, E>
 
             // \alpha * (a*perm_a(z)*beta + gamma)()()*beta*z(z*omega) * perm_d(X)
             let last_permutation_part_at_z = {
-                let mut scalar = AllocatedNum::dumb();
+                let mut scalar = None;
 
                 // permutation part
                 for (i, (wire, perm_at_z)) in proof.wire_values_at_z.iter()
@@ -337,13 +343,19 @@ OldP: OldCSParams<E>, WP: WrappedAffinePoint<'a, E>
                     let mut tmp = AllocatedNum::general_equation(cs, &perm_at_z, &beta, &wire, &one, &zero, &zero, &one, &zero)?;
                     // on first iteration: scalar = tmp + gamma
                     // else: scalar = scalar * (tmp + gamma)
-                    if i == 0 {
-                        scalar = tmp.add(cs, &gamma)?;
-                    }
-                    else {
+
+                    if let Some(existing_scalar) = scalar.take() {
                         tmp = tmp.add(cs, &gamma)?;
-                        scalar = scalar.mul(cs, &tmp)?;
+                        let s = existing_scalar.mul(cs, &tmp)?;
+
+                        scalar = Some(s);
+                    } else {
+                        let s = tmp.add(cs, &gamma)?;
+                        
+                        scalar = Some(s);
                     }
+
+                    assert!(scalar.is_some());
                     
                 }
 
@@ -424,17 +436,15 @@ OldP: OldCSParams<E>, WP: WrappedAffinePoint<'a, E>
 
         // subtract the opening value using one multiplication
 
-        let mut multiopening_challenge_for_values = AllocatedNum::dumb();
+        let mut multiopening_challenge_for_values = v.clone();
         let mut aggregated_value = proof.quotient_polynomial_at_z;
         for (i, value_at_z) in Some(proof.linearization_polynomial_at_z).iter()
                 .chain(&proof.wire_values_at_z)
                 .chain(&proof.permutation_polynomials_at_z)
                 .enumerate() 
         {
-            multiopening_challenge_for_values = if i == 0 {
-                v.clone() 
-            } else { 
-                multiopening_challenge_for_values.mul(cs, &v)?  
+            if i != 0 { 
+                multiopening_challenge_for_values = multiopening_challenge_for_values.mul(cs, &v)?;
             };
             
             let tmp = value_at_z.mul(cs, &multiopening_challenge_for_values)?;
