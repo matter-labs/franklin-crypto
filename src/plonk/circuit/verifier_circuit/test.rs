@@ -57,10 +57,10 @@ mod test {
     use crate::rescue::RescueEngine;
     use crate::bellman::pairing::bn256::{Bn256};
     use crate::rescue::bn256::Bn256RescueParams;
-    use crate::rescue::bn256::rescue_transcript::RescueTranscript;
+    use crate::rescue::rescue_transcript::RescueTranscriptForRNS;
     use crate::bellman::plonk::commitments::transcript::Transcript;
 
-    use crate::plonk::circuit::verifier_circuit::affine_point_wrapper::with_zero_flag::WrapperWithFlag;
+    // use crate::plonk::circuit::verifier_circuit::affine_point_wrapper::with_zero_flag::WrapperWithFlag;
     use crate::plonk::circuit::verifier_circuit::affine_point_wrapper::without_flag_unchecked::WrapperUnchecked;
 
     #[derive(Clone)]
@@ -142,6 +142,42 @@ mod test {
             let next_step_coeffs = [zero];
 
             cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
+
+            // fill in constant, c and d_next selectors
+
+            let zero_var = cs.alloc(|| {
+                Ok(E::Fr::zero())
+            })?;
+
+            let one_var = cs.alloc(|| {
+                Ok(E::Fr::one())
+            })?;
+
+            let mut two = one;
+            two.double();
+
+            // 2 - const(1) - d_next = 0;
+            let state_variables = [cs.get_dummy_variable(), cs.get_dummy_variable(), one_var, cs.get_dummy_variable()];
+            let this_step_coeffs = [zero.clone(), zero.clone(), two, zero.clone(), zero.clone(), negative_one];
+            let next_step_coeffs = [negative_one];
+
+            cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
+
+            // 0 * d = 0
+            let state_variables = [cs.get_dummy_variable(), cs.get_dummy_variable(), cs.get_dummy_variable(), one_var];
+            let this_step_coeffs = [zero.clone(), zero.clone(), zero.clone(), zero.clone(), zero.clone(), zero.clone()];
+            let next_step_coeffs = [zero.clone()];
+
+            cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
+
+            // also fill multiplicative selector
+            // 0 * 1 = 0
+            let state_variables = [zero_var, one_var, cs.get_dummy_variable(), cs.get_dummy_variable()];
+            let this_step_coeffs = [zero.clone(), zero.clone(), zero.clone(), zero.clone(), one.clone(), zero.clone()];
+            let next_step_coeffs = [zero.clone()];
+
+            cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
+
             Ok(())
         }
     }
@@ -152,10 +188,12 @@ mod test {
         num_steps: usize,
         channel_params: &'a CG::Params,
         rns_params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
-        transcript_params: <T as Prng<E::Fr>>::Params,
+        transcript_params: <T as Prng<E::Fr>>::InitializationParameters,
     )
     where E: Engine, T: Transcript<E::Fr>, CG: ChannelGadget<E>, AD: AuxData<E>, WP: WrappedAffinePoint<'a, E>
     {
+        use crate::plonk::circuit::*;
+
         let worker = Worker::new();
         let output = fibbonacci(&a, &b, num_steps);
     
@@ -196,7 +234,7 @@ mod test {
         let omegas_inv_bitreversed = 
             <OmegasInvBitreversed::<E::Fr> as CTPrecomputations::<E::Fr>>::new_for_domain_size(size.next_power_of_two());
 
-        println!("BEFORE PROOVE");
+        println!("BEFORE PROVE");
 
         let proof = prover.prove::<T, _, _>(
             &worker,
@@ -206,30 +244,33 @@ mod test {
             &crs_mons,
             &omegas_bitreversed,
             &omegas_inv_bitreversed,
-            transcript_params.clone(),
+            Some(transcript_params.clone()),
         ).expect("should prove");
 
         println!("DONE");
 
-        let (is_valid, arg1, arg2) = verify::<_, _, T>(&proof, &verification_key, transcript_params).expect("should verify");
+        let is_valid = verify::<_, _, T>(&proof, &verification_key, Some(transcript_params)).expect("should verify");
 
         assert!(is_valid);
 
+        println!("PROOF IS VALID");
+
         let verifier_circuit = 
-        PlonkVerifierCircuit::<E, CG, PlonkCsWidth4WithNextStepParams, OldActualParams, AD, WP>::new(
+        PlonkVerifierCircuit::<E, CG, Width4WithCustomGates, OldActualParams, AD, WP>::new(
             channel_params, 
             vec![a, b, output], 
-            vec![arg1.unwrap(), arg2.unwrap()], 
+            vec![], 
             proof, 
             verification_key, 
             AD::new(), 
             rns_params,
         );
 
-        let mut cs = TrivialAssembly::<E, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+        let mut cs = TrivialAssembly::<E, Width4WithCustomGates, Width4MainGateWithDNext>::new();
         verifier_circuit.synthesize(&mut cs).expect("should synthesize");
+        println!("Raw number of gates: {}", cs.n());
         cs.finalize();
-        println!("number of gates: {}", cs.n());
+        println!("Padded number of gates: {}", cs.n());
         assert!(cs.is_satisfied());
     }
 
@@ -242,9 +283,11 @@ mod test {
 
         let rns_params = RnsParameters::<Bn256, <Bn256 as Engine>::Fq>::new_for_field(68, 110, 4);
         let rescue_params = Bn256RescueParams::new_checked_2_into_1();
+
+        let transcript_params = (&rescue_params, &rns_params);
  
-        recursion_test::<Bn256, RescueTranscript<Bn256>, RescueChannelGadget<Bn256>, BN256AuxData, WrapperUnchecked<Bn256>>(
-            a, b, num_steps, &rescue_params, &rns_params, &rescue_params,
+        recursion_test::<Bn256, RescueTranscriptForRNS<Bn256>, RescueChannelGadget<Bn256>, BN256AuxData, WrapperUnchecked<Bn256>>(
+            a, b, num_steps, &rescue_params, &rns_params, transcript_params,
         );
     }
 }

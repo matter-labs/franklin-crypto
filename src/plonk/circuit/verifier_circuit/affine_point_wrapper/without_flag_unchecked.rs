@@ -23,6 +23,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
     ) -> Result<Self, SynthesisError> 
     {
         let point = AffinePoint::alloc(cs, value, params)?;
+
         let res = WrapperUnchecked {
             point,
         };
@@ -31,8 +32,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
 
         let subgroup_check = if aux_data.requires_subgroup_check() {
             res.subgroup_check(cs, params, aux_data)?
-        }
-        else {
+        } else {
             Boolean::constant(true)
         };
         
@@ -162,8 +162,10 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         
         let b = FieldElement::new_constant(aux_data.get_b(), params);
         rhs = rhs.add(cs, b)?.0;
-   
-        lhs.equals(cs, &rhs)
+
+        let on_curve = lhs.equals(cs, &rhs);
+
+        on_curve
     }
 
     fn subgroup_check<CS: ConstraintSystem<E>, AD: aux_data::AuxData<E>>(

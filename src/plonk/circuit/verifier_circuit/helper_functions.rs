@@ -37,6 +37,20 @@ where E: Engine, CS: ConstraintSystem<E>
 {
     assert!(vahisning_size.is_power_of_two());
 
+    point_in_pow_n.sub_constant(cs, E::Fr::one())
+}
+
+pub fn evaluate_vanishing_poly_without_last_point<E, CS>(
+    cs: &mut CS, 
+    vahisning_size: usize,
+    omega_inv : &E::Fr, 
+    point: AllocatedNum<E>,
+    point_in_pow_n : AllocatedNum<E>,
+) -> Result<AllocatedNum<E>, SynthesisError> 
+where E: Engine, CS: ConstraintSystem<E>
+{
+    assert!(vahisning_size.is_power_of_two());
+
     // update from the paper - it should not hold for the last generator, omega^(n) in original notations
 
     // Z(X) = (X^n - 1) / (X - omega^(n-1)) 

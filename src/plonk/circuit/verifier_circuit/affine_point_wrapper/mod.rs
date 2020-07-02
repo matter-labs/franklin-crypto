@@ -27,7 +27,7 @@ use crate::plonk::circuit::bigint::field::*;
 use crate::plonk::circuit::allocated_num::*;
 use crate::plonk::circuit::boolean::*;
 
-pub trait WrappedAffinePoint<'a, E: Engine>: Sized + Clone {
+pub trait WrappedAffinePoint<'a, E: Engine>: Sized + Clone + std::fmt::Debug {
 
     fn get_point(&self) -> &AffinePoint<E, E::G1Affine>;
     fn get_zero_flag(&self) -> Boolean;

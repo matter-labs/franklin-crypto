@@ -175,7 +175,7 @@ impl<E: Engine> AllocatedNum<E> {
                     value: Some(E::Fr::one()),
                     variable: var
                 };
-                allocated.assert_equal_to_constant(cs, E::Fr::one());
+                allocated.assert_equal_to_constant(cs, E::Fr::one()).expect("must enforce equality");
                 VAR = Some(allocated.get_variable());
             });
         }
@@ -204,7 +204,7 @@ impl<E: Engine> AllocatedNum<E> {
                     value: Some(E::Fr::zero()),
                     variable: var
                 };
-                allocated.assert_equal_to_constant(cs, E::Fr::zero());
+                allocated.assert_equal_to_constant(cs, E::Fr::zero()).expect("must enforce equality");
                 VAR = Some(allocated.get_variable());
             });
         }
@@ -309,14 +309,21 @@ impl<E: Engine> AllocatedNum<E> {
     ) -> Result<Boolean, SynthesisError>
         where CS: ConstraintSystem<E> 
     {
+
         let flag_value = self.get_value().map(|x| x.is_zero());
         // let flag = AllocatedBit::alloc_unchecked(cs, flag_value)?;
         let flag = AllocatedBit::alloc(cs, flag_value)?;
 
         let inv_value = if let Some(value) = self.get_value() {
-            value.inverse()
+            let inv = value.inverse();
+            
+            if inv.is_some() {
+                inv
+            } else {
+                Some(E::Fr::zero())
+            }
         } else {
-            Some(E::Fr::zero())
+            None
         };
 
         let inv = Self::alloc(
@@ -328,6 +335,17 @@ impl<E: Engine> AllocatedNum<E> {
 
         //  inv * X = (1 - flag) => inv * X + flag - 1 = 0
         //  flag * X = 0
+
+        // | a != 0 | inv = a^-1 | flag = 0 | - valid assignment, satisfiable
+
+        // | a != 0 | inv != a^-1 | flag = 0 | - invalid assignment, but not satisfiable
+        // | a != 0 | inv != a^-1 | flag = 1 | - invalid assignment, but not satisfiable
+
+        // | a = 0 | inv = 0 | flag = 1 | - valid assignment, satisfiable
+
+        // | a = 0 | inv != 0 | flag = 1 | - invalid assignment, but not satisfiable
+        // | a = 0 | inv != 0 | flag = 0 | - invalid assignment, but not satisfiable
+
         
         let a_term = ArithmeticTerm::from_variable(self.variable).mul_by_variable(inv.variable);
         let b_term = ArithmeticTerm::from_variable(flag.get_variable());
@@ -339,7 +357,7 @@ impl<E: Engine> AllocatedNum<E> {
         cs.allocate_main_gate(term)?;
 
         let self_term = ArithmeticTerm::from_variable(self.variable).mul_by_variable(flag.get_variable());
-        let res_term = ArithmeticTerm::constant(E::Fr::one());
+        let res_term = ArithmeticTerm::constant(E::Fr::zero());
         let mut term = MainGateTerm::new();
         term.add_assign(self_term);
         term.sub_assign(res_term);
@@ -538,7 +556,7 @@ impl<E: Engine> AllocatedNum<E> {
                 let a_minus_b = a.sub(cs, b)?;
 
                 let mut main_term = MainGateTerm::<E>::new();
-                let mut term = ArithmeticTerm::from_variable(a_minus_b.get_variable()).mul_by_variable(cond.get_variable());
+                let term = ArithmeticTerm::from_variable(a_minus_b.get_variable()).mul_by_variable(cond.get_variable());
                 main_term.add_assign(term);
                 main_term.sub_assign(ArithmeticTerm::from_variable(c.get_variable()));
                 main_term.add_assign(ArithmeticTerm::from_variable(b.get_variable()));
@@ -564,7 +582,7 @@ impl<E: Engine> AllocatedNum<E> {
                 let b_minus_a = b.sub(cs, a)?;
 
                 let mut main_term = MainGateTerm::<E>::new();
-                let mut term = ArithmeticTerm::from_variable(b_minus_a.get_variable()).mul_by_variable(cond.get_variable());
+                let term = ArithmeticTerm::from_variable(b_minus_a.get_variable()).mul_by_variable(cond.get_variable());
                 main_term.add_assign(term);
 
                 main_term.sub_assign(ArithmeticTerm::from_variable(c.get_variable()));

@@ -319,7 +319,7 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
         self.internal_state[last_state_elem_idx].add_assign_constant(as_fe)
     }
 
-    fn absorb_single_value<CS: ConstraintSystem<E>>(
+    pub fn absorb_single_value<CS: ConstraintSystem<E>>(
         &mut self,
         cs: &mut CS,
         value: Num<E>,
@@ -431,6 +431,24 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
                 return Ok(output);
             }
         }
+    }
+
+    pub fn pad_if_necessary(
+        &mut self,
+        params: &E::Params
+    ) -> Result<(), SynthesisError> {
+        match self.mode {
+            RescueOpMode::AccumulatingToAbsorb(ref mut into) => {
+                let rate = params.rate() as usize;
+                if into.len() != rate {
+                    into.resize(rate, Num::Constant(E::Fr::one()));
+                };
+            },
+            RescueOpMode::SqueezedInto(ref mut into) => {
+            }
+        }
+
+        Ok(())
     }
 }
 

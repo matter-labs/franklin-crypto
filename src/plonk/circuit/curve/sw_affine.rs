@@ -319,6 +319,7 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let other_x = other.x;
         let other_y = other.y;
 
+        let this_x_original_value = this_x.get_field_value().unwrap();
         {
             let (x, y) = this_value.unwrap().into_xy_unchecked();
             debug_assert_eq!(x, this_x.get_field_value().unwrap());
@@ -329,14 +330,10 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
             debug_assert_eq!(y, other_y.get_field_value().unwrap());
         }
 
-        let this_x_base = this_x.base_field_limb.get_value().unwrap();
-        let this_y_base = this_y.base_field_limb.get_value().unwrap();
-
-        let other_x_base = other_x.base_field_limb.get_value().unwrap();
-        let other_y_base = other_y.base_field_limb.get_value().unwrap();
-
         let (this_y_negated, this_y) = this_y.negated(cs)?;
         let (this_x_negated, this_x) = this_x.negated(cs)?;
+
+        assert_eq!(this_x_original_value, this_x.get_field_value().unwrap());
 
         let (other_x_minus_this_x, (other_x, this_x_negated)) = other_x.add(cs, this_x_negated)?;
 
@@ -358,6 +355,9 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         // lambda * -(x - new_x) + (- y)
 
         let (new_x_minus_this_x, (new_x, this_x)) = new_x.sub(cs, this_x)?;
+
+        assert_eq!(this_x_original_value, this_x.get_field_value().unwrap());
+        
         let (new_y, _) = lambda.fma_with_addition_chain(cs, new_x_minus_this_x, vec![this_y_negated])?;
 
         let new_value = match (this_value, other_value) {
@@ -787,7 +787,8 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
 
         // we add a random point to the accumulator to avoid having zero anywhere (with high probability)
         // and unknown discrete log allows us to be "safe"
-        let offset_generator = E::G1Affine::one(); // TODO: for now
+        let c = E::Fr::from_str("12345").unwrap();
+        let offset_generator = E::G1Affine::one().mul(c.into_repr()).into_affine(); // TODO: for now
 
         let generator = Self::constant(offset_generator, params);
 
@@ -817,14 +818,15 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
             current_round_entries.truncate(0);
         }
 
-        println!("acc value = {}", acc.get_value().unwrap());
-
         // subtract
- 
+
         for (p, entry) in points.iter().zip(entries_per_scalar.into_iter()) {
             let (with_skew, (acc_original, _)) = acc.sub_unequal(cs, p.clone())?;
 
             let last_entry = entry.last().unwrap();
+
+            // let (result, _) = AffinePoint::select(cs, last_entry, with_skew, acc_original)?;
+            // acc = result;
 
             let with_skew_value = with_skew.get_value();
             let with_skew_x = with_skew.x;

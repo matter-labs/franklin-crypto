@@ -1,38 +1,49 @@
 use super::{RescueEngine, RescueHashParams};
 use super::StatefulRescue;
 use crate::bellman::pairing::ff::{PrimeField, PrimeFieldRepr};
+use crate::bellman::pairing::{Engine, CurveAffine};
 use crate::byteorder::{ByteOrder, BigEndian};
 
 use crate::bellman::plonk::commitments::transcript::{Transcript, Prng};
 
 use super::*;
 
+use crate::plonk::circuit::bigint::bigint::*;
+use crate::plonk::circuit::bigint::field::*;
+
 #[derive(Clone)]
-pub struct RescueTranscript<'a, E: RescueEngine> {
+pub struct RescueTranscriptForRNS<'a, E: RescueEngine> {
     state: StatefulRescue<'a, E>,
+    rns_parameters: &'a RnsParameters<E, <<E as Engine>::G1Affine as CurveAffine>::Base>
 }
 
-impl<'a, E: RescueEngine> RescueTranscript<'a, E> {
-    pub fn from_params(params: &'a E::Params) -> Self {
-        let stateful = StatefulRescue::new(params);
+// impl<'a, E: RescueEngine> RescueTranscriptForRNS<'a, E> {
+//     pub fn from_params(params: &'a E::Params) -> Self {
+//         let stateful = StatefulRescue::new(params);
 
-        Self {
-            state: stateful
-        }
-    }
-}
+//         Self {
+//             state: stateful
+//         }
+//     }
+// }
 
 
-impl<'a, E: RescueEngine> Prng<E::Fr> for RescueTranscript<'a, E> {
+impl<'a, E: RescueEngine> Prng<E::Fr> for RescueTranscriptForRNS<'a, E> {
     type Input = E::Fr;
-    type InitializationParameters = &'a E::Params;
+    type InitializationParameters = (&'a E::Params, &'a RnsParameters<E, <<E as Engine>::G1Affine as CurveAffine>::Base>);
 
     fn new() -> Self {
         unimplemented!("must initialize from parameters");
     }
 
     fn new_from_params(params: Self::InitializationParameters) -> Self {
-        Self::from_params(params)
+        let (rescue_params, rns_params) = params;
+        let stateful = StatefulRescue::new(rescue_params);
+
+        Self {
+            state: stateful,
+            rns_parameters: rns_params,
+        }
     }
 
     fn commit_input(&mut self, input: &Self::Input) {
@@ -40,6 +51,7 @@ impl<'a, E: RescueEngine> Prng<E::Fr> for RescueTranscript<'a, E> {
     }
 
     fn get_challenge(&mut self) -> E::Fr {
+        self.state.pad_if_necessary();
         let value = self.state.squeeze_out_single();
 
         value
@@ -47,7 +59,7 @@ impl<'a, E: RescueEngine> Prng<E::Fr> for RescueTranscript<'a, E> {
 }
 
 
-impl<'a, E: RescueEngine> Transcript<E::Fr> for RescueTranscript<'a, E> {
+impl<'a, E: RescueEngine> Transcript<E::Fr> for RescueTranscriptForRNS<'a, E> {
     fn commit_bytes(&mut self, bytes: &[u8]) {
         unimplemented!();
     }
@@ -62,18 +74,47 @@ impl<'a, E: RescueEngine> Transcript<E::Fr> for RescueTranscript<'a, E> {
 
     fn commit_fe<FF: PrimeField>(&mut self, element: &FF) 
     {
-        // we assume that FF is strictly smaller than F (in bitlength)
+        let expected_field_char = <<<E as Engine>::G1Affine as CurveAffine>::Base as PrimeField>::char();
+        let this_field_char = FF::char();
+        assert_eq!(expected_field_char.as_ref(), this_field_char.as_ref(), "can only commit base curve field element");
 
-        let repr = element.into_repr();
-        let mut bytes: Vec<u8> = vec![0u8; <E::Fr as PrimeField>::CAPACITY as usize / 8];
-        //repr.write_le(&mut bytes[..]).expect("should write");
+        // convert into RNS limbs
 
-        // let mut repr_F = <E::Fr as PrimeField>::Repr::default();
-        // repr_F.read_le(&bytes[..]).expect("should read");
-        // let res = E::Fr::from_repr(repr_F).expect("should convert");
+        let params = self.rns_parameters;
 
-        let res = E::Fr::zero();
+        let limb_values = if params.can_allocate_from_double_limb_witness() {
+            let mut num_witness = params.num_limbs_for_in_field_representation / 2;
+            if params.num_limbs_for_in_field_representation % 2 != 0 {
+                num_witness += 1;
+            }
 
-        self.state.absorb_single_value(res);
+            let value = fe_to_biguint(element);
+
+            let witness_limbs = split_into_fixed_number_of_limbs(
+                value, 
+                params.binary_limbs_params.limb_size_bits * 2, 
+                num_witness
+            );
+
+            let witness_as_fe: Vec<E::Fr> = witness_limbs.into_iter().map(|el| biguint_to_fe(el)).collect();
+
+            witness_as_fe
+        } else {
+            let value = fe_to_biguint(element);
+
+            let witness_limbs = split_into_fixed_number_of_limbs(
+                value, 
+                params.binary_limbs_params.limb_size_bits, 
+                params.num_binary_limbs
+            );
+
+            let witness_as_fe: Vec<E::Fr> = witness_limbs.into_iter().map(|el| biguint_to_fe(el)).collect();
+
+            witness_as_fe
+        };
+
+        for el in limb_values.into_iter() {
+            self.state.absorb_single_value(el);
+        }
     }
 }

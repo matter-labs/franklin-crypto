@@ -992,7 +992,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         let num = x.base_field_limb.collapse_into_num(cs)?;
         let mut flag = num.is_zero(cs)?;
         
-        for limb in self.binary_limbs.iter() {
+        for limb in x.binary_limbs.iter() {
             let num = limb.term.collapse_into_num(cs)?;
             let is_num_zero = num.is_zero(cs)?;
             flag = Boolean::and(cs, &flag, &is_num_zero)?;
@@ -1331,7 +1331,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         cs: &mut CS,
         params: &RnsParameters<E, F>,
     ) -> Result<Vec<Num<E>>, SynthesisError> {
-        let num_witness = params.num_binary_limbs / 2;
         let witness_limbs = split_some_into_fixed_number_of_limbs(
             value, 
             params.binary_limbs_params.limb_size_bits, 
@@ -1457,7 +1456,9 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
             // do the constant propagation in addition
 
-            return self.add(cs, other_negated);
+            let (result, (this, _)) = self.add(cs, other_negated)?;
+
+            return Ok((result, (this, other)));
         }
 
         let this = self.reduce_if_necessary(cs)?;

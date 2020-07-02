@@ -476,6 +476,18 @@ impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
         }
     }
 
+    pub fn pad_if_necessary(&mut self) {
+        match self.mode {
+            RescueOpMode::AccumulatingToAbsorb(ref mut into) => {
+                let rate = self.params.rate() as usize;
+                if into.len() != rate {
+                    into.resize(rate, E::Fr::one());
+                }
+            },
+            RescueOpMode::SqueezedInto(_) => {}
+        }
+    }
+
     pub fn squeeze_out_single(
         &mut self,
     ) -> E::Fr {

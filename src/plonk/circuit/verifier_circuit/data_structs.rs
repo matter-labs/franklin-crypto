@@ -65,37 +65,37 @@ impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> ProofGadget<'a, E, WP> {
     ) -> Result<Self, SynthesisError> {
         
         let input_values = proof.input_values.iter().map(|x| {
-            AllocatedNum::alloc_input(cs, || Err(SynthesisError::AssignmentMissing))
+            AllocatedNum::alloc_input(cs, || Ok(*x))
         }).collect::<Result<Vec<_>, _>>()?;
 
         let wire_commitments = proof.wire_commitments.iter().map(|x| {
-            WrappedAffinePoint::alloc(cs, None, params, aux_data)
+            WrappedAffinePoint::alloc(cs, Some(*x), params, aux_data)
         }).collect::<Result<Vec<_>, _>>()?;
 
-        let grand_product_commitment = WrappedAffinePoint::alloc(cs, None, params, aux_data)?;
+        let grand_product_commitment = WrappedAffinePoint::alloc(cs, Some(proof.grand_product_commitment), params, aux_data)?;
         
         let quotient_poly_commitments = proof.quotient_poly_commitments.iter().map(|x| {
-            WrappedAffinePoint::alloc(cs, None, params, aux_data)
+            WrappedAffinePoint::alloc(cs, Some(*x), params, aux_data)
         }).collect::<Result<Vec<_>, _>>()?;
 
         let wire_values_at_z = proof.wire_values_at_z.iter().map(|x| {
-            AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))
+            AllocatedNum::alloc(cs, || Ok(*x))
         }).collect::<Result<Vec<_>, _>>()?;
 
         let wire_values_at_z_omega = proof.wire_values_at_z_omega.iter().map(|x| {
-            AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))
+            AllocatedNum::alloc(cs, || Ok(*x))
         }).collect::<Result<Vec<_>, _>>()?;
 
-        let grand_product_at_z_omega = AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?; 
-        let quotient_polynomial_at_z = AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?; 
-        let linearization_polynomial_at_z = AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?;  
+        let grand_product_at_z_omega = AllocatedNum::alloc(cs, || Ok(proof.grand_product_at_z_omega))?; 
+        let quotient_polynomial_at_z = AllocatedNum::alloc(cs, || Ok(proof.quotient_polynomial_at_z))?; 
+        let linearization_polynomial_at_z = AllocatedNum::alloc(cs, || Ok(proof.linearization_polynomial_at_z))?;  
 
         let permutation_polynomials_at_z = proof.permutation_polynomials_at_z.iter().map(|x| {
-            AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))
+            AllocatedNum::alloc(cs, || Ok(*x))
         }).collect::<Result<Vec<_>, _>>()?;
 
-        let opening_at_z_proof = WrappedAffinePoint::alloc(cs, None, params, aux_data)?;
-        let opening_at_z_omega_proof = WrappedAffinePoint::alloc(cs, None, params, aux_data)?;
+        let opening_at_z_proof = WrappedAffinePoint::alloc(cs, Some(proof.opening_at_z_proof), params, aux_data)?;
+        let opening_at_z_omega_proof = WrappedAffinePoint::alloc(cs, Some(proof.opening_at_z_omega_proof), params, aux_data)?;
        
         Ok(ProofGadget {
             num_inputs: proof.num_inputs,
@@ -144,15 +144,15 @@ impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> VerificationKeyGagdet<'a, E, 
     ) -> Result<Self, SynthesisError> {
 
         let selector_commitments = vk.selector_commitments.iter().map(|x| {
-            WrappedAffinePoint::alloc(cs, None, params, aux_data)
+            WrappedAffinePoint::alloc(cs, Some(*x), params, aux_data)
         }).collect::<Result<Vec<_>, _>>()?;
 
         let next_step_selector_commitments = vk.next_step_selector_commitments.iter().map(|x| {
-            WrappedAffinePoint::alloc(cs, None, params, aux_data)
+            WrappedAffinePoint::alloc(cs, Some(*x), params, aux_data)
         }).collect::<Result<Vec<_>, _>>()?;
 
         let permutation_commitments = vk.permutation_commitments.iter().map(|x| {
-            WrappedAffinePoint::alloc(cs, None, params, aux_data)
+            WrappedAffinePoint::alloc(cs, Some(*x), params, aux_data)
         }).collect::<Result<Vec<_>, _>>()?;
 
         Ok(VerificationKeyGagdet {
