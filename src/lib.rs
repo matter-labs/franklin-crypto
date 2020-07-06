@@ -10,6 +10,7 @@ extern crate byteorder;
 extern crate tiny_keccak;
 extern crate sha2;
 extern crate hmac;
+extern crate subtle;
 
 #[cfg(test)]
 #[macro_use]
@@ -36,6 +37,7 @@ pub mod eddsa;
 pub mod interpolation;
 pub mod as_waksman;
 pub mod rescue;
+pub mod straus;
 
 extern crate serde;
 #[macro_use]

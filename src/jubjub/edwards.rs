@@ -607,4 +607,60 @@ impl<E: JubjubEngine, Subgroup> Point<E, Subgroup> {
 
         res
     }
+
+    // #[must_use]
+    pub fn mul_ct(
+        &self,
+        scalar: E::Fs,
+        params: &E::Params
+    ) -> Self
+    {
+        // Constant-time Straus using a fixed window of size 4
+        use crate::straus::mul_scalar_ct;
+
+        mul_scalar_ct(vec![scalar], vec![*self], params)
+    }
+}
+
+use subtle::{Choice, ConditionallySelectable,ConditionallyNegatable}; 
+
+impl<E: JubjubEngine, Subgroup> std::marker::Copy for Point<E, Subgroup>{
+
+}
+
+impl<E:JubjubEngine, Subgroup>  ConditionallyNegatable for Point<E, Subgroup>{
+    fn conditional_negate(&mut self, choice: Choice) {
+        let neg = self.negate();
+
+        self.conditional_assign(&neg, choice)
+    }
+}
+impl<E:JubjubEngine, Subgroup>  ConditionallySelectable for Point<E, Subgroup>{
+    fn conditional_select(a: &Point<E, Subgroup>, b: &Point<E, Subgroup>, choice: Choice) -> Point<E, Subgroup>{
+        use straus::field_element_conditional_select;
+        Self{
+            x: field_element_conditional_select::<E>(&a.x, &b.x, choice),
+            y: field_element_conditional_select::<E>(&a.y, &b.y, choice),
+            z: field_element_conditional_select::<E>(&a.z, &b.z, choice),
+            t: field_element_conditional_select::<E>(&a.t, &b.t, choice),
+            _marker: PhantomData,
+        }
+    }
+    fn conditional_assign(&mut self, b: &Point<E, Subgroup>, choice: Choice){
+        use straus::field_element_conditional_assign;
+
+        field_element_conditional_assign::<E>(&mut self.x, &b.x, choice);
+        field_element_conditional_assign::<E>(&mut self.y, &b.y, choice);
+        field_element_conditional_assign::<E>(&mut self.z, &b.z, choice);
+        field_element_conditional_assign::<E>(&mut self.t, &b.t, choice);
+    }
+
+    fn conditional_swap(a: &mut Point<E, Subgroup>, b: &mut Point<E, Subgroup>, choice: Choice){
+        use straus::field_element_conditional_swap;
+
+        field_element_conditional_swap::<E>(&mut a.x, &mut b.x, choice);
+        field_element_conditional_swap::<E>(&mut a.y, &mut b.y, choice);
+        field_element_conditional_swap::<E>(&mut a.z, &mut b.z, choice);
+        field_element_conditional_swap::<E>(&mut a.t, &mut b.t, choice);
+    }
 }
