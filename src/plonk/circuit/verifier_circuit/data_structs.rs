@@ -35,7 +35,6 @@ use crate::bellman::plonk::better_cs::cs::PlonkConstraintSystemParams as OldCSPa
 #[derive(Clone, Debug)]
 pub struct ProofGadget<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> {
     pub num_inputs: usize,
-    pub n: usize,
     pub input_values: Vec<AllocatedNum<E>>,
     pub wire_commitments: Vec<WP>,
     pub grand_product_commitment: WP,
@@ -99,7 +98,109 @@ impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> ProofGadget<'a, E, WP> {
        
         Ok(ProofGadget {
             num_inputs: proof.num_inputs,
-            n: proof.n,
+            input_values,
+            wire_commitments,
+            grand_product_commitment,
+            quotient_poly_commitments,
+
+            wire_values_at_z,
+            wire_values_at_z_omega,
+            grand_product_at_z_omega,
+            quotient_polynomial_at_z,
+            linearization_polynomial_at_z,
+            permutation_polynomials_at_z,
+
+            opening_at_z_proof,
+            opening_at_z_omega_proof,
+
+            _m: &std::marker::PhantomData::<()>,
+        })
+    }
+
+    pub fn alloc_from_witness<CS: ConstraintSystem<E>, P: OldCSParams<E>, AD: AuxData<E>>(
+        cs: &mut CS,
+        num_inputs: usize,
+        proof: &Option<Proof<E, P>>,
+        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        aux_data: &AD,
+    ) -> Result<Self, SynthesisError> {
+
+        use crate::circuit::Assignment;
+
+        let state_width = P::STATE_WIDTH;
+        let num_quotient_commitments = P::STATE_WIDTH;
+
+        assert!(P::CAN_ACCESS_NEXT_TRACE_STEP);
+        assert!(!P::HAS_CUSTOM_GATES);
+
+        let mut input_values = vec![];
+        for idx in 0..num_inputs {
+            let wit = proof.as_ref().and_then(|el| Some(&el.input_values)).and_then(|el| Some(el[idx]));
+            let allocated = AllocatedNum::alloc(cs, || Ok(*wit.get()?))?;
+
+            input_values.push(allocated);
+        }
+
+        let mut wire_commitments = vec![];
+        for idx in 0..state_width {
+            let wit = proof.as_ref().and_then(|el| Some(&el.wire_commitments)).and_then(|el| Some(el[idx]));
+            let allocated = WrappedAffinePoint::alloc(cs, wit, params, aux_data)?;
+
+            wire_commitments.push(allocated);
+        }
+        
+        let wit = proof.as_ref().and_then(|el| Some(el.grand_product_commitment));
+        let grand_product_commitment = WrappedAffinePoint::alloc(cs, wit, params, aux_data)?;
+
+        let mut quotient_poly_commitments = vec![];
+        for idx in 0..state_width {
+            let wit = proof.as_ref().and_then(|el| Some(&el.quotient_poly_commitments)).and_then(|el| Some(el[idx]));
+            let allocated = WrappedAffinePoint::alloc(cs, wit, params, aux_data)?;
+
+            quotient_poly_commitments.push(allocated);
+        }
+
+        let mut wire_values_at_z = vec![];
+        for idx in 0..state_width {
+            let wit = proof.as_ref().and_then(|el| Some(&el.wire_values_at_z)).and_then(|el| Some(el[idx]));
+            let allocated = AllocatedNum::alloc(cs, || Ok(*wit.get()?))?;
+
+            wire_values_at_z.push(allocated);
+        }
+
+        let mut wire_values_at_z_omega = vec![];
+        for idx in 0..state_width {
+            let wit = proof.as_ref().and_then(|el| Some(&el.wire_values_at_z_omega)).and_then(|el| Some(el[idx]));
+            let allocated = AllocatedNum::alloc(cs, || Ok(*wit.get()?))?;
+
+            wire_values_at_z_omega.push(allocated);
+        }
+
+        let wit = proof.as_ref().and_then(|el| Some(el.grand_product_at_z_omega));
+        let grand_product_at_z_omega = AllocatedNum::alloc(cs, || Ok(*wit.get()?))?; 
+
+        let wit = proof.as_ref().and_then(|el| Some(el.quotient_polynomial_at_z));
+        let quotient_polynomial_at_z = AllocatedNum::alloc(cs, || Ok(*wit.get()?))?; 
+
+        let wit = proof.as_ref().and_then(|el| Some(el.linearization_polynomial_at_z));
+        let linearization_polynomial_at_z = AllocatedNum::alloc(cs, || Ok(*wit.get()?))?; 
+
+        let mut permutation_polynomials_at_z = vec![];
+        for idx in 0..(state_width-1) {
+            let wit = proof.as_ref().and_then(|el| Some(&el.permutation_polynomials_at_z)).and_then(|el| Some(el[idx]));
+            let allocated = AllocatedNum::alloc(cs, || Ok(*wit.get()?))?;
+
+            permutation_polynomials_at_z.push(allocated);
+        }
+
+        let wit = proof.as_ref().and_then(|el| Some(el.opening_at_z_proof));
+        let opening_at_z_proof = WrappedAffinePoint::alloc(cs, wit, params, aux_data)?;
+
+        let wit = proof.as_ref().and_then(|el| Some(el.opening_at_z_omega_proof));
+        let opening_at_z_omega_proof = WrappedAffinePoint::alloc(cs, wit, params, aux_data)?;
+
+        Ok(ProofGadget {
+            num_inputs: num_inputs,
             input_values,
             wire_commitments,
             grand_product_commitment,
@@ -123,7 +224,9 @@ impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> ProofGadget<'a, E, WP> {
 
 #[derive(Clone, Debug)]
 pub struct VerificationKeyGagdet<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> {
-    pub n: usize,
+    pub n: Option<usize>,
+    pub domain_size_as_allocated_num: Option<AllocatedNum<E>>,
+    pub omega_as_allocated_num: Option<AllocatedNum<E>>,
     pub num_inputs: usize,
     pub selector_commitments: Vec<WP>,
     pub next_step_selector_commitments: Vec<WP>,
@@ -156,7 +259,9 @@ impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> VerificationKeyGagdet<'a, E, 
         }).collect::<Result<Vec<_>, _>>()?;
 
         Ok(VerificationKeyGagdet {
-            n : vk.n,
+            n : Some(vk.n),
+            domain_size_as_allocated_num: None,
+            omega_as_allocated_num: None,
             num_inputs : vk.num_inputs,
             selector_commitments,
             next_step_selector_commitments,
@@ -166,5 +271,71 @@ impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> VerificationKeyGagdet<'a, E, 
             _m: &std::marker::PhantomData::<()>,
         })
     }
+
+    pub fn alloc_from_limbs_witness<CS: ConstraintSystem<E>, P: OldCSParams<E>, AD: AuxData<E>>(
+        cs: &mut CS,
+        num_inputs: usize,
+        domain_size: &AllocatedNum<E>,
+        omega: &AllocatedNum<E>,
+        witness: &[AllocatedNum<E>],
+        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        non_residues: Vec<E::Fr>,
+        aux_data: &AD,
+    ) -> Result<Self, SynthesisError> {
+
+        let num_selector_commitments = P::STATE_WIDTH + 2; 
+        let num_next_step_selector_commitments = if P::CAN_ACCESS_NEXT_TRACE_STEP {
+            1
+        } else {
+            0
+        };
+
+        let num_permutation_commitments = P::STATE_WIDTH;
+
+        assert!(!P::HAS_CUSTOM_GATES);
+
+        let mut w = witness;
+
+        let mut selector_commitments = vec![];
+        for _ in 0..num_selector_commitments {
+            let (point, rest) = WrappedAffinePoint::from_allocated_limb_witness(cs, w, params, aux_data)?;
+
+            w = rest;
+
+            selector_commitments.push(point);
+        }
+
+        let mut next_step_selector_commitments = vec![];
+        for _ in 0..num_next_step_selector_commitments {
+            let (point, rest) = WrappedAffinePoint::from_allocated_limb_witness(cs, w, params, aux_data)?;
+
+            w = rest;
+
+            next_step_selector_commitments.push(point);
+        }
+
+        let mut permutation_commitments = vec![];
+        for _ in 0..num_permutation_commitments {
+            let (point, rest) = WrappedAffinePoint::from_allocated_limb_witness(cs, w, params, aux_data)?;
+
+            w = rest;
+
+            permutation_commitments.push(point);
+        }
+
+        assert_eq!(w.len(), 0);
+
+        Ok(VerificationKeyGagdet {
+            n : None,
+            domain_size_as_allocated_num: Some(domain_size.clone()),
+            omega_as_allocated_num: Some(omega.clone()),
+            num_inputs : num_inputs,
+            selector_commitments,
+            next_step_selector_commitments,
+            permutation_commitments,
+            non_residues: non_residues,
+
+            _m: &std::marker::PhantomData::<()>,
+        })
+    }
 }
-        

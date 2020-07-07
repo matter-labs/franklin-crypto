@@ -20,7 +20,8 @@ use crate::bellman::plonk::better_better_cs::cs::{
     MainGateTerm
 };
 
-use super::boolean::{AllocatedBit, Boolean};
+use super::boolean::{self, AllocatedBit, Boolean};
+use super::linear_combination::*;
 
 use crate::circuit::{
     Assignment
@@ -660,6 +661,41 @@ impl<E: Engine> AllocatedNum<E> {
         }
 
         Ok(r0)
+    }
+
+    /// Return (fixed) amount of bits of the allocated number.
+    /// Can be used when there is a priori knowledge of bit length of the number
+    pub fn into_bits_le<CS>(
+        &self,
+        cs: &mut CS,
+        bit_length: Option<usize>,
+    ) -> Result<Vec<Boolean>, SynthesisError>
+    where
+        CS: ConstraintSystem<E>,
+    {
+        if let Some(bit_length) = bit_length {
+            assert!(bit_length <= E::Fr::NUM_BITS as usize);
+        }
+        
+        let bits = boolean::field_into_allocated_bits_le_fixed(cs, self.value, bit_length)?;
+
+        let mut minus_one = E::Fr::one();
+        minus_one.negate();
+
+        let mut packed_lc = LinearCombination::zero();
+        packed_lc.add_assign_variable_with_coeff(self, minus_one);
+
+        let mut coeff = E::Fr::one();
+
+        for bit in bits.iter() {
+            packed_lc.add_assign_bit_with_coeff(bit, coeff);
+
+            coeff.double();
+        }
+
+        packed_lc.enforce_zero(cs)?;
+
+        Ok(bits.into_iter().map(|b| Boolean::from(b)).collect())
     }
 }
 

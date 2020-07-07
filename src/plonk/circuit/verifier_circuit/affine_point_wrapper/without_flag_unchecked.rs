@@ -54,6 +54,49 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         Ok(res)
     }
 
+    fn from_allocated_limb_witness<'b, CS: ConstraintSystem<E>, AD: aux_data::AuxData<E>>(
+        cs: &mut CS,
+        witnesses: &'b [AllocatedNum<E>],
+        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        aux_data: &AD,
+    ) -> Result<(Self, &'b [AllocatedNum<E>]), SynthesisError> {
+        let (x, rest) = allocate_coordinate_from_limb_witness(cs, witnesses, params)?;
+        let (y, rest) = allocate_coordinate_from_limb_witness(cs, witnesses, params)?;
+
+        let value = match (x.get_field_value(), y.get_field_value()) {
+            (Some(x_val), Some(y_val)) => {
+                let point = E::G1Affine::from_xy_unchecked(x_val, y_val);
+
+                Some(point)
+            },
+            _ => {
+                None
+            }
+        };
+        let p = AffinePoint {
+            value,
+            x,
+            y
+        };
+
+        let res = WrapperUnchecked { 
+            point: p
+        };
+
+        let is_on_curve = res.is_on_curve(cs, params, aux_data)?;
+
+        let subgroup_check = if aux_data.requires_subgroup_check() {
+            res.subgroup_check(cs, params, aux_data)?
+        } else {
+            Boolean::constant(true)
+        };
+        
+        let is_valid_point = Boolean::and(cs, &is_on_curve, &subgroup_check)?;
+        Boolean::enforce_equal(cs, &is_valid_point, &Boolean::constant(true))?;
+
+        Ok((res, rest))
+    }
+
     fn zero(params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>) -> Self 
     {
         unimplemented!();
@@ -218,5 +261,32 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
             point: AffinePoint::multiexp(cs, &d_arr[..], &aff_points[..], bit_limit)?,
         };
         Ok(res)
+    }
+}
+
+fn allocate_coordinate_from_limb_witness<'a, 'b, E: Engine, CS: ConstraintSystem<E>>(
+    cs: &mut CS,
+    witness: &'b [AllocatedNum<E>],
+    params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+) -> Result<(FieldElement<'a, E, <E::G1Affine as CurveAffine>::Base>, &'b [AllocatedNum<E>]), SynthesisError> {
+    if params.can_allocate_from_double_limb_witness() {
+        let mut num_witness = params.num_limbs_for_in_field_representation / 2;
+        if params.num_limbs_for_in_field_representation % 2 != 0 {
+            num_witness += 1;
+        }
+
+        let (w, rest) = witness.split_at(num_witness);
+        let w: Vec<_> = w.iter().map(|el| Num::Variable(el.clone())).collect();
+        let fe = FieldElement::from_double_size_limb_witnesses(cs, &w, false, params)?;
+
+        return Ok((fe, rest));
+    } else {
+        let num_witness = params.num_limbs_for_in_field_representation;
+
+        let (w, rest) = witness.split_at(num_witness);
+        let w: Vec<_> = w.iter().map(|el| Num::Variable(el.clone())).collect();
+        let fe = FieldElement::coarsely_allocate_from_single_limb_witnesses(cs, &w, false, params)?;
+
+        return Ok((fe, rest));
     }
 }
