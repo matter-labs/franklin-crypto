@@ -8,6 +8,10 @@ use crate::plonk::circuit::bigint::field::*;
 use crate::plonk::circuit::bigint::bigint::*;
 use crate::plonk::circuit::verifier_circuit::affine_point_wrapper::WrappedAffinePoint;
 
+use bellman::pairing::ff::{
+    Field,
+};
+
 use bellman::pairing::{
     Engine,
 };
@@ -88,6 +92,11 @@ where <<E as RescueEngine>::Params as RescueHashParams<E>>::SBox0: PlonkCsSBox<E
                 num_witness += 1;
             }
 
+            let mut shift_constant = E::Fr::one();
+            for _ in 0..params.binary_limbs_bit_widths[0] {
+                shift_constant.double();
+            }
+
             // we need to recalculate and reallocate
 
             let point = data.get_point();
@@ -99,22 +108,36 @@ where <<E as RescueEngine>::Params as RescueHashParams<E>>::SBox0: PlonkCsSBox<E
             let zero = AllocatedNum::zero(cs);
 
             for coord in vec![x, y] {
-                let witness_limbs = split_some_into_fixed_number_of_limbs(
-                    coord.get_value(), 
-                    params.binary_limbs_params.limb_size_bits * 2, 
-                    num_witness
-                );
-    
                 let mut witnesses = vec![];
-                for l in witness_limbs.into_iter() {
-                    let v = some_biguint_to_fe::<E::Fr>(&l);
-                    let w = AllocatedNum::alloc(cs, 
-                    || {
-                        Ok(*v.get()?)
-                    })?;
-    
-                    witnesses.push(w);
+
+                for idx in 0..num_witness {
+                    let low_idx = 2*idx;
+                    let high_idx = 2*idx + 1;
+
+                    let low_term = coord.binary_limbs[low_idx].term.clone();
+                    let mut high_term = coord.binary_limbs[high_idx].term.clone();
+                    high_term.scale(&shift_constant);
+
+                    let wit = high_term.add(cs, &low_term)?.collapse_into_num(cs)?.get_variable();
+
+                    witnesses.push(wit);
                 }
+                // let witness_limbs = split_some_into_fixed_number_of_limbs(
+                //     coord.get_value(), 
+                //     params.binary_limbs_params.limb_size_bits * 2, 
+                //     num_witness
+                // );
+    
+
+                // for l in witness_limbs.into_iter() {
+                //     let v = some_biguint_to_fe::<E::Fr>(&l);
+                //     let w = AllocatedNum::alloc(cs, 
+                //     || {
+                //         Ok(*v.get()?)
+                //     })?;
+    
+                //     witnesses.push(w);
+                // }
 
                 for w in witnesses.into_iter() {
                     let selected = AllocatedNum::conditionally_select(cs, &zero, &w, &data.get_zero_flag())?;

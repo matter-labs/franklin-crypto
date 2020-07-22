@@ -55,7 +55,6 @@ pub struct ProofGadget<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> {
 
 
 impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> ProofGadget<'a, E, WP> {
-    
     pub fn alloc<CS: ConstraintSystem<E>, P: OldCSParams<E>, AD: AuxData<E>>(
         cs: &mut CS,
         proof: Proof<E, P>,
@@ -169,7 +168,7 @@ impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> ProofGadget<'a, E, WP> {
         }
 
         let mut wire_values_at_z_omega = vec![];
-        for idx in 0..state_width {
+        for idx in 0..1 {
             let wit = proof.as_ref().and_then(|el| Some(&el.wire_values_at_z_omega)).and_then(|el| Some(el[idx]));
             let allocated = AllocatedNum::alloc(cs, || Ok(*wit.get()?))?;
 
@@ -220,7 +219,6 @@ impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> ProofGadget<'a, E, WP> {
         })
     }
 }
-
 
 #[derive(Clone, Debug)]
 pub struct VerificationKeyGagdet<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> {
@@ -284,14 +282,11 @@ impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> VerificationKeyGagdet<'a, E, 
     ) -> Result<Self, SynthesisError> {
 
         let num_selector_commitments = P::STATE_WIDTH + 2; 
-        let num_next_step_selector_commitments = if P::CAN_ACCESS_NEXT_TRACE_STEP {
-            1
-        } else {
-            0
-        };
+        let num_next_step_selector_commitments = 1;
 
         let num_permutation_commitments = P::STATE_WIDTH;
 
+        assert!(P::CAN_ACCESS_NEXT_TRACE_STEP);
         assert!(!P::HAS_CUSTOM_GATES);
 
         let mut w = witness;
@@ -323,7 +318,7 @@ impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> VerificationKeyGagdet<'a, E, 
             permutation_commitments.push(point);
         }
 
-        assert_eq!(w.len(), 0);
+        assert_eq!(w.len(), 0, "must consume all the witness");
 
         Ok(VerificationKeyGagdet {
             n : None,
@@ -337,5 +332,172 @@ impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> VerificationKeyGagdet<'a, E, 
 
             _m: &std::marker::PhantomData::<()>,
         })
+    }
+}
+
+pub trait IntoLimbedWitness<E: Engine> {
+    fn into_witness(&self) -> Result<Vec<E::Fr>, SynthesisError> {
+        unimplemented!()
+    }
+    fn witness_size_for_params(params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base >) -> usize;
+    fn into_witness_for_params(&self, params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base >) -> Result<Vec<E::Fr>, SynthesisError> {
+        unimplemented!()
+    }
+}
+
+impl<E: Engine, P: OldCSParams<E>> IntoLimbedWitness<E> for VerificationKey<E, P> {
+    fn witness_size_for_params(params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base >) -> usize {
+        let mut base = 2;
+
+        let per_coord = if params.can_allocate_from_double_limb_witness() {
+            let mut num_witness = params.num_limbs_for_in_field_representation / 2;
+            if params.num_limbs_for_in_field_representation % 2 != 0 {
+                num_witness += 1;
+            }
+
+            num_witness
+        } else {
+            params.num_limbs_for_in_field_representation
+        };
+
+        let num_selector_commitments = P::STATE_WIDTH + 2; 
+        let num_next_step_selector_commitments = 1;
+
+        let num_permutation_commitments = P::STATE_WIDTH;
+
+        assert!(P::CAN_ACCESS_NEXT_TRACE_STEP);
+        assert!(!P::HAS_CUSTOM_GATES);
+
+        base += num_selector_commitments * 2 * per_coord;
+        base += num_next_step_selector_commitments * 2 * per_coord;
+        base += num_permutation_commitments * 2 * per_coord;
+
+        base
+    }
+
+    fn into_witness_for_params(&self, params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base>) -> Result<Vec<E::Fr>, SynthesisError> {
+        use super::utils::verification_key_into_allocated_limb_witnesses;
+
+        let as_limbs = verification_key_into_allocated_limb_witnesses(&self, params);
+
+        Ok(as_limbs)
+    }
+}
+
+
+impl<E: Engine, P: OldCSParams<E>> IntoLimbedWitness<E> for Proof<E, P> {
+    fn witness_size_for_params(params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base >) -> usize {
+        unimplemented!();
+        // let mut base = 2;
+
+        // let per_coord = if params.can_allocate_from_double_limb_witness() {
+        //     let mut num_witness = params.num_limbs_for_in_field_representation / 2;
+        //     if params.num_limbs_for_in_field_representation % 2 != 0 {
+        //         num_witness += 1;
+        //     }
+
+        //     num_witness
+        // } else {
+        //     params.num_limbs_for_in_field_representation
+        // };
+
+        // let num_selector_commitments = P::STATE_WIDTH + 2; 
+        // let num_next_step_selector_commitments = 1;
+
+        // let num_permutation_commitments = P::STATE_WIDTH;
+
+        // assert!(P::CAN_ACCESS_NEXT_TRACE_STEP);
+        // assert!(!P::HAS_CUSTOM_GATES);
+
+        // base += num_selector_commitments * 2 * per_coord;
+        // base += num_next_step_selector_commitments * 2 * per_coord;
+        // base += num_permutation_commitments * 2 * per_coord;
+
+        // base
+    }
+
+    fn into_witness_for_params(&self, params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base>) -> Result<Vec<E::Fr>, SynthesisError> {
+        use super::utils::proof_into_single_limb_witness;
+
+        let as_limbs = proof_into_single_limb_witness(&self, params);
+
+        Ok(as_limbs)
+    }
+}
+
+pub trait IntoLimbedCircuitWitness<E: Engine> {
+    fn into_witness<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Vec<Num<E>>, SynthesisError> {
+        unimplemented!()
+    }
+    // fn into_witness_for_params<F: PrimeField, CS: ConstraintSystem<E>>(&self, cs: &mut CS, params: &RnsParameters<E, F>) -> Result<Vec<AllocatedNum<E>>, SynthesisError> {
+    //     unimplemented!()
+    // }
+}
+
+impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> IntoLimbedCircuitWitness<E> for ProofGadget<'a, E, WP> {
+    fn into_witness<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Vec<Num<E>>, SynthesisError> {
+        let mut result = vec![];
+
+        add_scalar_field_elements(&self.input_values, &mut result);
+        add_points(&self.wire_commitments, &mut result);
+        add_points(&[self.grand_product_commitment.clone()], &mut result);
+        add_points(&self.quotient_poly_commitments, &mut result);
+
+        add_scalar_field_elements(&self.wire_values_at_z, &mut result);
+        add_scalar_field_elements(&self.wire_values_at_z_omega, &mut result);
+
+        add_scalar_field_elements(&[self.grand_product_at_z_omega.clone()], &mut result);
+        add_scalar_field_elements(&[self.quotient_polynomial_at_z.clone()], &mut result);
+        add_scalar_field_elements(&[self.linearization_polynomial_at_z.clone()], &mut result);
+
+        add_scalar_field_elements(&self.permutation_polynomials_at_z, &mut result);
+
+        add_points(&[self.opening_at_z_proof.clone(), self.opening_at_z_omega_proof.clone()], &mut result);
+
+        Ok(result)
+    }
+}
+
+
+impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> IntoLimbedCircuitWitness<E> for VerificationKeyGagdet<'a, E, WP> {
+    fn into_witness<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Vec<Num<E>>, SynthesisError> {
+        assert!(self.domain_size_as_allocated_num.is_some(), "can only be called on a gadget with variable parameters");
+        assert!(self.omega_as_allocated_num.is_some(), "can only be called on a gadget with variable parameters");
+
+        let mut result = vec![];
+
+        result.push(Num::Variable(self.domain_size_as_allocated_num.as_ref().unwrap().clone()));
+        result.push(Num::Variable(self.omega_as_allocated_num.as_ref().unwrap().clone()));
+
+        add_points(&self.selector_commitments, &mut result);
+        add_points(&self.next_step_selector_commitments, &mut result);
+        add_points(&self.permutation_commitments, &mut result);
+
+        Ok(result)
+    }
+}
+
+fn add_scalar_field_elements<E: Engine>(src: &[AllocatedNum<E>], dst: &mut Vec<Num<E>>) {
+    for el in src.iter() {
+        let num = Num::Variable(el.clone());
+        dst.push(num);
+    }
+}
+
+fn add_prime_field_elements<'a, E: Engine, F: PrimeField>(src: &[FieldElement<'a, E, F>], dst: &mut Vec<Num<E>>) {
+    for el in src.iter() {
+        for limb in el.binary_limbs.iter() {
+            let as_num = limb.term.into_num();
+            dst.push(as_num);
+        }        
+    }
+}
+
+fn add_points<'a, E: Engine, WP: WrappedAffinePoint<'a, E>>(src: &[WP], dst: &mut Vec<Num<E>>) {
+    for el in src.iter() {
+        let p = el.get_point();
+        let x = p.x.clone();
+        let y = p.y.clone();
+        add_prime_field_elements(&[x, y], dst);   
     }
 }

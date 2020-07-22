@@ -11,7 +11,7 @@ use crate::bellman::pairing::ff::{
 use crate::bellman::pairing::bn256::{Bn256};
 
 
-pub trait AuxData<E: Engine>
+pub trait AuxData<E: Engine>: Clone + std::fmt::Debug
 {
     fn new() -> Self;
     fn get_b(&self) -> <E::G1Affine as CurveAffine>::Base;
@@ -22,7 +22,7 @@ pub trait AuxData<E: Engine>
     fn requires_subgroup_check(&self) -> bool;
 }
 
-
+#[derive(Clone, Debug)]
 pub struct BN256AuxData {
     b: <Bn256 as Engine>::Fq,
     group_order: [u64; 4],

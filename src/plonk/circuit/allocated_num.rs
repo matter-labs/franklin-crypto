@@ -162,62 +162,85 @@ impl<E: Engine> AllocatedNum<E> {
         })
     }
 
+    pub fn inputize<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<(), SynthesisError> {
+        let input = Self::alloc_input(
+            cs,
+            || {
+                Ok(*self.get_value().get()?)
+            }
+        )?;
+
+        self.enforce_equal(cs, &input)?;
+
+        Ok(())
+    }
+
     // allocate a variable with value "one"
     pub fn one<CS: ConstraintSystem<E>>(cs: &mut CS) -> Self {
-        use std::sync::Once;
-
-        static INIT: Once = Once::new();
-        static mut VAR: Option<Variable> = None;
-
-        unsafe {
-            INIT.call_once(|| {
-                let var = cs.get_explicit_one().expect("must get an explicit once from CS");
-                let allocated = Self {
-                    value: Some(E::Fr::one()),
-                    variable: var
-                };
-                allocated.assert_equal_to_constant(cs, E::Fr::one()).expect("must enforce equality");
-                VAR = Some(allocated.get_variable());
-            });
-        }
-
-        let var = unsafe {
-            VAR.unwrap()
-        };
-     
         AllocatedNum {
             value: Some(E::Fr::one()),
-            variable: var,
+            variable: cs.get_explicit_one().expect("must get an explicit one from CS"),
         }
+
+        // use std::sync::Once;
+
+        // static INIT: Once = Once::new();
+        // static mut VAR: Option<Variable> = None;
+
+        // unsafe {
+        //     INIT.call_once(|| {
+        //         let var = cs.get_explicit_one().expect("must get an explicit once from CS");
+        //         let allocated = Self {
+        //             value: Some(E::Fr::one()),
+        //             variable: var
+        //         };
+        //         allocated.assert_equal_to_constant(cs, E::Fr::one()).expect("must enforce equality");
+        //         VAR = Some(allocated.get_variable());
+        //     });
+        // }
+
+        // let var = unsafe {
+        //     VAR.unwrap()
+        // };
+     
+        // AllocatedNum {
+        //     value: Some(E::Fr::one()),
+        //     variable: var,
+        // }
     }
 
     // allocate a variable with value "zero"
     pub fn zero<CS: ConstraintSystem<E>>(cs: &mut CS) -> Self {
-        use std::sync::Once;
-
-        static INIT: Once = Once::new();
-        static mut VAR: Option<Variable> = None;
-
-        unsafe {
-            INIT.call_once(|| {
-                let var = cs.get_explicit_zero().expect("must get an explicit once from CS");
-                let allocated = Self {
-                    value: Some(E::Fr::zero()),
-                    variable: var
-                };
-                allocated.assert_equal_to_constant(cs, E::Fr::zero()).expect("must enforce equality");
-                VAR = Some(allocated.get_variable());
-            });
-        }
-
-        let var = unsafe {
-            VAR.unwrap()
-        };
-     
         AllocatedNum {
             value: Some(E::Fr::zero()),
-            variable: var,
+            variable: cs.get_explicit_zero().expect("must get an explicit zero from CS"),
         }
+
+        // use std::sync::Once;
+
+        // static INIT: Once = Once::new();
+        // static mut ZERO_VAR: Option<Variable> = None;
+
+        // unsafe {
+        //     INIT.call_once(|| {
+        //         let var = cs.get_explicit_zero().expect("must get an explicit once from CS");
+        //         let allocated = Self {
+        //             value: Some(E::Fr::zero()),
+        //             variable: var
+        //         };
+        //         allocated.assert_equal_to_constant(cs, E::Fr::zero()).expect("must enforce equality");
+        //         ZERO_VAR = Some(allocated.get_variable());
+        //     });
+        // }
+
+        // let var = unsafe {
+        //     ZERO_VAR.unwrap()
+        // };
+     
+        // AllocatedNum {
+        //     value: Some(E::Fr::zero()),
+        //     variable: var,
+        // }
     }
 
     pub fn enforce_equal<CS>(
@@ -743,5 +766,60 @@ mod test {
 
             assert!(cs.is_satisfied());
         }
+    }
+
+    #[test]
+    fn check_explicits() {
+        use crate::bellman::pairing::bn256::{Bn256, Fr};
+        use crate::bellman::plonk::better_better_cs::cs::*;
+
+        struct Tester;
+
+        impl Circuit<Bn256> for Tester {
+            type MainGate = Width4MainGateWithDNext;
+
+            fn declare_used_gates() -> Result<Vec<Box<dyn GateInternal<Bn256>>>, SynthesisError> {
+                Ok(
+                    vec![
+                        Self::MainGate::default().into_internal(),
+                    ]
+                )
+            }
+            fn synthesize<CS: ConstraintSystem<Bn256>>(&self, cs: &mut CS) -> Result<(), SynthesisError> {
+                let z = AllocatedNum::zero(cs);
+                dbg!(cs.get_value(z.get_variable())?);
+                let o = AllocatedNum::one(cs);
+                dbg!(cs.get_value(o.get_variable())?);
+
+                Ok(())
+            }
+        }
+
+        let mut assembly = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+
+        let circuit = Tester;
+        circuit.synthesize(&mut assembly).unwrap();
+        assert!(assembly.is_satisfied());
+
+        assembly.finalize();
+
+        use crate::bellman::worker::Worker;
+
+        let worker = Worker::new();
+
+        let setup = assembly.create_setup::<Tester>(&worker).unwrap();
+
+        use crate::bellman::kate_commitment::*;
+        use crate::bellman::plonk::commitments::transcript::{*, keccak_transcript::RollingKeccakTranscript};
+
+        let crs_mons =
+            Crs::<Bn256, CrsForMonomialForm>::crs_42(setup.permutation_monomials[0].size(), &worker);
+
+        let proof = assembly.create_proof::<_, RollingKeccakTranscript<Fr>>(
+            &worker, 
+            &setup, 
+            &crs_mons,
+            None
+        ).unwrap();
     }
 }

@@ -91,6 +91,17 @@ pub fn field_into_allocated_bits_le_fixed<E: Engine, CS: ConstraintSystem<E>, F:
     Ok(bits)
 }
 
+pub fn field_into_allocated_booleans_le_fixed<E: Engine, CS: ConstraintSystem<E>, F: PrimeField>(
+    cs: &mut CS,
+    value: Option<F>,
+    bit_length: Option<usize>,
+) -> Result<Vec<Boolean>, SynthesisError> {
+    let bits = field_into_allocated_bits_le_fixed(cs, value, bit_length)?;
+    let bools: Vec<_> = bits.into_iter().map(|el| Boolean::from(el)).collect();
+
+    Ok(bools)
+}
+
 /// Represents a variable in the constraint system which is guaranteed
 /// to be either zero or one.
 #[derive(Clone, Debug)]
@@ -542,42 +553,43 @@ pub fn field_into_allocated_bits_le<E: Engine, CS: ConstraintSystem<E>, F: Prime
     value: Option<F>
 ) -> Result<Vec<AllocatedBit>, SynthesisError>
 {
-    // Deconstruct in big-endian bit order
-    let values = match value {
-        Some(ref value) => {
-            let mut field_char = BitIterator::new(F::char());
+    field_into_allocated_bits_le_fixed(cs, value, None)
+    // // Deconstruct in big-endian bit order
+    // let values = match value {
+    //     Some(ref value) => {
+    //         let mut field_char = BitIterator::new(F::char());
 
-            let mut tmp = Vec::with_capacity(F::NUM_BITS as usize);
+    //         let mut tmp = Vec::with_capacity(F::NUM_BITS as usize);
 
-            let mut found_one = false;
-            for b in BitIterator::new(value.into_repr()) {
-                // Skip leading bits
-                found_one |= field_char.next().unwrap();
-                if !found_one {
-                    continue;
-                }
+    //         let mut found_one = false;
+    //         for b in BitIterator::new(value.into_repr()) {
+    //             // Skip leading bits
+    //             found_one |= field_char.next().unwrap();
+    //             if !found_one {
+    //                 continue;
+    //             }
 
-                tmp.push(Some(b));
-            }
+    //             tmp.push(Some(b));
+    //         }
 
-            assert_eq!(tmp.len(), F::NUM_BITS as usize);
+    //         assert_eq!(tmp.len(), F::NUM_BITS as usize);
 
-            tmp
-        },
-        None => {
-            vec![None; F::NUM_BITS as usize]
-        }
-    };
+    //         tmp
+    //     },
+    //     None => {
+    //         vec![None; F::NUM_BITS as usize]
+    //     }
+    // };
 
-    // Allocate in little-endian order
-    let bits = values.into_iter().rev().enumerate().map(|(i, b)| {
-        AllocatedBit::alloc(
-            cs,
-            b
-        )
-    }).collect::<Result<Vec<_>, SynthesisError>>()?;
+    // // Allocate in little-endian order
+    // let bits = values.into_iter().rev().enumerate().map(|(i, b)| {
+    //     AllocatedBit::alloc(
+    //         cs,
+    //         b
+    //     )
+    // }).collect::<Result<Vec<_>, SynthesisError>>()?;
 
-    Ok(bits)
+    // Ok(bits)
 }
 
 // pub fn field_into_allocated_bits_le_fixed<E: Engine, CS: ConstraintSystem<E>, F: PrimeField>(

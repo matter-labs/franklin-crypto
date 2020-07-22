@@ -189,7 +189,10 @@ pub fn create_range_constraint_chain<E: Engine, CS: ConstraintSystem<E>>(
     }
 
     let mut raw_variables = Vec::with_capacity(result.len() + 1);
-    raw_variables.push(cs.get_explicit_zero()?); // we start at D(x) with 0
+    // let zero_var = AllocatedNum::zero(cs).get_variable();
+    // raw_variables.push(zero_var);
+    raw_variables.push(cs.get_explicit_zero()?);
+    // we start at D(x) with 0
     for el in result.iter() {
         raw_variables.push(el.get_variable());
     }
@@ -349,4 +352,92 @@ pub fn get_range_constraint_info<E: Engine, CS: ConstraintSystem<E>>(cs: &CS) ->
     strategies.push(strategy);
 
     strategies
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn check_two_bit_gate() {
+        use crate::bellman::pairing::bn256::{Bn256, Fr};
+        use crate::bellman::plonk::better_better_cs::cs::*;
+        use crate::plonk::circuit::bigint::*;
+        use crate::plonk::circuit::linear_combination::*;
+        use crate::plonk::circuit::allocated_num::*;
+
+        struct Tester;
+
+        impl Circuit<Bn256> for Tester {
+            type MainGate = Width4MainGateWithDNext;
+
+            fn declare_used_gates() -> Result<Vec<Box<dyn GateInternal<Bn256>>>, SynthesisError> {
+                Ok(
+                    vec![
+                        Self::MainGate::default().into_internal(),
+                        TwoBitDecompositionRangecheckCustomGate::default().into_internal(),
+                    ]
+                )
+            }
+            fn synthesize<CS: ConstraintSystem<Bn256>>(&self, cs: &mut CS) -> Result<(), SynthesisError> {
+                let variables: Vec<_> = (0..5).map(|_| AllocatedNum::alloc(
+                    cs, 
+                    || {
+                        Ok(Fr::one())
+                    }
+                ).unwrap()).collect();
+        
+                let mut lc = LinearCombination::<Bn256>::zero();
+                lc.add_assign_constant(Fr::one());
+                let mut current = Fr::one();
+                for v in variables.iter() {
+                    lc.add_assign_variable_with_coeff(v, current);
+                    current.double();
+                }
+        
+                let result = lc.into_allocated_num(cs).unwrap();
+            
+                let num = AllocatedNum::alloc(
+                    cs,
+                    || {
+                        Ok(Fr::from_str("40000").unwrap())
+                    }
+                ).unwrap();
+        
+                let _ = create_range_constraint_chain(cs, &num, 18)?;
+
+                Ok(())
+            }
+        }
+
+        let mut assembly = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+
+        let circuit = Tester;
+        circuit.synthesize(&mut assembly).unwrap();
+        assert!(assembly.is_satisfied());
+
+        let gate = assembly.sorted_gates[1].box_clone();
+        dbg!(assembly.aux_gate_density.0.get(&gate));
+
+        assembly.finalize();
+
+        use crate::bellman::worker::Worker;
+
+        let worker = Worker::new();
+
+        let setup = assembly.create_setup::<Tester>(&worker).unwrap();
+
+        use crate::bellman::kate_commitment::*;
+        use crate::bellman::plonk::commitments::transcript::{*, keccak_transcript::RollingKeccakTranscript};
+
+        let crs_mons =
+            Crs::<Bn256, CrsForMonomialForm>::crs_42(setup.gate_selectors_monomials[0].size(), &worker);
+
+        let proof = assembly.create_proof::<_, RollingKeccakTranscript<Fr>>(
+            &worker, 
+            &setup, 
+            &crs_mons,
+            None
+        ).unwrap();
+    }
 }

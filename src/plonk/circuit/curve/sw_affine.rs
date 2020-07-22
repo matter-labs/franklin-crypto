@@ -54,6 +54,14 @@ pub struct AffinePoint<'a, E: Engine, G: CurveAffine> where <G as CurveAffine>::
 }
 
 impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffine>::Base: PrimeField {
+    pub fn get_x(&self) -> FieldElement<'a, E, G::Base> {
+        self.x.clone()
+    }
+
+    pub fn get_y(&self) -> FieldElement<'a, E, G::Base> {
+        self.y.clone()
+    }
+
     pub fn alloc<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         value: Option<G>,
@@ -207,7 +215,7 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let this_value = self.get_value();
         let other_value = other.get_value();
 
-        debug_assert!(this_value.unwrap() != other_value.unwrap());
+        // debug_assert!(this_value.unwrap() != other_value.unwrap());
 
         let this_x = self.x;
         let this_y = self.y;
@@ -215,15 +223,15 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let other_x = other.x;
         let other_y = other.y;
 
-        {
-            let (x, y) = this_value.unwrap().into_xy_unchecked();
-            debug_assert_eq!(x, this_x.get_field_value().unwrap());
-            debug_assert_eq!(y, this_y.get_field_value().unwrap());
+        // {
+        //     let (x, y) = this_value.unwrap().into_xy_unchecked();
+        //     debug_assert_eq!(x, this_x.get_field_value().unwrap());
+        //     debug_assert_eq!(y, this_y.get_field_value().unwrap());
 
-            let (x, y) = other_value.unwrap().into_xy_unchecked();
-            debug_assert_eq!(x, other_x.get_field_value().unwrap());
-            debug_assert_eq!(y, other_y.get_field_value().unwrap());
-        }
+        //     let (x, y) = other_value.unwrap().into_xy_unchecked();
+        //     debug_assert_eq!(x, other_x.get_field_value().unwrap());
+        //     debug_assert_eq!(y, other_y.get_field_value().unwrap());
+        // }
 
         let (this_y_negated, this_y) = this_y.negated(cs)?;
         let (this_x_negated, this_x) = this_x.negated(cs)?;
@@ -233,9 +241,8 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let (other_x_negated, other_x) = other_x.negated(cs)?;
         let (other_y_negated, other_y) = other_y.negated(cs)?;
         
-        // We may enforce it, but lambda calculation would not unsatisfiable if it's equal
-        // this_x.enforce_not_equal(cs, &other_x)?;
-        // this_y.enforce_not_equal(cs, &other_y)?;
+        this_x.enforce_not_equal(cs, &other_x)?;
+        this_y.enforce_not_equal(cs, &other_y)?;
 
         let (lambda, (mut tmp, _)) = FieldElement::div_from_addition_chain(cs, vec![other_y, this_y_negated], other_x_minus_this_x)?;
 
@@ -279,14 +286,14 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
             value: other_value
         };
 
-        debug_assert_eq!(new.x.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().0);
-        debug_assert_eq!(new.y.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().1);
+        // debug_assert_eq!(new.x.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().0);
+        // debug_assert_eq!(new.y.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().1);
 
-        debug_assert_eq!(this.x.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().0);
-        debug_assert_eq!(this.y.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().1);
+        // debug_assert_eq!(this.x.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().0);
+        // debug_assert_eq!(this.y.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().1);
 
-        debug_assert_eq!(other.x.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().0);
-        debug_assert_eq!(other.y.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().1);
+        // debug_assert_eq!(other.x.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().0);
+        // debug_assert_eq!(other.y.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().1);
 
         Ok((new, (this, other)))
     }
@@ -311,7 +318,7 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let this_value = self.get_value();
         let other_value = other.get_value();
 
-        debug_assert!(this_value.unwrap() != other_value.unwrap());
+        // debug_assert!(this_value.unwrap() != other_value.unwrap());
 
         let this_x = self.x;
         let this_y = self.y;
@@ -319,30 +326,29 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let other_x = other.x;
         let other_y = other.y;
 
-        let this_x_original_value = this_x.get_field_value().unwrap();
-        {
-            let (x, y) = this_value.unwrap().into_xy_unchecked();
-            debug_assert_eq!(x, this_x.get_field_value().unwrap());
-            debug_assert_eq!(y, this_y.get_field_value().unwrap());
+        // let this_x_original_value = this_x.get_field_value().unwrap();
+        // {
+        //     let (x, y) = this_value.unwrap().into_xy_unchecked();
+        //     debug_assert_eq!(x, this_x.get_field_value().unwrap());
+        //     debug_assert_eq!(y, this_y.get_field_value().unwrap());
 
-            let (x, y) = other_value.unwrap().into_xy_unchecked();
-            debug_assert_eq!(x, other_x.get_field_value().unwrap());
-            debug_assert_eq!(y, other_y.get_field_value().unwrap());
-        }
+        //     let (x, y) = other_value.unwrap().into_xy_unchecked();
+        //     debug_assert_eq!(x, other_x.get_field_value().unwrap());
+        //     debug_assert_eq!(y, other_y.get_field_value().unwrap());
+        // }
 
         let (this_y_negated, this_y) = this_y.negated(cs)?;
         let (this_x_negated, this_x) = this_x.negated(cs)?;
 
-        assert_eq!(this_x_original_value, this_x.get_field_value().unwrap());
+        // assert_eq!(this_x_original_value, this_x.get_field_value().unwrap());
 
         let (other_x_minus_this_x, (other_x, this_x_negated)) = other_x.add(cs, this_x_negated)?;
 
         let (other_x_negated, other_x) = other_x.negated(cs)?;
         let (other_y_negated, other_y) = other_y.negated(cs)?;
 
-        // We may enforce it, but lambda calculation would not unsatisfiable if it's equal
-        // this_x.enforce_not_equal(cs, &other_x)?;
-        // this_y.enforce_not_equal(cs, &other_y)?;
+        this_x.enforce_not_equal(cs, &other_x)?;
+        this_y.enforce_not_equal(cs, &other_y)?;
 
         let (lambda, (mut tmp, _)) = FieldElement::div_from_addition_chain(cs, vec![other_y, this_y], other_x_minus_this_x)?;
 
@@ -356,7 +362,7 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
 
         let (new_x_minus_this_x, (new_x, this_x)) = new_x.sub(cs, this_x)?;
 
-        assert_eq!(this_x_original_value, this_x.get_field_value().unwrap());
+        // assert_eq!(this_x_original_value, this_x.get_field_value().unwrap());
         
         let (new_y, _) = lambda.fma_with_addition_chain(cs, new_x_minus_this_x, vec![this_y_negated])?;
 
@@ -391,14 +397,14 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
             value: other_value
         };
 
-        debug_assert_eq!(new.x.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().0);
-        debug_assert_eq!(new.y.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().1);
+        // debug_assert_eq!(new.x.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().0);
+        // debug_assert_eq!(new.y.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().1);
 
-        debug_assert_eq!(this.x.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().0);
-        debug_assert_eq!(this.y.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().1);
+        // debug_assert_eq!(this.x.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().0);
+        // debug_assert_eq!(this.y.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().1);
 
-        debug_assert_eq!(other.x.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().0);
-        debug_assert_eq!(other.y.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().1);
+        // debug_assert_eq!(other.x.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().0);
+        // debug_assert_eq!(other.y.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().1);
 
 
         Ok((new, (this, other)))
@@ -468,12 +474,11 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
             value: this_value
         };
 
+        // debug_assert_eq!(new.x.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().0);
+        // debug_assert_eq!(new.y.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().1);
 
-        debug_assert_eq!(new.x.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().0);
-        debug_assert_eq!(new.y.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().1);
-
-        debug_assert_eq!(this.x.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().0);
-        debug_assert_eq!(this.y.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().1);
+        // debug_assert_eq!(this.x.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().0);
+        // debug_assert_eq!(this.y.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().1);
 
         Ok((new, this))
     }
@@ -497,21 +502,21 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let other_x = other.x;
         let other_y = other.y;
 
-        {
-            let this_x_val = this_x.get_field_value().unwrap();
-            let this_y_val = this_y.get_field_value().unwrap();
+        // {
+        //     let this_x_val = this_x.get_field_value().unwrap();
+        //     let this_y_val = this_y.get_field_value().unwrap();
     
-            let other_x_val = other_x.get_field_value().unwrap();
-            let other_y_val = other_y.get_field_value().unwrap();
+        //     let other_x_val = other_x.get_field_value().unwrap();
+        //     let other_y_val = other_y.get_field_value().unwrap();
 
-            let (x, y) = this_value.unwrap().into_xy_unchecked();
-            debug_assert_eq!(x, this_x_val);
-            debug_assert_eq!(y, this_y_val);
+        //     let (x, y) = this_value.unwrap().into_xy_unchecked();
+        //     debug_assert_eq!(x, this_x_val);
+        //     debug_assert_eq!(y, this_y_val);
 
-            let (x, y) = other_value.unwrap().into_xy_unchecked();
-            debug_assert_eq!(x, other_x_val);
-            debug_assert_eq!(y, other_y_val);
-        }
+        //     let (x, y) = other_value.unwrap().into_xy_unchecked();
+        //     debug_assert_eq!(x, other_x_val);
+        //     debug_assert_eq!(y, other_y_val);
+        // }
 
         let (this_y_negated, this_y) = this_y.negated(cs)?;
         let (this_x_negated, this_x) = this_x.negated(cs)?;
@@ -562,7 +567,7 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
             _ => None
         };
 
-        let (x, y) = new_value.unwrap().into_xy_unchecked();
+        // let (x, y) = new_value.unwrap().into_xy_unchecked();
    
         let new = Self {
             x: new_x,
@@ -583,14 +588,14 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         };
 
 
-        debug_assert_eq!(new.x.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().0);
-        debug_assert_eq!(new.y.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().1);
+        // debug_assert_eq!(new.x.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().0);
+        // debug_assert_eq!(new.y.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().1);
 
-        debug_assert_eq!(this.x.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().0);
-        debug_assert_eq!(this.y.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().1);
+        // debug_assert_eq!(this.x.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().0);
+        // debug_assert_eq!(this.y.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().1);
 
-        debug_assert_eq!(other.x.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().0);
-        debug_assert_eq!(other.y.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().1);
+        // debug_assert_eq!(other.x.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().0);
+        // debug_assert_eq!(other.y.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().1);
 
         Ok((new, (this, other)))
     }
@@ -667,8 +672,10 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
         // we add a random point to the accumulator to avoid having zero anywhere (with high probability)
         // and unknown discrete log allows us to be "safe"
 
-        // let offset_generator = E::G1Affine::one().mul(E::Fr::from_str("13579").unwrap().into_repr()).into_affine(); // TODO: for now
-        let offset_generator = E::G1Affine::one(); // TODO: for now
+        let offset_generator = crate::constants::make_random_points_with_unknown_discrete_log::<E>(
+            &crate::constants::MULTIEXP_DST[..], 
+            1
+        )[0];
 
         let generator = Self::constant(offset_generator, params);
 
@@ -787,8 +794,11 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
 
         // we add a random point to the accumulator to avoid having zero anywhere (with high probability)
         // and unknown discrete log allows us to be "safe"
-        let c = E::Fr::from_str("12345").unwrap();
-        let offset_generator = E::G1Affine::one().mul(c.into_repr()).into_affine(); // TODO: for now
+
+        let offset_generator = crate::constants::make_random_points_with_unknown_discrete_log::<E>(
+            &crate::constants::MULTIEXP_DST[..], 
+            1
+        )[0];
 
         let generator = Self::constant(offset_generator, params);
 
@@ -1056,7 +1066,11 @@ fn simulate_multiplication<E: Engine>(point: E::G1Affine, scalar: E::Fr, num_bit
     let entries = compute_skewed_naf_table(&Some(scalar), num_bits);
     let base = point;
 
-    let offset_generator = E::G1Affine::one(); 
+    let offset_generator = crate::constants::make_random_points_with_unknown_discrete_log::<E>(
+        &crate::constants::MULTIEXP_DST[..], 
+        1
+    )[0];
+
     let mut accumulator = base.into_projective();
     accumulator.add_assign_mixed(&offset_generator);
 

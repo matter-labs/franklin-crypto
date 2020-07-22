@@ -215,11 +215,19 @@ impl<'a, E: Engine, F: PrimeField> RnsParameters<E, F>{
     }
 
     pub fn can_allocate_from_double_limb_witness(&self) -> bool {
+        if self.prefer_single_limb_allocation == true {
+            return false;
+        }
+
         if self.range_check_info.strategy.can_access_minimal_multiple_quants() {
             true
         } else {
             self.prefer_single_limb_allocation == false && self.binary_limbs_params.limb_size_bits % self.range_check_info.optimal_multiple == 0
         }
+    }
+
+    pub fn set_prefer_single_limb_allocation(&mut self, new_value: bool) {
+        self.prefer_single_limb_allocation = new_value;
     }
 
     pub fn set_prefer_double_limb_carry_propagation(&mut self, value: bool) {
@@ -292,6 +300,16 @@ fn value_to_limbs<E: Engine, F: PrimeField>(
 }
 
 impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
+    pub fn into_limbs(self) -> Vec<Term<E>> {
+        let mut result = vec![];
+        for limb in self.binary_limbs.iter() {
+            let t = limb.term.clone();
+            result.push(t);
+        }
+
+        result
+    }
+
     pub fn new_allocated<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         value: Option<F>,
@@ -711,7 +729,9 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
                     assert!(expected_low_width > 0);
                     assert!(expected_high_width > 0);
-                    assert_eq!(expected_low_width, expected_high_width);
+                    if top_limb_may_overflow {
+                        assert_eq!(expected_low_width, expected_high_width);
+                    }
 
                     assert_eq!(params.binary_limbs_params.limb_max_value.clone(), expected_low_max_value);
 
@@ -1050,6 +1070,13 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         }
 
         Ok(self)
+    }
+
+    pub fn force_reduce_into_field<CS: ConstraintSystem<E>>(
+        self,
+        cs: &mut CS
+    ) -> Result<Self, SynthesisError> {
+        self.reduction_impl(cs)
     }
 
     pub(crate) fn reduction_impl<CS: ConstraintSystem<E>>(
@@ -2010,17 +2037,20 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         // result*den = q*p + (a1 + a2 + ... + an)
         // so we place nums into the remainders (don't need to negate here)
 
-        let f = {
-            let mut num = F::zero();
-            for n in nums.iter() {
-                num.add_assign(&n.get_field_value().unwrap());
-            }
+        // let f = {
+        //     let mut num = F::zero();
+        //     for n in nums.iter() {
+        //         let n_value = n.get_field_value();
+        //         num.add_assign(&n_value.unwrap());
+        //     }
 
-            let mut d = den.get_field_value().unwrap().inverse().unwrap();
-            d.mul_assign(&num);
+        //     let d_value = den.get_field_value();
 
-            d
-        };
+        //     let mut d = den.get_field_value().unwrap().inverse().unwrap();
+        //     d.mul_assign(&num);
+
+        //     d
+        // };
 
         let den = den.reduce_if_necessary(cs)?;
 
@@ -2108,7 +2138,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             params
         )?;
 
-        assert!(result_wit.get_field_value().unwrap() == f);
+        // assert!(result_wit.get_field_value().unwrap() == f);
 
         Self::constraint_fma_with_multiple_additions(
             cs, 

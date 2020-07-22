@@ -40,11 +40,11 @@ impl<E: Engine> GateInternal<E> for TwoBitDecompositionRangecheckCustomGate {
 
     fn all_queried_polynomials(&self) -> Vec<PolynomialInConstraint> {
         vec![
-            PolynomialInConstraint::VariablesPolynomial(0, TimeDilation(0)),
-            PolynomialInConstraint::VariablesPolynomial(1, TimeDilation(0)),
-            PolynomialInConstraint::VariablesPolynomial(2, TimeDilation(0)),
-            PolynomialInConstraint::VariablesPolynomial(3, TimeDilation(0)),
-            PolynomialInConstraint::VariablesPolynomial(3, TimeDilation(1)),
+            PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(0)),
+            PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(1)),
+            PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(2)),
+            PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(3)),
+            PolynomialInConstraint::from_id_and_dilation(PolyIdentifier::VariablesPolynomial(3), 1),
         ]
     }
 
@@ -165,7 +165,7 @@ impl<E: Engine> GateInternal<E> for TwoBitDecompositionRangecheckCustomGate {
         let ldes_storage = &*poly_storage;
 
         let a_ref = get_from_map_unchecked(
-            PolynomialInConstraint::VariablesPolynomial(0, TimeDilation(0)),
+            PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(0)),
             ldes_storage
         );
 
@@ -173,27 +173,27 @@ impl<E: Engine> GateInternal<E> for TwoBitDecompositionRangecheckCustomGate {
         drop(a_ref);
 
         let a_raw_ref = get_from_map_unchecked(
-            PolynomialInConstraint::VariablesPolynomial(0, TimeDilation(0)),
+            PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(0)),
             ldes_storage
         ).as_ref();
 
         let b_raw_ref = get_from_map_unchecked(
-            PolynomialInConstraint::VariablesPolynomial(1, TimeDilation(0)),
+            PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(1)),
             ldes_storage
         ).as_ref();
 
         let c_raw_ref = get_from_map_unchecked(
-            PolynomialInConstraint::VariablesPolynomial(2, TimeDilation(0)),
+            PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(2)),
             ldes_storage
         ).as_ref();
 
         let d_raw_ref = get_from_map_unchecked(
-            PolynomialInConstraint::VariablesPolynomial(3, TimeDilation(0)),
+            PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(3)),
             ldes_storage
         ).as_ref();
 
         let d_next_raw_ref = get_from_map_unchecked(
-            PolynomialInConstraint::VariablesPolynomial(3, TimeDilation(1)),
+            PolynomialInConstraint::from_id_and_dilation(PolyIdentifier::VariablesPolynomial(3), 1),
             ldes_storage
         ).as_ref();
 
@@ -205,10 +205,10 @@ impl<E: Engine> GateInternal<E> for TwoBitDecompositionRangecheckCustomGate {
         let mut four = two;
         four.double();
 
-        // 4d - c \in [0, 4)
-        // 4c - b \in [0, 4)
-        // 4b - a \in [0, 4)
-        // 4a - d_next \in [0, 4)
+        // c - 4d \in [0, 4)
+        // b - 4c \in [0, 4)
+        // a - 4b \in [0, 4)
+        // d_next - 4a \in [0, 4)
 
         tmp.map_indexed(&worker,
             |i, el| {
@@ -255,6 +255,19 @@ impl<E: Engine> GateInternal<E> for TwoBitDecompositionRangecheckCustomGate {
             }, 
         );
 
+        // {
+        //     let mut t = tmp.clone();
+        //     t.bitreverse_enumeration(&worker);
+        //     let mons = t.icoset_fft_for_generator(&worker, &coset_factor);
+        //     let values = mons.fft(&worker);
+        //     for i in 0..values.as_ref().len() {
+        //         if i % 4 == 0 {
+        //             dbg!(values.as_ref()[i]);
+        //         }
+        //     }
+            
+        // }
+
         Ok(tmp)
     }
 
@@ -278,15 +291,15 @@ impl<E: Engine> GateInternal<E> for TwoBitDecompositionRangecheckCustomGate {
     ) -> Result<E::Fr, SynthesisError> {
         assert_eq!(challenges.len(), <Self as GateInternal<E>>::num_quotient_terms(&self));
 
-        let a_value = *queried_values.get(&PolynomialInConstraint::VariablesPolynomial(0, TimeDilation(0)))
+        let a_value = *queried_values.get(&PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(0)))
             .ok_or(SynthesisError::AssignmentMissing)?;
-        let b_value = *queried_values.get(&PolynomialInConstraint::VariablesPolynomial(1, TimeDilation(0)))
+        let b_value = *queried_values.get(&PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(1)))
             .ok_or(SynthesisError::AssignmentMissing)?;
-        let c_value = *queried_values.get(&PolynomialInConstraint::VariablesPolynomial(2, TimeDilation(0)))
+        let c_value = *queried_values.get(&PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(2)))
             .ok_or(SynthesisError::AssignmentMissing)?;
-        let d_value = *queried_values.get(&PolynomialInConstraint::VariablesPolynomial(3, TimeDilation(0)))
+        let d_value = *queried_values.get(&PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(3)))
             .ok_or(SynthesisError::AssignmentMissing)?;
-        let d_next_value = *queried_values.get(&PolynomialInConstraint::VariablesPolynomial(3, TimeDilation(1)))
+        let d_next_value = *queried_values.get(&PolynomialInConstraint::from_id_and_dilation(PolyIdentifier::VariablesPolynomial(3), 1))
             .ok_or(SynthesisError::AssignmentMissing)?;
         
         let mut result = E::Fr::zero();
@@ -335,6 +348,17 @@ impl<E: Engine> GateInternal<E> for TwoBitDecompositionRangecheckCustomGate {
 
     fn box_clone(&self) -> Box<dyn GateInternal<E>> {
         Box::from(self.clone())
+    }
+
+    fn contribute_into_linearization_commitment(
+        &self, 
+        _domain_size: usize,
+        _at: E::Fr,
+        _queried_values: &std::collections::HashMap<PolynomialInConstraint, E::Fr>,
+        _commitments_storage: &std::collections::HashMap<PolyIdentifier, E::G1Affine>,
+        _challenges: &[E::Fr],
+    ) -> Result<E::G1, SynthesisError> {
+        unreachable!("this gate does not contribute into linearization");
     }
 }
 

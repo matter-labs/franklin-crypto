@@ -1,7 +1,278 @@
 // new test paradigm: using better_cs for witness generation and better_better_cs for actual constraint system
+use crate::bellman::pairing::{
+    Engine,
+    CurveAffine,
+    CurveProjective
+};
+
+use crate::bellman::pairing::ff::{
+    Field,
+    PrimeField,
+    BitIterator,
+    ScalarEngine,
+};
+
+use crate::bellman::{
+    SynthesisError,
+};
+
+use crate::bellman::plonk::better_better_cs::cs::{
+    Variable, 
+    ConstraintSystem,
+};
+
+use crate::bellman::plonk::better_cs::keys::{Proof, VerificationKey, SetupPolynomialsPrecomputations, SetupPolynomials};
+use crate::bellman::plonk::better_cs::cs::PlonkConstraintSystemParams as OldCSParams;
+use crate::bellman::plonk::better_cs::cs::Circuit as OldCircuit;
+use crate::bellman::plonk::better_cs::cs::ConstraintSystem as OldConstraintSystem;
+use crate::bellman::plonk::better_cs::cs::PlonkCsWidth4WithNextStepParams as OldActualParams;
+
+use crate::bellman::plonk::better_cs::generator::GeneratorAssembly as OldAssembly;
+use crate::bellman::plonk::better_cs::generator::GeneratorAssembly4WithNextStep as OldActualAssembly;
+use crate::bellman::plonk::better_cs::prover::ProverAssembly as OldProver;
+use crate::bellman::plonk::better_cs::prover::ProverAssembly4WithNextStep as OldActualProver;
+use crate::bellman::plonk::better_cs::verifier::verify;
+use crate::bellman::worker::*;
+use crate::bellman::plonk::commitments::transcript::*;
+use crate::bellman::kate_commitment::*;
+use crate::bellman::plonk::fft::cooley_tukey_ntt::*;
+use crate::bellman::plonk::better_better_cs::cs::{
+    TrivialAssembly, 
+    Circuit, 
+    PlonkCsWidth4WithNextStepParams, 
+    Width4MainGateWithDNext
+};
+
+#[derive(Clone)]
+pub struct BenchmarkCircuit<E: Engine>{
+    pub num_steps: usize,
+    pub a: E::Fr,
+    pub b: E::Fr,
+    pub output: E::Fr,
+
+    pub _engine_marker: std::marker::PhantomData<E>,
+}
+
+pub fn fibbonacci<F: Field>(a: &F, b: &F, num_steps: usize) -> F {
+
+    let mut a = a.clone();
+    let mut b = b.clone();
+
+    for _ in 0..num_steps {
+        b.add_assign(&a);
+        std::mem::swap(&mut a, &mut b);
+    }
+
+    a
+}
+
+impl<E: Engine> OldCircuit<E, OldActualParams> for BenchmarkCircuit<E> {
+    fn synthesize<CS: OldConstraintSystem<E, OldActualParams>>(&self, cs: &mut CS) -> Result<(), SynthesisError> {
+        // yeah, fibonacci...
+
+        let one = E::Fr::one();
+        let mut negative_one = one;
+        negative_one.negate();
+        let zero = E::Fr::zero();
+        
+        let mut a = cs.alloc_input(|| {
+            Ok(self.a.clone())
+        })?;
+
+        let mut b = cs.alloc_input(|| {
+            Ok(self.b.clone())
+        })?;
+
+        let mut a_value = self.a.clone();
+        let mut b_value = self.b.clone();
+
+        for _ in 0..self.num_steps {
+
+            b_value.add_assign(&a_value);
+            
+            let temp = cs.alloc(|| {
+                Ok(b_value.clone())
+            })?;
+
+            // *q_a = gate.1[0];
+            // *q_b = gate.1[1];
+            // *q_c = gate.1[2];
+            // *q_d = gate.1[3];
+            // *q_m = gate.1[4];
+            // *q_const = gate.1[5];
+            // *q_d_next = gate.2[0];
+
+            let state_variables = [a, b, cs.get_dummy_variable(), temp];
+            let this_step_coeffs = [one.clone(), one.clone(), zero.clone(), negative_one, zero.clone(), zero.clone()];
+            let next_step_coeffs = [zero];
+
+            cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
+            std::mem::swap(&mut a_value, &mut b_value);
+
+            b = a;
+            a = temp;
+        }
+
+        let output = cs.alloc_input(|| {
+            Ok(self.output.clone())
+        })?;
+
+        let state_variables = [a, cs.get_dummy_variable(), cs.get_dummy_variable(), output];
+        let this_step_coeffs = [one.clone(), zero.clone(), zero.clone(), negative_one, zero.clone(), zero.clone()];
+        let next_step_coeffs = [zero];
+
+        cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
+
+        // fill in constant, c and d_next selectors
+
+        let zero_var = cs.alloc(|| {
+            Ok(E::Fr::zero())
+        })?;
+
+        let one_var = cs.alloc(|| {
+            Ok(E::Fr::one())
+        })?;
+
+        let mut two = one;
+        two.double();
+
+        // 2 - const(1) - d_next = 0;
+        let state_variables = [cs.get_dummy_variable(), cs.get_dummy_variable(), one_var, cs.get_dummy_variable()];
+        let this_step_coeffs = [zero.clone(), zero.clone(), two, zero.clone(), zero.clone(), negative_one];
+        let next_step_coeffs = [negative_one];
+
+        cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
+
+        // 0 * d = 0
+        let state_variables = [cs.get_dummy_variable(), cs.get_dummy_variable(), cs.get_dummy_variable(), one_var];
+        let this_step_coeffs = [zero.clone(), zero.clone(), zero.clone(), zero.clone(), zero.clone(), zero.clone()];
+        let next_step_coeffs = [zero.clone()];
+
+        cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
+
+        // also fill multiplicative selector
+        // 0 * 1 = 0
+        let state_variables = [zero_var, one_var, cs.get_dummy_variable(), cs.get_dummy_variable()];
+        let this_step_coeffs = [zero.clone(), zero.clone(), zero.clone(), zero.clone(), one.clone(), zero.clone()];
+        let next_step_coeffs = [zero.clone()];
+
+        cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
+
+        Ok(())
+    }
+}
+
+
+#[derive(Clone)]
+pub struct BenchmarkCircuitWithOneInput<E: Engine>{
+    pub num_steps: usize,
+    pub a: E::Fr,
+    pub b: E::Fr,
+    pub output: E::Fr,
+
+    pub _engine_marker: std::marker::PhantomData<E>,
+}
+
+impl<E: Engine> OldCircuit<E, OldActualParams> for BenchmarkCircuitWithOneInput<E> {
+    fn synthesize<CS: OldConstraintSystem<E, OldActualParams>>(&self, cs: &mut CS) -> Result<(), SynthesisError> {
+        // yeah, fibonacci...
+
+        let one = E::Fr::one();
+        let mut negative_one = one;
+        negative_one.negate();
+        let zero = E::Fr::zero();
+        
+        let mut a = cs.alloc_input(|| {
+            Ok(self.a.clone())
+        })?;
+
+        let mut b = cs.alloc(|| {
+            Ok(self.b.clone())
+        })?;
+
+        let mut a_value = self.a.clone();
+        let mut b_value = self.b.clone();
+
+        for _ in 0..self.num_steps {
+
+            b_value.add_assign(&a_value);
+            
+            let temp = cs.alloc(|| {
+                Ok(b_value.clone())
+            })?;
+
+            // *q_a = gate.1[0];
+            // *q_b = gate.1[1];
+            // *q_c = gate.1[2];
+            // *q_d = gate.1[3];
+            // *q_m = gate.1[4];
+            // *q_const = gate.1[5];
+            // *q_d_next = gate.2[0];
+
+            let state_variables = [a, b, cs.get_dummy_variable(), temp];
+            let this_step_coeffs = [one.clone(), one.clone(), zero.clone(), negative_one, zero.clone(), zero.clone()];
+            let next_step_coeffs = [zero];
+
+            cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
+            std::mem::swap(&mut a_value, &mut b_value);
+
+            b = a;
+            a = temp;
+        }
+
+        let output = cs.alloc(|| {
+            Ok(self.output.clone())
+        })?;
+
+        let state_variables = [a, cs.get_dummy_variable(), cs.get_dummy_variable(), output];
+        let this_step_coeffs = [one.clone(), zero.clone(), zero.clone(), negative_one, zero.clone(), zero.clone()];
+        let next_step_coeffs = [zero];
+
+        cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
+
+        // fill in constant, c and d_next selectors
+
+        let zero_var = cs.alloc(|| {
+            Ok(E::Fr::zero())
+        })?;
+
+        let one_var = cs.alloc(|| {
+            Ok(E::Fr::one())
+        })?;
+
+        let mut two = one;
+        two.double();
+
+        // 2 - const(1) - d_next = 0;
+        let state_variables = [cs.get_dummy_variable(), cs.get_dummy_variable(), one_var, cs.get_dummy_variable()];
+        let this_step_coeffs = [zero.clone(), zero.clone(), two, zero.clone(), zero.clone(), negative_one];
+        let next_step_coeffs = [negative_one];
+
+        cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
+
+        // 0 * d = 0
+        let state_variables = [cs.get_dummy_variable(), cs.get_dummy_variable(), cs.get_dummy_variable(), one_var];
+        let this_step_coeffs = [zero.clone(), zero.clone(), zero.clone(), zero.clone(), zero.clone(), zero.clone()];
+        let next_step_coeffs = [zero.clone()];
+
+        cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
+
+        // also fill multiplicative selector
+        // 0 * 1 = 0
+        let state_variables = [zero_var, one_var, cs.get_dummy_variable(), cs.get_dummy_variable()];
+        let this_step_coeffs = [zero.clone(), zero.clone(), zero.clone(), zero.clone(), one.clone(), zero.clone()];
+        let next_step_coeffs = [zero.clone()];
+
+        cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
+
+        Ok(())
+    }
+}
 
 #[cfg(test)]
 mod test {
+    use super::*;
+
     use crate::bellman::pairing::{
         Engine,
         CurveAffine,
@@ -62,125 +333,6 @@ mod test {
 
     // use crate::plonk::circuit::verifier_circuit::affine_point_wrapper::with_zero_flag::WrapperWithFlag;
     use crate::plonk::circuit::verifier_circuit::affine_point_wrapper::without_flag_unchecked::WrapperUnchecked;
-
-    #[derive(Clone)]
-    pub struct BenchmarkCircuit<E: Engine>{
-        num_steps: usize,
-        a: E::Fr,
-        b: E::Fr,
-        output: E::Fr,
-
-        _engine_marker: std::marker::PhantomData<E>,
-    }
-
-    pub fn fibbonacci<F: Field>(a: &F, b: &F, num_steps: usize) -> F {
-
-        let mut a = a.clone();
-        let mut b = b.clone();
-
-        for _ in 0..num_steps {
-            b.add_assign(&a);
-            std::mem::swap(&mut a, &mut b);
-        }
-
-        a
-    }
-
-    impl<E: Engine> OldCircuit<E, OldActualParams> for BenchmarkCircuit<E> {
-        fn synthesize<CS: OldConstraintSystem<E, OldActualParams>>(&self, cs: &mut CS) -> Result<(), SynthesisError> {
-            // yeah, fibonacci...
-
-            let one = E::Fr::one();
-            let mut negative_one = one;
-            negative_one.negate();
-            let zero = E::Fr::zero();
-            
-            let mut a = cs.alloc_input(|| {
-                Ok(self.a.clone())
-            })?;
-
-            let mut b = cs.alloc_input(|| {
-                Ok(self.b.clone())
-            })?;
-
-            let mut a_value = self.a.clone();
-            let mut b_value = self.b.clone();
-
-            for _ in 0..self.num_steps {
-
-                b_value.add_assign(&a_value);
-                
-                let temp = cs.alloc(|| {
-                    Ok(b_value.clone())
-                })?;
-
-                // *q_a = gate.1[0];
-                // *q_b = gate.1[1];
-                // *q_c = gate.1[2];
-                // *q_d = gate.1[3];
-                // *q_m = gate.1[4];
-                // *q_const = gate.1[5];
-                // *q_d_next = gate.2[0];
-
-                let state_variables = [a, b, cs.get_dummy_variable(), temp];
-                let this_step_coeffs = [one.clone(), one.clone(), zero.clone(), negative_one, zero.clone(), zero.clone()];
-                let next_step_coeffs = [zero];
-
-                cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
-                std::mem::swap(&mut a_value, &mut b_value);
-
-                b = a;
-                a = temp;
-            }
-
-            let output = cs.alloc_input(|| {
-                Ok(self.output.clone())
-            })?;
-
-            let state_variables = [a, cs.get_dummy_variable(), cs.get_dummy_variable(), output];
-            let this_step_coeffs = [one.clone(), zero.clone(), zero.clone(), negative_one, zero.clone(), zero.clone()];
-            let next_step_coeffs = [zero];
-
-            cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
-
-            // fill in constant, c and d_next selectors
-
-            let zero_var = cs.alloc(|| {
-                Ok(E::Fr::zero())
-            })?;
-
-            let one_var = cs.alloc(|| {
-                Ok(E::Fr::one())
-            })?;
-
-            let mut two = one;
-            two.double();
-
-            // 2 - const(1) - d_next = 0;
-            let state_variables = [cs.get_dummy_variable(), cs.get_dummy_variable(), one_var, cs.get_dummy_variable()];
-            let this_step_coeffs = [zero.clone(), zero.clone(), two, zero.clone(), zero.clone(), negative_one];
-            let next_step_coeffs = [negative_one];
-
-            cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
-
-            // 0 * d = 0
-            let state_variables = [cs.get_dummy_variable(), cs.get_dummy_variable(), cs.get_dummy_variable(), one_var];
-            let this_step_coeffs = [zero.clone(), zero.clone(), zero.clone(), zero.clone(), zero.clone(), zero.clone()];
-            let next_step_coeffs = [zero.clone()];
-
-            cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
-
-            // also fill multiplicative selector
-            // 0 * 1 = 0
-            let state_variables = [zero_var, one_var, cs.get_dummy_variable(), cs.get_dummy_variable()];
-            let this_step_coeffs = [zero.clone(), zero.clone(), zero.clone(), zero.clone(), one.clone(), zero.clone()];
-            let next_step_coeffs = [zero.clone()];
-
-            cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
-
-            Ok(())
-        }
-    }
 
     pub fn recursion_test<'a, E, T, CG, AD, WP>(
         a: E::Fr, 
@@ -279,7 +431,7 @@ mod test {
     {   
         let a = <Bn256 as ScalarEngine>::Fr::one();
         let b = <Bn256 as ScalarEngine>::Fr::one();
-        let num_steps = 1000;
+        let num_steps = 100;
 
         let rns_params = RnsParameters::<Bn256, <Bn256 as Engine>::Fq>::new_for_field(68, 110, 4);
         let rescue_params = Bn256RescueParams::new_checked_2_into_1();

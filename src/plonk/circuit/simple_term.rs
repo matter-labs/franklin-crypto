@@ -136,12 +136,46 @@ impl<E: Engine> Term<E> {
         }
     }
 
+    pub fn into_constant_value(&self) -> E::Fr {
+        match self.num {
+            Num::Constant(c) => {
+                let mut tmp = self.coeff;
+                tmp.mul_assign(&c);
+                tmp.add_assign(&self.constant_term);
+
+                tmp
+            },
+            _ => {panic!("variable")}
+        }
+    }
+
+    pub fn into_num(&self) -> Num<E> {
+        let one = E::Fr::one();
+        assert!(self.coeff == one, "term must not containt coefficient to cast into Num");
+        assert!(self.constant_term.is_zero(), "term must not containt additive constant to cast into Num");
+
+        self.num.clone()
+    }
+
     pub(crate) fn get_variable(&self) -> AllocatedNum<E> {
         match &self.num {
             Num::Constant(..) => {
                 panic!("constant")
             },
             Num::Variable(v) => {
+                v.clone()
+            }
+        }
+    }
+
+    pub fn into_variable(&self) -> AllocatedNum<E> {
+        match &self.num {
+            Num::Constant(..) => {
+                panic!("constant")
+            },
+            Num::Variable(v) => {
+                assert_eq!(E::Fr::one(), self.coeff);
+                assert!(self.constant_term.is_zero());
                 v.clone()
             }
         }
@@ -192,22 +226,19 @@ impl<E: Engine> Term<E> {
             return Ok(self.num.clone());
         }
 
-        let mut value = None;
+        let mut new_value = None;
 
-        let coeff = self.coeff;
-        let constant_term = self.constant_term;
-
-        let result = cs.alloc(|| {
+        let result_var = cs.alloc(|| {
             let tmp = *self.get_value().get()?;
 
-            value = Some(tmp);
+            new_value = Some(tmp);
 
             Ok(tmp)
         })?;
 
-        let self_term = ArithmeticTerm::from_variable_and_coeff(self.get_variable().get_variable(), coeff);
-        let constant_term = ArithmeticTerm::constant(constant_term);
-        let result_term = ArithmeticTerm::from_variable(result);
+        let self_term = ArithmeticTerm::from_variable_and_coeff(self.get_variable().get_variable(), self.coeff);
+        let constant_term = ArithmeticTerm::constant(self.constant_term);
+        let result_term = ArithmeticTerm::from_variable(result_var);
         let mut term = MainGateTerm::new();
         term.add_assign(self_term);
         term.add_assign(constant_term);
@@ -216,8 +247,8 @@ impl<E: Engine> Term<E> {
         cs.allocate_main_gate(term)?;
 
         let allocated = AllocatedNum::<E> {
-            variable: result,
-            value: value
+            variable: result_var,
+            value: new_value
         };
 
         Ok(Num::Variable(allocated))
@@ -251,7 +282,7 @@ impl<E: Engine> Term<E> {
                     self.clone()
                 };
 
-                non_constant.constant_term.add_assign(&c);
+                non_constant.add_constant(&c);
 
                 let num = non_constant.collapse_into_num(cs)?;
 

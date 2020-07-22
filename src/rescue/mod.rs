@@ -132,6 +132,9 @@ pub trait RescueHashParams<E: Engine>: RescueParamsInternal<E> {
 
     fn sbox_0(&self) -> &Self::SBox0;
     fn sbox_1(&self) -> &Self::SBox1;
+    fn can_use_custom_gates(&self) -> bool {
+        false
+    }
 }
 
 pub trait RescueParamsInternal<E: Engine>: Send + Sync + Sized + Clone {
@@ -421,7 +424,7 @@ impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
         self.internal_state[last_state_elem_idx] = as_fe;
     }
 
-    fn absorb_single_value(
+    pub fn absorb_single_value(
         &mut self,
         value: E::Fr
     ) {

@@ -61,7 +61,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         aux_data: &AD,
     ) -> Result<(Self, &'b [AllocatedNum<E>]), SynthesisError> {
         let (x, rest) = allocate_coordinate_from_limb_witness(cs, witnesses, params)?;
-        let (y, rest) = allocate_coordinate_from_limb_witness(cs, witnesses, params)?;
+        let (y, rest) = allocate_coordinate_from_limb_witness(cs, rest, params)?;
 
         let value = match (x.get_field_value(), y.get_field_value()) {
             (Some(x_val), Some(y_val)) => {

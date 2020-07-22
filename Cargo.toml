@@ -24,18 +24,23 @@ tiny-keccak = "1.4.2"
 bit-vec = "0.6"
 sha2 = "0.8.0"
 hmac = "0.7.1"
-# num-bigint = "0.2"
-num-bigint = {git = "https://github.com/rust-num/num-bigint.git"}
+num-bigint = "0.3"
+# num-bigint = {git = "https://github.com/rust-num/num-bigint.git"}
 num-integer = "0.1"
 num-traits = "0.2"
 
-bellman = { package = "bellman_ce", path = "../bellman" }
+# bellman = { package = "bellman_ce", path = "../bellman" }
 # bellman = { package = "bellman_ce", git = "https://github.com/matter-labs/bellman", rev = "d37cf517bcfa0793adeb43f22af658ad41a664dd" }
-# bellman = { package = "bellman_ce", git = "https://github.com/matter-labs/bellman", branch = "circuit_description" }
+
+bellman = { package = "bellman_ce", git = "https://github.com/matter-labs/bellman", branch = "circuit_description" }
 blake2-rfc_bellman_edition = "0.0.1"
-poseidon_hash = { path = "../poseidon_hash" }
+# poseidon_hash = { path = "../poseidon_hash" }
+poseidon_hash = {git = "https://github.com/shamatar/poseidon_hash.git"}
+
+blake2s_simd = { version = "0.5" }
+hex = "*"
 
 [dev-dependencies]
 hex-literal = "0.1"
-hex = "*"
+
 

@@ -47,10 +47,10 @@ impl<E: Engine> GateInternal<E> for Rescue5CustomGate {
 
     fn all_queried_polynomials(&self) -> Vec<PolynomialInConstraint> {
         vec![
-            PolynomialInConstraint::VariablesPolynomial(0, TimeDilation(0)),
-            PolynomialInConstraint::VariablesPolynomial(1, TimeDilation(0)),
-            PolynomialInConstraint::VariablesPolynomial(2, TimeDilation(0)),
-            PolynomialInConstraint::VariablesPolynomial(3, TimeDilation(0)),
+            PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(0)),
+            PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(1)),
+            PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(2)),
+            PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(3)),
         ]
     }
 
@@ -154,7 +154,7 @@ impl<E: Engine> GateInternal<E> for Rescue5CustomGate {
         let ldes_storage = &*poly_storage;
 
         let a_ref = get_from_map_unchecked(
-            PolynomialInConstraint::VariablesPolynomial(0, TimeDilation(0)),
+            PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(0)),
             ldes_storage
         );
 
@@ -162,22 +162,22 @@ impl<E: Engine> GateInternal<E> for Rescue5CustomGate {
         drop(a_ref);
 
         let a_raw_ref = get_from_map_unchecked(
-            PolynomialInConstraint::VariablesPolynomial(0, TimeDilation(0)),
+            PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(0)),
             ldes_storage
         ).as_ref();
 
         let b_raw_ref = get_from_map_unchecked(
-            PolynomialInConstraint::VariablesPolynomial(1, TimeDilation(0)),
+            PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(1)),
             ldes_storage
         ).as_ref();
 
         let c_raw_ref = get_from_map_unchecked(
-            PolynomialInConstraint::VariablesPolynomial(2, TimeDilation(0)),
+            PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(2)),
             ldes_storage
         ).as_ref();
 
         let d_raw_ref = get_from_map_unchecked(
-            PolynomialInConstraint::VariablesPolynomial(3, TimeDilation(0)),
+            PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(3)),
             ldes_storage
         ).as_ref();
 
@@ -242,13 +242,13 @@ impl<E: Engine> GateInternal<E> for Rescue5CustomGate {
     ) -> Result<E::Fr, SynthesisError> {
         assert_eq!(challenges.len(), <Self as GateInternal<E>>::num_quotient_terms(&self));
         
-        let a_value = *queried_values.get(&PolynomialInConstraint::VariablesPolynomial(0, TimeDilation(0)))
+        let a_value = *queried_values.get(&PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(0)))
             .ok_or(SynthesisError::AssignmentMissing)?;
-        let b_value = *queried_values.get(&PolynomialInConstraint::VariablesPolynomial(1, TimeDilation(0)))
+        let b_value = *queried_values.get(&PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(1)))
             .ok_or(SynthesisError::AssignmentMissing)?;
-        let c_value = *queried_values.get(&PolynomialInConstraint::VariablesPolynomial(2, TimeDilation(0)))
+        let c_value = *queried_values.get(&PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(2)))
             .ok_or(SynthesisError::AssignmentMissing)?;
-        let d_value = *queried_values.get(&PolynomialInConstraint::VariablesPolynomial(3, TimeDilation(0)))
+        let d_value = *queried_values.get(&PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(3)))
             .ok_or(SynthesisError::AssignmentMissing)?;
 
         // a^2 - b = 0
@@ -281,6 +281,17 @@ impl<E: Engine> GateInternal<E> for Rescue5CustomGate {
 
     fn box_clone(&self) -> Box<dyn GateInternal<E>> {
         Box::from(self.clone())
+    }
+
+    fn contribute_into_linearization_commitment(
+        &self, 
+        _domain_size: usize,
+        _at: E::Fr,
+        _queried_values: &std::collections::HashMap<PolynomialInConstraint, E::Fr>,
+        _commitments_storage: &std::collections::HashMap<PolyIdentifier, E::G1Affine>,
+        _challenges: &[E::Fr],
+    ) -> Result<E::G1, SynthesisError> {
+        unreachable!("this gate does not contribute into linearization");
     }
 }
 

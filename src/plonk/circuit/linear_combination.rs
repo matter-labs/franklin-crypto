@@ -738,4 +738,82 @@ mod test {
 
         assert!(assembly.is_satisfied());
     }
+
+    #[test]
+    fn check_terms_summing() {
+        use crate::bellman::pairing::bn256::{Bn256, Fr};
+        use crate::bellman::plonk::better_better_cs::cs::*;
+        use crate::plonk::circuit::linear_combination::*;
+        use crate::plonk::circuit::allocated_num::*;
+        use crate::plonk::circuit::simple_term::*;
+
+        struct Tester;
+
+        impl Circuit<Bn256> for Tester {
+            type MainGate = Width4MainGateWithDNext;
+
+            fn declare_used_gates() -> Result<Vec<Box<dyn GateInternal<Bn256>>>, SynthesisError> {
+                Ok(
+                    vec![
+                        Self::MainGate::default().into_internal(),
+                    ]
+                )
+            }
+            fn synthesize<CS: ConstraintSystem<Bn256>>(&self, cs: &mut CS) -> Result<(), SynthesisError> {
+                for len in vec![3,4,5] {
+                    let mut terms = vec![];
+                    for i in 1..=len {
+                        let coeff = Fr::from_str(&i.to_string()).unwrap();
+                        let value = Fr::from_str(&i.to_string()).unwrap();
+
+                        let var = AllocatedNum::alloc(
+                            cs, 
+                            || {
+                                Ok(value)
+                            }
+                        )?;
+                        let mut term = Term::<Bn256>::from_allocated_num(var);
+
+                        term.scale(&coeff);
+                        term.add_constant(&value);
+
+                        terms.push(term);
+                    }
+                    
+                    let (first, other) = terms.split_first().unwrap();
+
+                    let _ = first.add_multiple(cs, &other)?;
+                }
+                
+                Ok(())
+            }
+        }
+
+        let mut assembly = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+
+        let circuit = Tester;
+        circuit.synthesize(&mut assembly).unwrap();
+        assert!(assembly.is_satisfied());
+
+        assembly.finalize();
+
+        use crate::bellman::worker::Worker;
+
+        let worker = Worker::new();
+
+        let setup = assembly.create_setup::<Tester>(&worker).unwrap();
+
+        use crate::bellman::kate_commitment::*;
+        use crate::bellman::plonk::commitments::transcript::{*, keccak_transcript::RollingKeccakTranscript};
+
+        let crs_mons =
+            Crs::<Bn256, CrsForMonomialForm>::crs_42(setup.permutation_monomials[0].size(), &worker);
+
+        let proof = assembly.create_proof::<_, RollingKeccakTranscript<Fr>>(
+            &worker, 
+            &setup, 
+            &crs_mons,
+            None
+        ).unwrap();
+    }
 }

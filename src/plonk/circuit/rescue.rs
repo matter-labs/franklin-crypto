@@ -247,6 +247,8 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
             s.add_assign_constant(round_constants[idx]);
         }
 
+        let force_no_custom_gates = !params.can_use_custom_gates();
+
         for round in 0..(params.num_rounds() * 2) {
             let mut after_nonlin = Vec::with_capacity(state_len);
 
@@ -255,18 +257,18 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
                 let state_output = if round & 1 == 0 {
                     let sbox = params.sbox_0();
                     let output = if <<<E as RescueEngine>::Params as RescueHashParams<E>>::SBox0 as PlonkCsSBox<E>>::SHOULD_APPLY_FORWARD {
-                        sbox.apply_constraints(cs, &input, false)?
+                        sbox.apply_constraints(cs, &input, force_no_custom_gates)?
                     } else {
-                        sbox.apply_constraints_in_reverse(cs, &input, false)?
+                        sbox.apply_constraints_in_reverse(cs, &input, force_no_custom_gates)?
                     };
 
                     output
                 } else {
                     let sbox = params.sbox_1();
                     let output = if <<<E as RescueEngine>::Params as RescueHashParams<E>>::SBox1 as PlonkCsSBox<E>>::SHOULD_APPLY_FORWARD {
-                        sbox.apply_constraints(cs, &input, false)?
+                        sbox.apply_constraints(cs, &input, force_no_custom_gates)?
                     } else {
-                        sbox.apply_constraints_in_reverse(cs, &input, false)?
+                        sbox.apply_constraints_in_reverse(cs, &input, force_no_custom_gates)?
                     };
 
                     output
@@ -372,12 +374,45 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
         let t = params.state_width();
         let rate = params.rate();
     
+        assert!(input.len() > 0);
         let mut absorbtion_cycles = input.len() / absorbtion_len;
         if input.len() % absorbtion_len != 0 {
             absorbtion_cycles += 1;
         }
 
         let mut input: Vec<_> = input.iter().map(|el| Num::Variable(el.clone())).collect();
+        input.resize(absorbtion_cycles * absorbtion_len, Num::Constant(E::Fr::one()));
+    
+        let it = input.into_iter();
+        
+        for (idx, val) in it.enumerate() {
+            self.absorb_single_value(
+                cs,
+                val,
+                &params
+            )?;
+        }
+
+        Ok(())
+    }
+
+    pub fn absorb_nums<CS: ConstraintSystem<E>>(
+        &mut self,
+        cs: &mut CS,
+        input: &[Num<E>],
+        params: &E::Params
+    ) -> Result<(), SynthesisError>{
+        let absorbtion_len = params.rate() as usize;
+        let t = params.state_width();
+        let rate = params.rate();
+    
+        assert!(input.len() > 0);
+        let mut absorbtion_cycles = input.len() / absorbtion_len;
+        if input.len() % absorbtion_len != 0 {
+            absorbtion_cycles += 1;
+        }
+
+        let mut input: Vec<_> = input.to_vec();
         input.resize(absorbtion_cycles * absorbtion_len, Num::Constant(E::Fr::one()));
     
         let it = input.into_iter();
