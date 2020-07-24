@@ -139,6 +139,7 @@ pub fn aggregate_proof<'a, E, CS, T, P, OldP, AD, WP>(
 
     channel.consume(proof.quotient_polynomial_at_z.clone(), cs)?;
     channel.consume(proof.linearization_polynomial_at_z.clone(), cs)?;
+    channel.consume(proof.grand_product_at_z_omega.clone(), cs)?;
 
     let z_in_pow_domain_size = if let Some(required_domain_size) = required_domain_size {
         assert!(required_domain_size.is_power_of_two());
