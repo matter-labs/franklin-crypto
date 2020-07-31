@@ -31,6 +31,7 @@ pub mod find_unconstrained;
 pub mod density_counting;
 pub mod all_zeroes_catcher;
 pub mod duplicate_lc_finder;
+pub mod find_first_invalid;
 
 #[derive(Debug)]
 enum NamedObject {
