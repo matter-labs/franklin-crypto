@@ -215,23 +215,11 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let this_value = self.get_value();
         let other_value = other.get_value();
 
-        // debug_assert!(this_value.unwrap() != other_value.unwrap());
-
         let this_x = self.x;
         let this_y = self.y;
 
         let other_x = other.x;
         let other_y = other.y;
-
-        // {
-        //     let (x, y) = this_value.unwrap().into_xy_unchecked();
-        //     debug_assert_eq!(x, this_x.get_field_value().unwrap());
-        //     debug_assert_eq!(y, this_y.get_field_value().unwrap());
-
-        //     let (x, y) = other_value.unwrap().into_xy_unchecked();
-        //     debug_assert_eq!(x, other_x.get_field_value().unwrap());
-        //     debug_assert_eq!(y, other_y.get_field_value().unwrap());
-        // }
 
         let (this_y_negated, this_y) = this_y.negated(cs)?;
         let (this_x_negated, this_x) = this_x.negated(cs)?;
@@ -241,8 +229,8 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let (other_x_negated, other_x) = other_x.negated(cs)?;
         let (other_y_negated, other_y) = other_y.negated(cs)?;
         
-        this_x.enforce_not_equal(cs, &other_x)?;
-        this_y.enforce_not_equal(cs, &other_y)?;
+        this_x.enforce_not_equal(cs, &other_x).expect("points have equal X coordinates in addition function");
+        this_y.enforce_not_equal(cs, &other_y).expect("points have equal Y coordinates in addition function");
 
         let (lambda, (mut tmp, _)) = FieldElement::div_from_addition_chain(cs, vec![other_y, this_y_negated], other_x_minus_this_x)?;
 
@@ -286,15 +274,6 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
             value: other_value
         };
 
-        // debug_assert_eq!(new.x.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().0);
-        // debug_assert_eq!(new.y.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().1);
-
-        // debug_assert_eq!(this.x.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().0);
-        // debug_assert_eq!(this.y.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().1);
-
-        // debug_assert_eq!(other.x.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().0);
-        // debug_assert_eq!(other.y.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().1);
-
         Ok((new, (this, other)))
     }
 
@@ -326,29 +305,16 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let other_x = other.x;
         let other_y = other.y;
 
-        // let this_x_original_value = this_x.get_field_value().unwrap();
-        // {
-        //     let (x, y) = this_value.unwrap().into_xy_unchecked();
-        //     debug_assert_eq!(x, this_x.get_field_value().unwrap());
-        //     debug_assert_eq!(y, this_y.get_field_value().unwrap());
-
-        //     let (x, y) = other_value.unwrap().into_xy_unchecked();
-        //     debug_assert_eq!(x, other_x.get_field_value().unwrap());
-        //     debug_assert_eq!(y, other_y.get_field_value().unwrap());
-        // }
-
         let (this_y_negated, this_y) = this_y.negated(cs)?;
         let (this_x_negated, this_x) = this_x.negated(cs)?;
-
-        // assert_eq!(this_x_original_value, this_x.get_field_value().unwrap());
 
         let (other_x_minus_this_x, (other_x, this_x_negated)) = other_x.add(cs, this_x_negated)?;
 
         let (other_x_negated, other_x) = other_x.negated(cs)?;
         let (other_y_negated, other_y) = other_y.negated(cs)?;
 
-        this_x.enforce_not_equal(cs, &other_x)?;
-        this_y.enforce_not_equal(cs, &other_y)?;
+        this_x.enforce_not_equal(cs, &other_x).expect("points have equal X coordinates in subtraction function");
+        this_y.enforce_not_equal(cs, &other_y).expect("points have equal Y coordinates in subtraction function");
 
         let (lambda, (mut tmp, _)) = FieldElement::div_from_addition_chain(cs, vec![other_y, this_y], other_x_minus_this_x)?;
 
@@ -361,8 +327,6 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         // lambda * -(x - new_x) + (- y)
 
         let (new_x_minus_this_x, (new_x, this_x)) = new_x.sub(cs, this_x)?;
-
-        // assert_eq!(this_x_original_value, this_x.get_field_value().unwrap());
         
         let (new_y, _) = lambda.fma_with_addition_chain(cs, new_x_minus_this_x, vec![this_y_negated])?;
 
@@ -397,15 +361,6 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
             value: other_value
         };
 
-        // debug_assert_eq!(new.x.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().0);
-        // debug_assert_eq!(new.y.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().1);
-
-        // debug_assert_eq!(this.x.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().0);
-        // debug_assert_eq!(this.y.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().1);
-
-        // debug_assert_eq!(other.x.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().0);
-        // debug_assert_eq!(other.y.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().1);
-
 
         Ok((new, (this, other)))
     }
@@ -431,7 +386,6 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
 
         let (x_squared, x) = x.square(cs)?;
         let (two_x_squared, x_squared) = x_squared.double(cs)?;
-        // let (two_x_squared, (x_squared, _)) = x_squared.clone().add(cs, x_squared)?;
         let (three_x_squared, (two_x_squared, x_squared)) = two_x_squared.add(cs, x_squared)?;
 
         // Assume A == 0 for now
@@ -445,7 +399,6 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let (minus_y, y) = y.negated(cs)?;
 
         let (minus_two_x, minus_x) = minus_x.double(cs)?;
-        // let (minus_two_x, (minus_x, _)) = minus_x.clone().add(cs, minus_x)?;
 
         let (new_x, (lambda, _)) = lambda.square_with_addition_chain(cs, vec![minus_two_x])?;
 
@@ -474,11 +427,6 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
             value: this_value
         };
 
-        // debug_assert_eq!(new.x.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().0);
-        // debug_assert_eq!(new.y.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().1);
-
-        // debug_assert_eq!(this.x.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().0);
-        // debug_assert_eq!(this.y.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().1);
 
         Ok((new, this))
     }
@@ -501,22 +449,6 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
 
         let other_x = other.x;
         let other_y = other.y;
-
-        // {
-        //     let this_x_val = this_x.get_field_value().unwrap();
-        //     let this_y_val = this_y.get_field_value().unwrap();
-    
-        //     let other_x_val = other_x.get_field_value().unwrap();
-        //     let other_y_val = other_y.get_field_value().unwrap();
-
-        //     let (x, y) = this_value.unwrap().into_xy_unchecked();
-        //     debug_assert_eq!(x, this_x_val);
-        //     debug_assert_eq!(y, this_y_val);
-
-        //     let (x, y) = other_value.unwrap().into_xy_unchecked();
-        //     debug_assert_eq!(x, other_x_val);
-        //     debug_assert_eq!(y, other_y_val);
-        // }
 
         let (this_y_negated, this_y) = this_y.negated(cs)?;
         let (this_x_negated, this_x) = this_x.negated(cs)?;
@@ -566,8 +498,6 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
             },
             _ => None
         };
-
-        // let (x, y) = new_value.unwrap().into_xy_unchecked();
    
         let new = Self {
             x: new_x,
@@ -586,16 +516,6 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
             y: other_y,
             value: other_value
         };
-
-
-        // debug_assert_eq!(new.x.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().0);
-        // debug_assert_eq!(new.y.get_field_value().unwrap(), new_value.unwrap().into_xy_unchecked().1);
-
-        // debug_assert_eq!(this.x.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().0);
-        // debug_assert_eq!(this.y.get_field_value().unwrap(), this_value.unwrap().into_xy_unchecked().1);
-
-        // debug_assert_eq!(other.x.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().0);
-        // debug_assert_eq!(other.y.get_field_value().unwrap(), other_value.unwrap().into_xy_unchecked().1);
 
         Ok((new, (this, other)))
     }
