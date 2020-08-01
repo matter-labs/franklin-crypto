@@ -161,7 +161,7 @@ pub fn aggregate_proof<'a, E, CS, T, P, OldP, AD, WP>(
     };
 
     let omega_inv_variable = if let Some(omega) = vk.omega_as_allocated_num.as_ref() {
-        let inv = omega.inverse(cs)?;
+        let inv = omega.inverse(cs).expect(&format!("Inverse of the domain generator must exist! Omega = {:?}", omega.get_value()));
 
         Some(inv)
     } else {

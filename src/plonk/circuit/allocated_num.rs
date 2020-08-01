@@ -266,9 +266,15 @@ impl<E: Engine> AllocatedNum<E> {
         cs: &mut CS
     ) -> Result<Self, SynthesisError> {
         let new_value = if let Some(value) = self.get_value() {
-            let t = value.inverse().unwrap();
+            let t = value.inverse();
+            if let Some(inv) = t {
+                Some(inv)
+            } else {
+                dbg!("Tried to inverse", value);
+                return Err(SynthesisError::DivisionByZero);
+            }
 
-            Some(t)
+            // Some(t)
         } else {
             None
         };
