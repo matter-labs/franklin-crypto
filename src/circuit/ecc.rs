@@ -746,6 +746,31 @@ impl<E: JubjubEngine> EdwardsPoint<E> {
 
         Ok(EdwardsPoint { x: x3, y: y3 })
     }
+
+    pub fn is_not_small_order<CS>(
+        &self,
+        mut cs: CS,
+        params: &E::Params,
+    ) -> Result<Boolean, SynthesisError>
+    where
+        CS: ConstraintSystem<E>
+    {
+        let tmp = self.double(cs.namespace(|| "first doubling"), params)?;
+        let tmp = tmp.double(cs.namespace(|| "second doubling"), params)?;
+        let tmp = tmp.double(cs.namespace(|| "third doubling"), params)?;
+    
+        // (0, -1) is a small order point, but won't ever appear here
+        // because cofactor is 2^3, and we performed three doublings.
+        // (0, 1) is the neutral element, so checking if x is nonzero
+        // is sufficient to prevent small order points here.
+        let is_zero = Expression::equals(
+            cs.namespace(|| "x==0"),
+            Expression::from(tmp.get_x()),
+            Expression::u64::<CS>(0),
+        )?;
+    
+        Ok(Boolean::from(is_zero).not())
+    }
 }
 
 pub struct MontgomeryPoint<E: Engine> {
