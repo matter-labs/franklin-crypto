@@ -140,3 +140,8 @@ pub fn rescue_hash_to_scalar<E: RescueEngine + JubjubEngine>(
        
     scalar
 }
+
+pub fn resize_grow_only<T: Clone>(to_resize: &mut Vec<T>, new_size: usize, pad_with: T) {
+    assert!(to_resize.len() <= new_size);
+    to_resize.resize(new_size, pad_with);
+}

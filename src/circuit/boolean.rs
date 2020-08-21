@@ -311,6 +311,23 @@ impl AllocatedBit {
     }
 }
 
+pub fn multi_and<E: Engine, CS: ConstraintSystem<E>>(
+    mut cs: CS,
+    x: &[Boolean],
+) -> Result<Boolean, SynthesisError> {
+    let mut result = Boolean::constant(true);
+
+    for (i, bool_x) in x.iter().enumerate() {
+        result = Boolean::and(
+            cs.namespace(|| format!("multi and iteration number: {}", i)),
+            &result,
+            bool_x,
+        )?;
+    }
+
+    Ok(result)
+}
+
 pub fn u64_into_boolean_vec_le<E: Engine, CS: ConstraintSystem<E>>(
     mut cs: CS,
     value: Option<u64>
