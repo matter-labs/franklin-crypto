@@ -324,11 +324,11 @@ impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> VerificationKeyGagdet<'a, E, 
             n : None,
             domain_size_as_allocated_num: Some(domain_size.clone()),
             omega_as_allocated_num: Some(omega.clone()),
-            num_inputs : num_inputs,
+            num_inputs,
             selector_commitments,
             next_step_selector_commitments,
             permutation_commitments,
-            non_residues: non_residues,
+            non_residues,
 
             _m: &std::marker::PhantomData::<()>,
         })

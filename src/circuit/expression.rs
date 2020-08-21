@@ -19,8 +19,8 @@ pub struct Expression<E: Engine> {
 impl<E: Engine> Expression<E> {
     pub fn new(value: Option<E::Fr>, lc: LinearCombination<E>) -> Expression<E> {
         Expression {
-            value: value,
-            lc: lc,
+            value,
+            lc,
         }
     }
     pub fn constant<CS: ConstraintSystem<E>>(value: E::Fr) -> Expression<E> {
@@ -273,7 +273,7 @@ impl<E: Engine> Expression<E> {
             E: Engine,
             CS: ConstraintSystem<E>,
         {
-            assert!(v.len() > 0);
+            assert!(!v.is_empty());
 
             // Let's keep this simple for now and just AND them all
             // manually
@@ -327,7 +327,7 @@ impl<E: Engine> Expression<E> {
                 current_run.push(a_bit.clone());
                 result.push(a_bit);
             } else {
-                if current_run.len() > 0 {
+                if !current_run.is_empty() {
                     // This is the start of a run of zeros, but we need
                     // to k-ary AND against `last_run` first.
 
@@ -383,7 +383,7 @@ impl<E: Engine> Expression<E> {
         );
 
         // Convert into booleans, and reverse for little-endian bit order
-        Ok(result.into_iter().map(|b| Boolean::from(b)).rev().collect())
+        Ok(result.into_iter().map(Boolean::from).rev().collect())
     }
 
     /// Convert the expression into its little-endian representation.
@@ -412,7 +412,7 @@ impl<E: Engine> Expression<E> {
             |zero| zero + &self.lc
         );
 
-        Ok(bits.into_iter().map(|b| Boolean::from(b)).collect())
+        Ok(bits.into_iter().map(Boolean::from).collect())
     }
 
     pub fn into_number<CS>(&self, mut cs: CS) -> Result<AllocatedNum<E>, SynthesisError>
@@ -467,7 +467,7 @@ impl<E: Engine> Expression<E> {
             |zero| zero + &self.lc
         );
 
-        Ok(bits.into_iter().map(|b| Boolean::from(b)).collect())
+        Ok(bits.into_iter().map(Boolean::from).collect())
     }
     /// Limits number of bits. The easiest example when required
     /// is to add or subtract two "small" (with bit length smaller

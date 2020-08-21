@@ -84,7 +84,7 @@ impl AllocatedBit {
 
         Ok(AllocatedBit {
             variable: var,
-            value: value
+            value
         })
     }
 
@@ -116,7 +116,7 @@ impl AllocatedBit {
 
         Ok(AllocatedBit {
             variable: var,
-            value: value
+            value
         })
     }
     pub fn inputize<E, CS>(&self, mut cs: CS, witness: &AllocatedBit) -> Result<(), SynthesisError>
@@ -311,6 +311,23 @@ impl AllocatedBit {
     }
 }
 
+pub fn multi_and<E: Engine, CS: ConstraintSystem<E>>(
+    mut cs: CS,
+    x: &[Boolean],
+) -> Result<Boolean, SynthesisError> {
+    let mut result = Boolean::constant(true);
+
+    for (i, bool_x) in x.iter().enumerate() {
+        result = Boolean::and(
+            cs.namespace(|| format!("multi and iteration number: {}", i)),
+            &result,
+            bool_x,
+        )?;
+    }
+
+    Ok(result)
+}
+
 pub fn u64_into_boolean_vec_le<E: Engine, CS: ConstraintSystem<E>>(
     mut cs: CS,
     value: Option<u64>
@@ -363,7 +380,7 @@ pub fn field_into_boolean_vec_le<E: Engine, CS: ConstraintSystem<E>, F: PrimeFie
 {
     let v = field_into_allocated_bits_le::<E, CS, F>(cs, value)?;
 
-    Ok(v.into_iter().map(|e| Boolean::from(e)).collect())
+    Ok(v.into_iter().map(Boolean::from).collect())
 }
 
 pub fn field_into_allocated_bits_le<E: Engine, CS: ConstraintSystem<E>, F: PrimeField>(

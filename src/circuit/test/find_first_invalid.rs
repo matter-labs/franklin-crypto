@@ -87,7 +87,7 @@ fn proc_lc<E: Engine>(
     let mut to_remove = vec![];
     for (var, coeff) in map.iter() {
         if coeff.is_zero() {
-            to_remove.push(var.clone())
+            to_remove.push(*var)
         }
     }
 
@@ -257,7 +257,7 @@ impl<E: Engine> ConstraintSystem<E> for FindFirstInvalidConstraintSystem<E> {
     {
         let index = self.aux.len();
         let path = compute_path(&self.current_namespace, annotation().into());
-        self.aux.push((f()?, path.clone()));
+        self.aux.push((f()?, path));
         let var = Variable::new_unchecked(Index::Aux(index));
         // self.set_named_obj(path, NamedObject::Var(var));
 
@@ -273,7 +273,7 @@ impl<E: Engine> ConstraintSystem<E> for FindFirstInvalidConstraintSystem<E> {
     {
         let index = self.inputs.len();
         let path = compute_path(&self.current_namespace, annotation().into());
-        self.inputs.push((f()?, path.clone()));
+        self.inputs.push((f()?, path));
         let var = Variable::new_unchecked(Index::Input(index));
         // self.set_named_obj(path, NamedObject::Var(var));
 
@@ -311,7 +311,7 @@ impl<E: Engine> ConstraintSystem<E> for FindFirstInvalidConstraintSystem<E> {
         a.mul_assign(&b);
 
         if a != c {
-            self.found_error = Some(path.to_string());
+            self.found_error = Some(path);
         }
 
         self.num_constraints += 1;
@@ -322,7 +322,7 @@ impl<E: Engine> ConstraintSystem<E> for FindFirstInvalidConstraintSystem<E> {
     {
         let name = name_fn().into();
         let path = compute_path(&self.current_namespace, name.clone());
-        self.set_named_obj(path.clone(), NamedObject::Namespace);
+        self.set_named_obj(path, NamedObject::Namespace);
         self.current_namespace.push(name);
     }
 

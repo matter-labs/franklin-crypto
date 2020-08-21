@@ -76,7 +76,7 @@ impl UInt32 {
         }
 
         UInt32 {
-            bits: bits,
+            bits,
             value: Some(value)
         }
     }
@@ -112,8 +112,8 @@ impl UInt32 {
                          .collect::<Result<Vec<_>, SynthesisError>>()?;
 
         Ok(UInt32 {
-            bits: bits,
-            value: value
+            bits,
+            value
         })
     }
 
@@ -136,7 +136,7 @@ impl UInt32 {
         }
 
         UInt32 {
-            value: value,
+            value,
             bits: bits.iter().rev().cloned().collect()
         }
     }
@@ -183,7 +183,7 @@ impl UInt32 {
         }
 
         UInt32 {
-            value: value,
+            value,
             bits: new_bits
         }
     }
@@ -251,7 +251,7 @@ impl UInt32 {
                             .collect::<Result<_, _>>()?;
 
         Ok(UInt32 {
-            bits: bits,
+            bits,
             value: new_value
         })
     }
@@ -329,7 +329,7 @@ impl UInt32 {
                             .collect::<Result<_, _>>()?;
 
         Ok(UInt32 {
-            bits: bits,
+            bits,
             value: new_value
         })
     }

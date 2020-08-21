@@ -96,7 +96,7 @@ impl<'a, E: RescueEngine> Transcript<E::Fr> for RescueTranscriptForRNS<'a, E> {
                 num_witness
             );
 
-            let witness_as_fe: Vec<E::Fr> = witness_limbs.into_iter().map(|el| biguint_to_fe(el)).collect();
+            let witness_as_fe: Vec<E::Fr> = witness_limbs.into_iter().map(biguint_to_fe).collect();
 
             witness_as_fe
         } else {
@@ -108,7 +108,7 @@ impl<'a, E: RescueEngine> Transcript<E::Fr> for RescueTranscriptForRNS<'a, E> {
                 params.num_binary_limbs
             );
 
-            let witness_as_fe: Vec<E::Fr> = witness_limbs.into_iter().map(|el| biguint_to_fe(el)).collect();
+            let witness_as_fe: Vec<E::Fr> = witness_limbs.into_iter().map(biguint_to_fe).collect();
 
             witness_as_fe
         };

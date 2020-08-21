@@ -56,7 +56,7 @@ fn main() {
 
         let proof_generation_key = ProofGenerationKey {
             ak: ak.clone(),
-            nsk: nsk.clone()
+            nsk
         };
 
         let viewing_key = proof_generation_key.into_viewing_key(jubjub_params);
@@ -89,7 +89,7 @@ fn main() {
             payment_address: Some(payment_address),
             commitment_randomness: Some(commitment_randomness),
             ar: Some(ar),
-            auth_path: auth_path,
+            auth_path,
             anchor: Some(anchor)
         }, &groth_params, rng).unwrap();
         total_time += start.elapsed();

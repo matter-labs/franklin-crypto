@@ -143,7 +143,7 @@ impl<E: Engine> AllocatedNum<E> {
             where E: Engine,
                   CS: ConstraintSystem<E>
         {
-            assert!(v.len() > 0);
+            assert!(!v.is_empty());
 
             // Let's keep this simple for now and just AND them all
             // manually
@@ -200,7 +200,7 @@ impl<E: Engine> AllocatedNum<E> {
                 current_run.push(a_bit.clone());
                 result.push(a_bit);
             } else {
-                if current_run.len() > 0 {
+                if !current_run.is_empty() {
                     // This is the start of a run of zeros, but we need
                     // to k-ary AND against `last_run` first.
 
@@ -254,7 +254,7 @@ impl<E: Engine> AllocatedNum<E> {
         );
 
         // Convert into booleans, and reverse for little-endian bit order
-        Ok(result.into_iter().map(|b| Boolean::from(b)).rev().collect())
+        Ok(result.into_iter().map(Boolean::from).rev().collect())
     }
 
     /// Convert the allocated number into its little-endian representation.
@@ -288,7 +288,7 @@ impl<E: Engine> AllocatedNum<E> {
         );
 
 
-        Ok(bits.into_iter().map(|b| Boolean::from(b)).collect())
+        Ok(bits.into_iter().map(Boolean::from).collect())
     }
     /// Return fixed amount of bits of the allocated number.
     /// Should be used when there is a priori knowledge of bit length of the number
@@ -319,7 +319,7 @@ impl<E: Engine> AllocatedNum<E> {
             |zero| zero + self.get_variable(),
         );
 
-        Ok(bits.into_iter().map(|b| Boolean::from(b)).collect())
+        Ok(bits.into_iter().map(Boolean::from).collect())
     }
 
     /// Return allocated number given its bit representation
@@ -377,7 +377,7 @@ impl<E: Engine> AllocatedNum<E> {
         );
 
         Ok(AllocatedNum {
-            value: value,
+            value,
             variable: var
         })
     }
@@ -409,7 +409,7 @@ impl<E: Engine> AllocatedNum<E> {
         );
 
         Ok(AllocatedNum {
-            value: value,
+            value,
             variable: var
         })
     }
@@ -441,7 +441,7 @@ impl<E: Engine> AllocatedNum<E> {
         );
 
         Ok(AllocatedNum {
-            value: value,
+            value,
             variable: var
         })
     }
@@ -473,7 +473,7 @@ impl<E: Engine> AllocatedNum<E> {
         );
 
         Ok(AllocatedNum {
-            value: value,
+            value,
             variable: var
         })
     }
@@ -504,7 +504,7 @@ impl<E: Engine> AllocatedNum<E> {
         );
 
         Ok(AllocatedNum {
-            value: value,
+            value,
             variable: var
         })
     }
@@ -584,7 +584,7 @@ impl<E: Engine> AllocatedNum<E> {
     {
         cs.enforce(
             || "number assertion constraint",
-            |zero| zero + self.variable - (number.clone(), CS::one()),
+            |zero| zero + self.variable - (*number, CS::one()),
             |zero| zero + CS::one(),
             |zero| zero
         );
@@ -711,7 +711,7 @@ impl<E: Engine> AllocatedNum<E> {
         };
 
         let delta_inv_value = delta_value.as_ref().map(|delta_value| {
-            let tmp = delta_value.clone(); 
+            let tmp = *delta_value; 
             if tmp.is_zero() {
                 E::Fr::one() // we can return any number here, it doesn't matter
             } else {
@@ -727,7 +727,7 @@ impl<E: Engine> AllocatedNum<E> {
 
         let t_value = match (delta_value, delta_inv_value) {
             (Some(a), Some(b))  => {
-                let mut t = a.clone();
+                let mut t = a;
                 t.mul_assign(&b);
                 Some(t)
             },
@@ -858,7 +858,7 @@ impl<E: Engine> From<AllocatedNum<E>> for Num<E> {
 impl<E: Engine> Clone for Num<E> {
     fn clone(&self) -> Self {
         Num {
-            value: self.value.clone(),
+            value: self.value,
             lc: self.lc.clone()
         }
     }
@@ -1011,7 +1011,7 @@ impl<E: Engine> Num<E> {
         &self,
     ) -> AllocatedNum<E> {
         assert!(self.lc.as_ref().len() == 1);
-        let (var, c) = self.lc.as_ref().last().unwrap().clone();
+        let (var, c) = *self.lc.as_ref().last().unwrap();
         assert!(c == E::Fr::one());
 
         let var = AllocatedNum {

@@ -85,9 +85,9 @@ impl<E: JubjubEngine> Point<E, Unknown> {
                     y.negate();
                 }
 
-                return Some(Point {
-                    x: x,
-                    y: y,
+                Some(Point {
+                    x,
+                    y,
                     infinity: false,
                     _marker: PhantomData
                 })
@@ -245,7 +245,7 @@ impl<E: JubjubEngine, Subgroup> Point<E, Subgroup> {
 
         let mut delta = E::Fr::one();
         {
-            let mut tmp = params.montgomery_a().clone();
+            let mut tmp = *params.montgomery_a();
             tmp.mul_assign(&self.x);
             tmp.double();
             delta.add_assign(&tmp);

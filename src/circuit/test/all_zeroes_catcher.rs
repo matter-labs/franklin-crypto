@@ -74,7 +74,7 @@ fn find_in_multiple_only<E: Engine>(
     let mut result = HashSet::new();
     // iterate over all columns
     for (idx, var) in aux.iter().enumerate() {
-        if var.len() == 0 {
+        if var.is_empty() {
             continue;
         }
         let mut found_non_zero = false;
@@ -141,8 +141,8 @@ impl<E: Engine> ZeroCatchingTestConstraintSystem<E> {
         let mut result: HashSet<usize> = HashSet::new();
         result.extend(find::<E>(&self.at_inputs));
 
-        let result: HashSet<usize> = result.intersection(&find::<E>(&self.bt_inputs)).map(|el| *el).collect();
-        let result: HashSet<usize> = result.intersection(&find::<E>(&self.ct_inputs)).map(|el| *el).collect();
+        let result: HashSet<usize> = result.intersection(&find::<E>(&self.bt_inputs)).copied().collect();
+        let result: HashSet<usize> = result.intersection(&find::<E>(&self.ct_inputs)).copied().collect();
 
         result
     }
@@ -151,8 +151,8 @@ impl<E: Engine> ZeroCatchingTestConstraintSystem<E> {
         let mut result = HashSet::new();
         result.extend(find::<E>(&self.at_aux));
 
-        let result: HashSet<usize> = result.intersection(&find::<E>(&self.bt_aux)).map(|el| *el).collect();
-        let result: HashSet<usize> = result.intersection(&find::<E>(&self.ct_aux)).map(|el| *el).collect();
+        let result: HashSet<usize> = result.intersection(&find::<E>(&self.bt_aux)).copied().collect();
+        let result: HashSet<usize> = result.intersection(&find::<E>(&self.ct_aux)).copied().collect();
 
         result
     }
@@ -169,7 +169,7 @@ impl<E: Engine> ZeroCatchingTestConstraintSystem<E> {
         let mut result = HashSet::new();
         result.extend(find::<E>(&self.at_aux));
 
-        let result: HashSet<usize> = result.intersection(&find::<E>(&self.bt_aux)).map(|el| *el).collect();
+        let result: HashSet<usize> = result.intersection(&find::<E>(&self.bt_aux)).copied().collect();
 
         result
     }
@@ -178,7 +178,7 @@ impl<E: Engine> ZeroCatchingTestConstraintSystem<E> {
         let mut result = HashSet::new();
         result.extend(find::<E>(&self.at_aux));
 
-        let result: HashSet<usize> = result.intersection(&find::<E>(&self.ct_aux)).map(|el| *el).collect();
+        let result: HashSet<usize> = result.intersection(&find::<E>(&self.ct_aux)).copied().collect();
 
         result
     }
@@ -187,7 +187,7 @@ impl<E: Engine> ZeroCatchingTestConstraintSystem<E> {
         let mut result = HashSet::new();
         result.extend(find::<E>(&self.bt_aux));
 
-        let result: HashSet<usize> = result.intersection(&find::<E>(&self.ct_aux)).map(|el| *el).collect();
+        let result: HashSet<usize> = result.intersection(&find::<E>(&self.ct_aux)).copied().collect();
 
         result
     }

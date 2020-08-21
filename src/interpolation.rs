@@ -76,7 +76,7 @@ pub fn evaluate_at_x<E: Engine>(
     let mut res = E::Fr::zero();
     let mut pow = E::Fr::one();
     for c in coeffs.iter() {
-        let mut tmp = c.clone();
+        let mut tmp = *c;
         tmp.mul_assign(&pow);
         res.add_assign(&tmp);
 

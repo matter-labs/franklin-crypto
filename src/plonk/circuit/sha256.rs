@@ -197,7 +197,7 @@ pub fn sha256_compression_function<E, CS>(
                     return Ok(v.clone())
                 },
                 Maybe::Deferred(mut v) => {
-                    v.extend(others.into_iter().cloned());
+                    v.extend(others.iter().cloned());
                     UInt32::addmany(
                         cs,
                         &v

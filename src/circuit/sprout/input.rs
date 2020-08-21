@@ -73,7 +73,7 @@ impl InputNote {
         )?;
 
         // Witness into the merkle tree
-        let mut cur = cm.clone();
+        let mut cur = cm;
 
         for (i, layer) in auth_path.iter().enumerate() {
             let cs = &mut cs.namespace(|| format!("layer {}", i));
@@ -137,8 +137,8 @@ impl InputNote {
         }
 
         Ok(InputNote {
-            mac: mac,
-            nf: nf
+            mac,
+            nf
         })
     }
 }

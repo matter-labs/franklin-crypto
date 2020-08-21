@@ -55,9 +55,9 @@ pub fn fixed_base_multiplication<E, CS>(
                                   .zip(params.circuit_generators(base).iter())
                                   .enumerate()
     {
-        let chunk_a = chunk.get(0).map(|e| e.clone()).unwrap_or(Boolean::constant(false));
-        let chunk_b = chunk.get(1).map(|e| e.clone()).unwrap_or(Boolean::constant(false));
-        let chunk_c = chunk.get(2).map(|e| e.clone()).unwrap_or(Boolean::constant(false));
+        let chunk_a = chunk.get(0).cloned().unwrap_or(Boolean::constant(false));
+        let chunk_b = chunk.get(1).cloned().unwrap_or(Boolean::constant(false));
+        let chunk_c = chunk.get(2).cloned().unwrap_or(Boolean::constant(false));
 
         let (x, y) = lookup3_xy(
             cs.namespace(|| format!("window table lookup {}", i)),
@@ -66,8 +66,8 @@ pub fn fixed_base_multiplication<E, CS>(
         )?;
 
         let p = EdwardsPoint {
-            x: x,
-            y: y
+            x,
+            y
         };
 
         if result.is_none() {
@@ -638,8 +638,8 @@ impl<E: JubjubEngine> MontgomeryPoint<E> {
     ) -> Self
     {
         MontgomeryPoint {
-            x: x,
-            y: y
+            x,
+            y
         }
     }
 

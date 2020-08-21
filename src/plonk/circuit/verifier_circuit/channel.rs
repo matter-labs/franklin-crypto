@@ -107,7 +107,7 @@ where <<E as RescueEngine>::Params as RescueHashParams<E>>::SBox0: PlonkCsSBox<E
 
             let zero = AllocatedNum::zero(cs);
 
-            for coord in vec![x, y] {
+            for coord in &[x, y] {
                 let mut witnesses = vec![];
 
                 for idx in 0..num_witness {
@@ -155,7 +155,7 @@ where <<E as RescueEngine>::Params as RescueHashParams<E>>::SBox0: PlonkCsSBox<E
             let x = &point.x;
             let y = &point.y;
 
-            for coord in vec![x, y] {
+            for coord in &[x, y] {
                 for limb in coord.binary_limbs[..num_witness].iter() {
                     let l = limb.collapse_into_num(cs)?.get_variable();
 

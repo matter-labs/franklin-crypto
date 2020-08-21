@@ -187,8 +187,8 @@ impl IntegerPermutation {
 
         Self {
             elements,
-            min: min,
-            max: max
+            min,
+            max
         }
     }
 
@@ -218,8 +218,8 @@ impl IntegerPermutation {
 
         let result = Self {
             elements: self.elements[(min - self.min)..(max - self.min + 1)].to_vec(),
-            min: min,
-            max: max
+            min,
+            max
         };
 
         assert!(result.size() == result.elements.len());
@@ -237,7 +237,7 @@ impl IntegerPermutation {
     }
 
     pub fn is_valid(&self) -> bool {
-        if self.elements.len() == 0 {
+        if self.elements.is_empty() {
             return true;
         }
 

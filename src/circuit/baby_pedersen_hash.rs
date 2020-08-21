@@ -15,7 +15,7 @@ impl Personalization {
     fn get_constant_bools(&self) -> Vec<Boolean> {
         self.get_bits()
         .into_iter()
-        .map(|e| Boolean::constant(e))
+        .map(Boolean::constant)
         .collect()
     }
 }
@@ -70,7 +70,7 @@ pub fn pedersen_hash<E: JubjubEngine, CS>(
 
             segment_windows = &segment_windows[1..];
 
-            if segment_windows.len() == 0 {
+            if segment_windows.is_empty() {
                 break;
             }
 

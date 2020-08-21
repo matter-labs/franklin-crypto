@@ -139,9 +139,9 @@ impl AltJubjubBn256 {
             // d = -(168696/168700)
             edwards_d: Fr::from_str("12181644023421730124874158521699555681764249180949974110617291017600649128846").unwrap(),
             // A = 168698
-            montgomery_a: montgomery_a,
+            montgomery_a,
             // 2A = 2.A
-            montgomery_2a: montgomery_2a,
+            montgomery_2a,
             // scaling factor = sqrt(4 / (a - d))
             scale: Fr::from_str("6360561867910373094066688120553762416144456282423235903351243436111059670888").unwrap(),
 
@@ -358,9 +358,9 @@ impl AltJubjubBn256 {
             // d = -(168696/168700)
             edwards_d: Fr::from_str("12181644023421730124874158521699555681764249180949974110617291017600649128846").unwrap(),
             // A = 168698
-            montgomery_a: montgomery_a,
+            montgomery_a,
             // 2A = 2.A
-            montgomery_2a: montgomery_2a,
+            montgomery_2a,
             // scaling factor = sqrt(4 / (a - d))
             scale: Fr::from_str("6360561867910373094066688120553762416144456282423235903351243436111059670888").unwrap(),
 

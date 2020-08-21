@@ -38,13 +38,13 @@ impl AuxData<Bn256> for BN256AuxData {
         let r : [u64; 4] = [0x43e1f593f0000001, 0x2833e84879b97091, 0xb85045b68181585d, 0x30644e72e131a029];
 
         BN256AuxData {
-            b: b,
+            b,
             group_order: r,
         }
     }
 
     fn get_b(&self) -> <Bn256 as Engine>::Fq {
-        self.b.clone()
+        self.b
     }
 
     fn get_group_order(&self) -> &[u64] {

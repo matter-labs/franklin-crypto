@@ -134,7 +134,7 @@ impl<'a, E: Engine, G: CurveAffine> MultiexpTable<'a, E, G> where G::Base: Prime
             width_four_table_elements,
             width_three_table_elements,
             width_two_table_elements,
-            params: params,
+            params,
             width
         };
 
@@ -507,8 +507,8 @@ impl<'a, E: Engine, G: CurveAffine> MultiexpTable<'a, E, G> where G::Base: Prime
                 };
 
                 let point = AffinePoint::<_, _> {
-                    x: x,
-                    y: y,
+                    x,
+                    y,
                     value: new_value
                 };
 

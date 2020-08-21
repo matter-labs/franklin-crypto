@@ -425,7 +425,7 @@ impl<E: Engine> AllocatedNum<E> {
         cs.allocate_main_gate(term)?;
 
         Ok(AllocatedNum {
-            value: value,
+            value,
             variable: addition_result
         })
     }
@@ -459,7 +459,7 @@ impl<E: Engine> AllocatedNum<E> {
         cs.allocate_main_gate(term)?;
 
         Ok(AllocatedNum {
-            value: value,
+            value,
             variable: subtraction_result
         })
     }
@@ -493,7 +493,7 @@ impl<E: Engine> AllocatedNum<E> {
         cs.allocate_main_gate(term)?;
 
         Ok(AllocatedNum {
-            value: value,
+            value,
             variable: addition_result
         })
     }
@@ -538,7 +538,7 @@ impl<E: Engine> AllocatedNum<E> {
         cs.allocate_main_gate(term)?;
 
         Ok(AllocatedNum {
-            value: value,
+            value,
             variable: product
         })
     }
@@ -655,7 +655,7 @@ impl<E: Engine> AllocatedNum<E> {
         cs.allocate_main_gate(term)?;
 
         Ok(AllocatedNum {
-            value: value,
+            value,
             variable: quotient
         })
     }
@@ -724,7 +724,7 @@ impl<E: Engine> AllocatedNum<E> {
 
         packed_lc.enforce_zero(cs)?;
 
-        Ok(bits.into_iter().map(|b| Boolean::from(b)).collect())
+        Ok(bits.into_iter().map(Boolean::from).collect())
     }
 }
 

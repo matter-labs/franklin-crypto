@@ -264,8 +264,8 @@ impl NoteValue {
         }
 
         Ok(NoteValue {
-            value: value,
-            bits: bits
+            value,
+            bits
         })
     }
 
@@ -275,7 +275,7 @@ impl NoteValue {
         self.bits.chunks(8)
                  .flat_map(|v| v.iter().rev())
                  .cloned()
-                 .map(|e| Boolean::from(e))
+                 .map(Boolean::from)
                  .collect()
     }
 

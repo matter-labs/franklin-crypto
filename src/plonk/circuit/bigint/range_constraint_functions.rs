@@ -49,7 +49,7 @@ pub fn coarsely_enforce_using_multitable<E: Engine, CS: ConstraintSystem<E>>(
 ) -> Result<(), SynthesisError> {
     let strategies = get_range_constraint_info(&*cs);
     assert_eq!(CS::Params::STATE_WIDTH, 4);
-    assert!(strategies.len() > 0);
+    assert!(!strategies.is_empty());
     assert!(strategies[0].strategy == RangeConstraintStrategy::MultiTable);
 
     let width_per_gate = strategies[0].optimal_multiple;
@@ -144,7 +144,7 @@ pub fn coarsely_enforce_using_multitable<E: Engine, CS: ConstraintSystem<E>>(
 
         let is_last_gate = (full_gate_idx == num_full_gates - 1) && num_terms_in_partial_gate == 0;
 
-        if is_last_gate == false {
+        if !is_last_gate {
             let next_var = AllocatedNum::alloc(cs, || {
                 Ok(*next_step_value.get()?)
             })?;
@@ -238,7 +238,7 @@ pub fn coarsely_enforce_using_multitable_into_single_gate<E: Engine, CS: Constra
 ) -> Result<(), SynthesisError> {
     let strategies = get_range_constraint_info(&*cs);
     assert_eq!(CS::Params::STATE_WIDTH, 4);
-    assert!(strategies.len() > 0);
+    assert!(!strategies.is_empty());
     assert!(strategies[0].strategy == RangeConstraintStrategy::MultiTable);
 
     let width_per_gate = strategies[0].optimal_multiple;
@@ -319,7 +319,7 @@ pub fn adaptively_coarsely_constraint_multiple_with_multitable<E: Engine, CS: Co
 ) -> Result<(), SynthesisError> {
     let strategies = get_range_constraint_info(&*cs);
     assert_eq!(CS::Params::STATE_WIDTH, 4);
-    assert!(strategies.len() > 0);
+    assert!(!strategies.is_empty());
     assert!(strategies[0].strategy == RangeConstraintStrategy::MultiTable);
 
     let width_per_gate = strategies[0].optimal_multiple;
@@ -408,7 +408,7 @@ pub fn adaptively_coarsely_constraint_multiple_with_two_bit_decomposition<E: Eng
 ) -> Result<(), SynthesisError> {
     let strategies = get_range_constraint_info(&*cs);
     assert_eq!(CS::Params::STATE_WIDTH, 4);
-    assert!(strategies.len() > 0);
+    assert!(!strategies.is_empty());
     assert!(strategies[0].strategy == RangeConstraintStrategy::CustomTwoBitGate);
 
     // decomposition using custom gate has an overhead:
@@ -441,7 +441,7 @@ pub fn adaptively_coarsely_constraint_multiple_with_two_bit_decomposition<E: Eng
         }
     }
 
-    if non_constant_terms.len() == 0 {
+    if non_constant_terms.is_empty() {
         return Ok(())
     }
 

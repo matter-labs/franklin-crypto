@@ -55,8 +55,8 @@ pub struct BenchmarkCircuit<E: Engine>{
 
 pub fn fibbonacci<F: Field>(a: &F, b: &F, num_steps: usize) -> F {
 
-    let mut a = a.clone();
-    let mut b = b.clone();
+    let mut a = *a;
+    let mut b = *b;
 
     for _ in 0..num_steps {
         b.add_assign(&a);
@@ -76,22 +76,22 @@ impl<E: Engine> OldCircuit<E, OldActualParams> for BenchmarkCircuit<E> {
         let zero = E::Fr::zero();
         
         let mut a = cs.alloc_input(|| {
-            Ok(self.a.clone())
+            Ok(self.a)
         })?;
 
         let mut b = cs.alloc_input(|| {
-            Ok(self.b.clone())
+            Ok(self.b)
         })?;
 
-        let mut a_value = self.a.clone();
-        let mut b_value = self.b.clone();
+        let mut a_value = self.a;
+        let mut b_value = self.b;
 
         for _ in 0..self.num_steps {
 
             b_value.add_assign(&a_value);
             
             let temp = cs.alloc(|| {
-                Ok(b_value.clone())
+                Ok(b_value)
             })?;
 
             // *q_a = gate.1[0];
@@ -103,7 +103,7 @@ impl<E: Engine> OldCircuit<E, OldActualParams> for BenchmarkCircuit<E> {
             // *q_d_next = gate.2[0];
 
             let state_variables = [a, b, cs.get_dummy_variable(), temp];
-            let this_step_coeffs = [one.clone(), one.clone(), zero.clone(), negative_one, zero.clone(), zero.clone()];
+            let this_step_coeffs = [one, one, zero, negative_one, zero, zero];
             let next_step_coeffs = [zero];
 
             cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
@@ -114,11 +114,11 @@ impl<E: Engine> OldCircuit<E, OldActualParams> for BenchmarkCircuit<E> {
         }
 
         let output = cs.alloc_input(|| {
-            Ok(self.output.clone())
+            Ok(self.output)
         })?;
 
         let state_variables = [a, cs.get_dummy_variable(), cs.get_dummy_variable(), output];
-        let this_step_coeffs = [one.clone(), zero.clone(), zero.clone(), negative_one, zero.clone(), zero.clone()];
+        let this_step_coeffs = [one, zero, zero, negative_one, zero, zero];
         let next_step_coeffs = [zero];
 
         cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
@@ -138,23 +138,23 @@ impl<E: Engine> OldCircuit<E, OldActualParams> for BenchmarkCircuit<E> {
 
         // 2 - const(1) - d_next = 0;
         let state_variables = [cs.get_dummy_variable(), cs.get_dummy_variable(), one_var, cs.get_dummy_variable()];
-        let this_step_coeffs = [zero.clone(), zero.clone(), two, zero.clone(), zero.clone(), negative_one];
+        let this_step_coeffs = [zero, zero, two, zero, zero, negative_one];
         let next_step_coeffs = [negative_one];
 
         cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
 
         // 0 * d = 0
         let state_variables = [cs.get_dummy_variable(), cs.get_dummy_variable(), cs.get_dummy_variable(), one_var];
-        let this_step_coeffs = [zero.clone(), zero.clone(), zero.clone(), zero.clone(), zero.clone(), zero.clone()];
-        let next_step_coeffs = [zero.clone()];
+        let this_step_coeffs = [zero, zero, zero, zero, zero, zero];
+        let next_step_coeffs = [zero];
 
         cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
 
         // also fill multiplicative selector
         // 0 * 1 = 0
         let state_variables = [zero_var, one_var, cs.get_dummy_variable(), cs.get_dummy_variable()];
-        let this_step_coeffs = [zero.clone(), zero.clone(), zero.clone(), zero.clone(), one.clone(), zero.clone()];
-        let next_step_coeffs = [zero.clone()];
+        let this_step_coeffs = [zero, zero, zero, zero, one, zero];
+        let next_step_coeffs = [zero];
 
         cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
 
@@ -183,22 +183,22 @@ impl<E: Engine> OldCircuit<E, OldActualParams> for BenchmarkCircuitWithOneInput<
         let zero = E::Fr::zero();
         
         let mut a = cs.alloc_input(|| {
-            Ok(self.a.clone())
+            Ok(self.a)
         })?;
 
         let mut b = cs.alloc(|| {
-            Ok(self.b.clone())
+            Ok(self.b)
         })?;
 
-        let mut a_value = self.a.clone();
-        let mut b_value = self.b.clone();
+        let mut a_value = self.a;
+        let mut b_value = self.b;
 
         for _ in 0..self.num_steps {
 
             b_value.add_assign(&a_value);
             
             let temp = cs.alloc(|| {
-                Ok(b_value.clone())
+                Ok(b_value)
             })?;
 
             // *q_a = gate.1[0];
@@ -210,7 +210,7 @@ impl<E: Engine> OldCircuit<E, OldActualParams> for BenchmarkCircuitWithOneInput<
             // *q_d_next = gate.2[0];
 
             let state_variables = [a, b, cs.get_dummy_variable(), temp];
-            let this_step_coeffs = [one.clone(), one.clone(), zero.clone(), negative_one, zero.clone(), zero.clone()];
+            let this_step_coeffs = [one, one, zero, negative_one, zero, zero];
             let next_step_coeffs = [zero];
 
             cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
@@ -221,11 +221,11 @@ impl<E: Engine> OldCircuit<E, OldActualParams> for BenchmarkCircuitWithOneInput<
         }
 
         let output = cs.alloc(|| {
-            Ok(self.output.clone())
+            Ok(self.output)
         })?;
 
         let state_variables = [a, cs.get_dummy_variable(), cs.get_dummy_variable(), output];
-        let this_step_coeffs = [one.clone(), zero.clone(), zero.clone(), negative_one, zero.clone(), zero.clone()];
+        let this_step_coeffs = [one, zero, zero, negative_one, zero, zero];
         let next_step_coeffs = [zero];
 
         cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
@@ -245,23 +245,23 @@ impl<E: Engine> OldCircuit<E, OldActualParams> for BenchmarkCircuitWithOneInput<
 
         // 2 - const(1) - d_next = 0;
         let state_variables = [cs.get_dummy_variable(), cs.get_dummy_variable(), one_var, cs.get_dummy_variable()];
-        let this_step_coeffs = [zero.clone(), zero.clone(), two, zero.clone(), zero.clone(), negative_one];
+        let this_step_coeffs = [zero, zero, two, zero, zero, negative_one];
         let next_step_coeffs = [negative_one];
 
         cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
 
         // 0 * d = 0
         let state_variables = [cs.get_dummy_variable(), cs.get_dummy_variable(), cs.get_dummy_variable(), one_var];
-        let this_step_coeffs = [zero.clone(), zero.clone(), zero.clone(), zero.clone(), zero.clone(), zero.clone()];
-        let next_step_coeffs = [zero.clone()];
+        let this_step_coeffs = [zero, zero, zero, zero, zero, zero];
+        let next_step_coeffs = [zero];
 
         cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
 
         // also fill multiplicative selector
         // 0 * 1 = 0
         let state_variables = [zero_var, one_var, cs.get_dummy_variable(), cs.get_dummy_variable()];
-        let this_step_coeffs = [zero.clone(), zero.clone(), zero.clone(), zero.clone(), one.clone(), zero.clone()];
-        let next_step_coeffs = [zero.clone()];
+        let this_step_coeffs = [zero, zero, zero, zero, one, zero];
+        let next_step_coeffs = [zero];
 
         cs.new_gate(state_variables, this_step_coeffs, next_step_coeffs)?;
 

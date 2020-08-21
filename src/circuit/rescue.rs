@@ -254,7 +254,7 @@ pub fn rescue_hash<E: RescueEngine, CS>(
     <<E as RescueEngine>::Params as RescueHashParams<E>>::SBox1: CsSBox<E>,
     CS: ConstraintSystem<E>
 {
-    assert!(input.len() > 0);
+    assert!(!input.is_empty());
     assert!(input.len() < 256);
     let input_len_as_fe = {
         let mut repr = <E::Fr as PrimeField>::Repr::default();
@@ -533,7 +533,7 @@ impl<E: RescueEngine> StatefulRescueGadget<E> {
         input: &[AllocatedNum<E>],
         params: &E::Params
     ) -> Result<(), SynthesisError>{
-        assert!(input.len() > 0);
+        assert!(!input.is_empty());
         assert!(input.len() < 256);
         let absorbtion_len = params.rate() as usize;
         let t = params.state_width();
@@ -590,15 +590,15 @@ impl<E: RescueEngine> StatefulRescueGadget<E> {
                 let op = RescueOpMode::SqueezedInto(sponge_output);
                 self.mode = op;
 
-                return Ok(output);
+                Ok(output)
             },
             RescueOpMode::SqueezedInto(ref mut into) => {
-                assert!(into.len() > 0, "squeezed state is depleted!");
+                assert!(!into.is_empty(), "squeezed state is depleted!");
                 let output = into.drain(0..1).next().unwrap().into_allocated_num(
                     cs.namespace(|| "transform sponge output into allocated number")
                 )?;
 
-                return Ok(output);
+                Ok(output)
             }
         }
     }

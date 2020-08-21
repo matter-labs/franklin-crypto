@@ -165,11 +165,11 @@ impl Bn256RescueParams {
         }
 
         Self {
-            c: c,
-            r: r,
-            rounds: rounds,
-            round_constants: round_constants,
-            mds_matrix: mds_matrix,
+            c,
+            r,
+            rounds,
+            round_constants,
+            mds_matrix,
             security_level: 126,
             sbox_0: PowerSBox { power: alpha_inv_repr, inv: 5u64 },
             sbox_1: QuinticSBox { _marker: std::marker::PhantomData },

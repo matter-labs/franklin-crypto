@@ -165,7 +165,7 @@ impl<'a, E: Engine, F: PrimeField> RnsParameters<E, F>{
             }
         }
 
-        let mut tmp = represented_modulus_negated_modulo_binary.clone();
+        let mut tmp = represented_modulus_negated_modulo_binary;
 
         let mut negated_modulus_chunks_bit_width = vec![];
         let mut negated_modulus_chunks = vec![];
@@ -180,24 +180,24 @@ impl<'a, E: Engine, F: PrimeField> RnsParameters<E, F>{
             tmp >>= limb_size;
         }
 
-        let repr_modulus_negated = base_field_modulus.clone() - (represented_field_modulus.clone() % &base_field_modulus.clone());
+        let repr_modulus_negated = base_field_modulus.clone() - (represented_field_modulus.clone() % &base_field_modulus);
         let repr_modulus_negated = biguint_to_fe(repr_modulus_negated);
 
         let new = Self {
             binary_limbs_params,
             num_binary_limbs,
             binary_modulus,
-            base_field_modulus: base_field_modulus.clone(),
+            base_field_modulus,
             num_limbs_for_in_field_representation,
             binary_representation_max_value,
             represented_field_modulus,
-            binary_limbs_bit_widths: binary_limbs_max_bits_if_in_field.clone(),
-            binary_limbs_max_values: binary_limbs_max_values_if_in_field.clone(),
+            binary_limbs_bit_widths: binary_limbs_max_bits_if_in_field,
+            binary_limbs_max_values: binary_limbs_max_values_if_in_field,
             represented_field_modulus_negated_limbs_biguints : negated_modulus_chunks,
             represented_field_modulus_negated_limbs,
             represented_field_modulus_negated_in_base_field: repr_modulus_negated,
             range_check_info: strategy,
-            prefer_single_limb_allocation: prefer_single_limb_allocation,
+            prefer_single_limb_allocation,
             prefer_single_limb_carry_propagation: false,
             _marker: std::marker::PhantomData
         };
@@ -215,14 +215,14 @@ impl<'a, E: Engine, F: PrimeField> RnsParameters<E, F>{
     }
 
     pub fn can_allocate_from_double_limb_witness(&self) -> bool {
-        if self.prefer_single_limb_allocation == true {
+        if self.prefer_single_limb_allocation {
             return false;
         }
 
         if self.range_check_info.strategy.can_access_minimal_multiple_quants() {
             true
         } else {
-            self.prefer_single_limb_allocation == false && self.binary_limbs_params.limb_size_bits % self.range_check_info.optimal_multiple == 0
+            !self.prefer_single_limb_allocation && self.binary_limbs_params.limb_size_bits % self.range_check_info.optimal_multiple == 0
         }
     }
 
@@ -291,10 +291,10 @@ fn value_to_limbs<E: Engine, F: PrimeField>(
             let binary_limbs: Vec<Option<E::Fr>> = binary_limb_values.into_iter().map(|el| Some(biguint_to_fe::<E::Fr>(el))).collect();
             assert_eq!(binary_limbs.len(), params.num_binary_limbs);
 
-            return (binary_limbs, Some(base_limb));
+            (binary_limbs, Some(base_limb))
         },
         None => {
-            return (vec![None; num_limbs], None);
+            (vec![None; num_limbs], None)
         }
     }
 }
@@ -370,7 +370,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
 
                     // if the element must fit into the field than pad with zeroes
-                    if may_overflow == false && witness_idx >= params.num_limbs_for_in_field_representation {
+                    if !may_overflow && witness_idx >= params.num_limbs_for_in_field_representation {
                         assert!(value.is_zero());
                         binary_limbs_allocated.push(Self::zero_limb());
                         continue;
@@ -405,7 +405,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                     };
 
                     // if the element must fit into the field than pad with zeroes
-                    if may_overflow == false && witness_idx >= params.num_limbs_for_in_field_representation {
+                    if !may_overflow && witness_idx >= params.num_limbs_for_in_field_representation {
                         unreachable!("should not try to allocate a value in a field with non-constant high limbs");
                     }
 
@@ -472,8 +472,8 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             value: this_value,
         };
 
-        if may_overflow == false {
-            assert!(new.needs_reduction() == false);
+        if !may_overflow {
+            assert!(!new.needs_reduction());
         }
 
         Ok(new)
@@ -570,7 +570,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         value: Option<BigUint>,
         params: &'a RnsParameters<E, F>
     ) -> Result<Self, SynthesisError> {
-        if params.can_allocate_from_double_limb_witness() == true {
+        if params.can_allocate_from_double_limb_witness() {
             let slices = Self::slice_into_double_limb_witnesses(value, cs, params, true)?;
 
             Self::from_double_size_limb_witnesses(cs, &slices, true, params)
@@ -636,7 +636,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                     }
 
                     // if the element must fit into the field than pad with zeroes
-                    if top_limb_may_overflow == false &&
+                    if !top_limb_may_overflow &&
                         low_idx >= params.num_limbs_for_in_field_representation && 
                         high_idx >= params.num_limbs_for_in_field_representation {
 
@@ -708,7 +708,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                     }
 
                     // if the element must fit into the field than pad with zeroes
-                    if top_limb_may_overflow == false &&
+                    if !top_limb_may_overflow &&
                         low_idx >= params.num_limbs_for_in_field_representation && 
                         high_idx >= params.num_limbs_for_in_field_representation {
 
@@ -815,9 +815,9 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             params.binary_limbs_params.limb_size_bits,
             params.num_binary_limbs
         );
-        let base_limb_value = value.clone() % &params.base_field_modulus;
+        let base_limb_value = value % &params.base_field_modulus;
 
-        let base_limb = biguint_to_fe::<E::Fr>(base_limb_value.clone());
+        let base_limb = biguint_to_fe::<E::Fr>(base_limb_value);
 
         let mut binary_limbs_allocated = Vec::with_capacity(binary_limb_values.len());
         for l in binary_limb_values.into_iter()
@@ -883,10 +883,10 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
     ) -> Self {
         let zero_limb = Self::zero_limb();
 
-        let binary_limbs = vec![zero_limb.clone(); params.num_binary_limbs];
+        let binary_limbs = vec![zero_limb; params.num_binary_limbs];
     
         Self {
-            binary_limbs: binary_limbs,
+            binary_limbs,
             base_field_limb: Term::<E>::from_constant(E::Fr::zero()),
             representation_params: params,
             value: Some(F::zero()),
@@ -901,10 +901,10 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
         let mut binary_limbs = Vec::with_capacity(params.num_binary_limbs);
         binary_limbs.push(one_limb);
-        binary_limbs.resize(params.num_binary_limbs, zero_limb.clone());
+        binary_limbs.resize(params.num_binary_limbs, zero_limb);
     
         Self {
-            binary_limbs: binary_limbs,
+            binary_limbs,
             base_field_limb: Term::<E>::from_constant(E::Fr::one()),
             representation_params: params,
             value: Some(F::one()),
@@ -1274,7 +1274,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             params
         )?;
 
-        assert!(r_elem.needs_reduction() == false);
+        assert!(!r_elem.needs_reduction());
 
         // perform constraining by implementing multiplication
         // x = q*p + r
@@ -1567,7 +1567,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         // };
 
         let mut multiples_to_add_at_least = borrow_max_values.last().unwrap().clone() << shift;
-        multiples_to_add_at_least = multiples_to_add_at_least / &params.represented_field_modulus;
+        multiples_to_add_at_least /= &params.represented_field_modulus;
 
         let mut multiples = multiples_to_add_at_least * &params.represented_field_modulus;
 
@@ -1597,7 +1597,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         }
 
         let multiple_slices = split_into_fixed_number_of_limbs(
-            multiples.clone(), 
+            multiples, 
             params.binary_limbs_params.limb_size_bits, 
             params.num_binary_limbs
         );
@@ -1658,7 +1658,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
         // let residue_to_add = multiples % &params.base_field_modulus;
         let residue_to_add = new_multiple % &params.base_field_modulus;
-        let constant_as_fe = biguint_to_fe::<E::Fr>(residue_to_add.clone());
+        let constant_as_fe = biguint_to_fe::<E::Fr>(residue_to_add);
 
         let mut tmp = this.base_field_limb.clone();
         tmp.add_constant(&constant_as_fe);
@@ -1828,7 +1828,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             } else {
                 value_is_none = true;
             }
-            all_constants = all_constants & a.is_constant();
+            all_constants &= a.is_constant();
         } 
         let (q, r) = value.div_rem(&params.represented_field_modulus);
 
@@ -1870,7 +1870,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             &[r_elem.clone()],
         )?;
 
-        return Ok((r_elem, (this, to_mul, to_add)));
+        Ok((r_elem, (this, to_mul, to_add)))
     }
 
     pub fn square_with_addition_chain<CS: ConstraintSystem<E>>(
@@ -1905,7 +1905,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             } else {
                 value_is_none = true;
             }
-            all_constants = all_constants & a.is_constant();
+            all_constants &= a.is_constant();
         } 
         let (q, r) = value.div_rem(&params.represented_field_modulus);
 
@@ -1946,7 +1946,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             &[r_elem.clone()],
         )?;
 
-        return Ok((r_elem, (this, to_add)));
+        Ok((r_elem, (this, to_add)))
     }
 
     pub fn div<CS: ConstraintSystem<E>>(
@@ -1983,7 +1983,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                 let inv = mod_inverse(&den, &params.represented_field_modulus);
                 let result = (this.clone() * &inv) % &params.represented_field_modulus;
 
-                let value = den.clone() * &result - &this;
+                let value = den * &result - &this;
                 let (q, rem) = value.div_rem(&params.represented_field_modulus);
 
                 use crate::num_traits::Zero;
@@ -2079,7 +2079,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                 value_is_none = true;
             }
 
-            all_constant = all_constant & n.is_constant();
+            all_constant &= n.is_constant();
             reduced_nums.push(n);
         }
         let num_value = if value_is_none {
@@ -2088,7 +2088,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             Some(num_value)
         };
 
-        let (result, q, rem) = match (num_value, den.get_value(), inv.clone()) {
+        let (result, q, rem) = match (num_value, den.get_value(), inv) {
             (Some(num_value), Some(den), Some(inv)) => {
                 let mut lhs = num_value.clone();
 
@@ -2812,9 +2812,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         let factor = value.clone() / modulus;
         tmp += factor.clone() * modulus;
         let ff = factor.to_usize();
-        if ff.is_none() {
-            return None;
-        }
+        ff?;
         let mut factor = ff.unwrap();
         if factor > 16 {
             return None;

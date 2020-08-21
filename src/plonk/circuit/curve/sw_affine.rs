@@ -422,8 +422,8 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         };
 
         let this = Self {
-            x: x,
-            y: y,
+            x,
+            y,
             value: this_value
         };
 
@@ -547,8 +547,8 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         };
 
         let selected = AffinePoint { 
-            x : x, 
-            y : y, 
+            x, 
+            y, 
             value 
         };
 
@@ -629,7 +629,7 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
 
             // y = tt;
             let t = Self {
-                x: x,
+                x,
                 y: selected_y,
                 value: t_value
             };
@@ -905,7 +905,7 @@ fn compute_skewed_naf_table<F: PrimeField>(value: &Option<F>, bit_limit: Option<
 
     let mut bits = vec![None; bit_limit+1];
 
-    if get_bit(&value_repr, 0) == false {
+    if !get_bit(&value_repr, 0) {
         *bits.last_mut().unwrap() = Some(true);
         value_repr.add_nocarry(&one_repr);
     } else {

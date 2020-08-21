@@ -299,7 +299,7 @@ pub fn blake2s<E: Engine, CS: ConstraintSystem<E>>(
         blocks.push(this_block);
     }
 
-    if blocks.len() == 0 {
+    if blocks.is_empty() {
         blocks.push((0..16).map(|_| UInt32::constant(0)).collect());
     }
 

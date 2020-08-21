@@ -80,7 +80,7 @@ fn split_some_into_slices<F: PrimeField>(
     num_slices: usize
 ) -> Vec<Option<F>> {
     if let Some(v) = el.as_ref() {
-        split_into_slices(v, slice_width, num_slices).into_iter().map(|el| Some(el)).collect()
+        split_into_slices(v, slice_width, num_slices).into_iter().map(Some).collect()
     } else {
         vec![None; num_slices]
     }
@@ -156,7 +156,7 @@ pub fn create_range_constraint_chain<E: Engine, CS: ConstraintSystem<E>>(
     }
     let num_elements = num_bits / 2;
     let mut slices: Vec<Option<E::Fr>> = if let Some(v) = to_constraint.get_value() {
-        split_into_bit_constraint_slices(&v, 2, num_elements).into_iter().map(|el| Some(el)).collect()
+        split_into_bit_constraint_slices(&v, 2, num_elements).into_iter().map(Some).collect()
     } else {
         vec![None; num_elements]
     };

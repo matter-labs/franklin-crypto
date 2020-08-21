@@ -174,7 +174,7 @@ pub fn field_to_witness<E: Engine, F: PrimeField>(element: &F, params: &RnsParam
             num_witness
         );
 
-        let witnesses: Vec<_> = witness_limbs.into_iter().map(|el| biguint_to_fe::<E::Fr>(el)).collect();
+        let witnesses: Vec<_> = witness_limbs.into_iter().map(biguint_to_fe::<E::Fr>).collect();
 
         witnesses
     } else {
@@ -188,7 +188,7 @@ pub fn field_to_witness<E: Engine, F: PrimeField>(element: &F, params: &RnsParam
             num_witness
         );
 
-        let witnesses: Vec<_> = witness_limbs.into_iter().map(|el| biguint_to_fe::<E::Fr>(el)).collect();
+        let witnesses: Vec<_> = witness_limbs.into_iter().map(biguint_to_fe::<E::Fr>).collect();
 
         witnesses
     }

@@ -13,9 +13,9 @@ pub fn generate_powers<E: Engine, CS>(
         let mut result = vec![];
 
         let mut power = num::AllocatedNum::alloc(
-            cs.namespace(|| format!("0-th power")), 
+            cs.namespace(|| "0-th power"),
             || {
-                return Ok(E::Fr::one());
+                Ok(E::Fr::one())
             }
         )?;
         power.assert_number(cs.namespace(||"0-th power equals 1"), &E::Fr::one())?;
@@ -41,7 +41,7 @@ pub fn do_the_lookup<E: Engine, CS>(
 
         let mut num = num::Num::<E>::zero();
         for (c, b) in coeffs.iter().zip(bases.iter()) {
-            num = num.add_number_with_coeff(b, c.clone());
+            num = num.add_number_with_coeff(b, *c);
         }
 
         let result = num::AllocatedNum::alloc(

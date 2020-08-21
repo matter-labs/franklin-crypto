@@ -113,8 +113,8 @@ impl<E: JubjubEngine> ViewingKey<E> {
             let pk_d = g_d.mul(self.ivk(), params);
 
             PaymentAddress {
-                pk_d: pk_d,
-                diversifier: diversifier
+                pk_d,
+                diversifier
             }
         })
     }
@@ -157,9 +157,9 @@ impl<E: JubjubEngine> PaymentAddress<E> {
     {
         self.g_d(params).map(|g_d| {
             Note {
-                value: value,
+                value,
                 r: randomness,
-                g_d: g_d,
+                g_d,
                 pk_d: self.pk_d.clone()
             }
         })

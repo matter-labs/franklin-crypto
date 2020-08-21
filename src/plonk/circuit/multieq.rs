@@ -53,7 +53,7 @@ pub struct MultiEq<'a, E: Engine, CS: ConstraintSystem<E> + 'a>{
 impl<'a, E: Engine, CS: ConstraintSystem<E> + 'a> MultiEq<'a, E, CS> {
     pub fn new(cs: &'a mut CS) -> Self {
         MultiEq {
-            cs: cs,
+            cs,
             ops: 0,
             bits_used: 0,
             lhs: LinearCombination::<E>::zero(),
