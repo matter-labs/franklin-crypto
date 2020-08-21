@@ -8,16 +8,16 @@ use std::io::{self, Read, Write};
 use std::convert::{TryInto, TryFrom};
 use crate::pedersen_hash::*;
 use jubjub::{
-    FixedGenerators, 
-    JubjubEngine, 
-    JubjubParams, 
+    FixedGenerators,
+    JubjubEngine,
+    JubjubParams,
     Unknown,
     edwards::Point,
     ToUniform};
 use hmac::{Hmac, Mac};
 use crate::rescue::{RescueEngine};
 
-use util::{hash_to_scalar, hash_to_scalar_s, sha256_hash_to_scalar, rescue_hash_to_scalar};
+use util::{hash_to_scalar, hash_to_scalar_s, sha256_hash_to_scalar, rescue_hash_to_scalar, field_rescue_hash_to_scalar};
 
 use ::constants::{MATTER_EDDSA_BLAKE2S_PERSONALIZATION};
 
@@ -69,14 +69,27 @@ fn pedersen_h_star<E: JubjubEngine>(bits: &[bool], params: &E::Params) -> E::Fs{
     fe
 }
 
+fn field_rescue_h_star<E: RescueEngine + JubjubEngine>(
+    a: E::Fr,
+    b: E::Fr,
+    c: E::Fr,
+    params: &<E as RescueEngine>::Params
+) -> E::Fs {
+    field_rescue_hash_to_scalar::<E>(
+        None,
+        &[a, b, c][..],
+        params
+    )
+}
+
 fn rescue_h_star<E: RescueEngine + JubjubEngine>(
-    a: &[u8], 
+    a: &[u8],
     b: &[u8],
     params: &<E as RescueEngine>::Params
 ) -> E::Fs {
     rescue_hash_to_scalar::<E>(
-        &[], 
-        a, 
+        &[],
+        a,
         b,
         params
     )
@@ -477,7 +490,36 @@ impl<E: RescueEngine + JubjubEngine> PrivateKey<E> {
         let mut s = rescue_h_star::<E>(&concatenated[..], &msg_padded[..], &rescue_params);
         s.mul_assign(&self.0);
         s.add_assign(&seed.0);
-    
+
+        let as_unknown = Point::from(r_g);
+        Signature { r: as_unknown, s: s }
+    }
+
+    // sign a message by following MuSig protocol, with public key being just a trivial key,
+    // not a multisignature one
+    pub fn field_musig_rescue_sign(
+        &self,
+        msg: E::Fr,
+        seed: &Seed<E>,
+        p_g: FixedGenerators,
+        rescue_params: &<E as RescueEngine>::Params,
+        jubjub_params: &<E as JubjubEngine>::Params,
+    ) -> Signature<E> {
+        // assert!(msg.len() <= 32);
+        let pk = PublicKey::from_private(&self, p_g, jubjub_params);
+        let order_check = pk.0.mul(E::Fs::char(), jubjub_params);
+        assert!(order_check.eq(&Point::zero()));
+
+        let (pk_x, _) = pk.0.into_xy();
+        // R = seed . P_G
+        let r_g = jubjub_params.generator(p_g).mul(seed.0, jubjub_params);
+        let (r_g_x, _) = r_g.into_xy();
+
+        // S = r + H*(PK_X || R_X || M) . sk
+        let mut s = field_rescue_h_star::<E>(pk_x, r_g_x, msg, &rescue_params);
+        s.mul_assign(&self.0);
+        s.add_assign(&seed.0);
+
         let as_unknown = Point::from(r_g);
         Signature { r: as_unknown, s: s }
     }
@@ -808,6 +850,38 @@ impl<E: JubjubEngine> PublicKey<E> {
 impl<E: RescueEngine + JubjubEngine> PublicKey<E> {
 // verify MuSig. While we are on the Edwards curve with cofactor,
     // verification will be successful if and only if every element is in the main group
+    pub fn verify_field_musig_rescue(
+        &self,
+        msg: E::Fr,
+        sig: &Signature<E>,
+        p_g: FixedGenerators,
+        rescue_params: &<E as RescueEngine>::Params,
+        jubjub_params: &<E as JubjubEngine>::Params,
+    ) -> bool {
+        // c = H*(PK_x || R_x || M)
+        let (pk_x, _) = self.0.into_xy();
+        let (r_g_x, _) = sig.r.into_xy();
+        let c = field_rescue_h_star::<E>(pk_x, r_g_x, msg, rescue_params);
+
+        // this one is for a simple sanity check. In application purposes the pk will always be in a right group
+        let order_check_pk = self.0.mul(E::Fs::char(), jubjub_params);
+        if !order_check_pk.eq(&Point::zero()) {
+            return false;
+        }
+
+        // r is input from user, so always check it!
+        let order_check_r = sig.r.mul(E::Fs::char(), jubjub_params);
+        if !order_check_r.eq(&Point::zero()) {
+            return false;
+        }
+
+        // 0 = -S . P_G + R + c . vk that requires all points to be in the same group
+        self.0.mul(c, jubjub_params).add(&sig.r, jubjub_params).add(
+            &jubjub_params.generator(p_g).mul(sig.s, jubjub_params).negate().into(),
+            jubjub_params
+        ).eq(&Point::zero())
+    }
+
     pub fn verify_musig_rescue(
         &self,
         msg: &[u8],
@@ -1166,6 +1240,55 @@ mod baby_tests {
         let vk = PublicKey::from_private(&sk, p_g, params);
         let (x, y) = vk.0.into_xy();
         println!("Public generator x = {}, y = {}", x, y);
+    }
+
+    #[test]
+    fn random_field_signatures_for_rescue_musig() {
+        use crate::circuit::multipack;
+        use crate::rescue::rescue_hash;
+        let rng = &mut thread_rng();
+        let p_g = FixedGenerators::SpendingKeyGenerator;
+        let params = &AltJubjubBn256::new();
+        let rescue_params = &crate::rescue::bn256::Bn256RescueParams::new_checked_2_into_1();
+
+        for _ in 0..1000 {
+            let sk = PrivateKey::<Bn256>(rng.gen());
+            let vk = PublicKey::from_private(&sk, p_g, params);
+
+            let msg1 = b"Foo bar";
+            let msg2 = b"Spam eggs";
+
+            let field_msg1 = multipack::compute_multipacking::<Bn256>(&multipack::bytes_to_bits(msg1));
+            let field_msg2 = multipack::compute_multipacking::<Bn256>(&multipack::bytes_to_bits(msg2));
+
+            let hashed_msg1 = rescue_hash::<Bn256>(rescue_params, &field_msg1);
+            let hashed_msg2 = rescue_hash::<Bn256>(rescue_params, &field_msg2);
+            assert_eq!(hashed_msg1.len(), 1);
+            assert_eq!(hashed_msg2.len(), 1);
+
+            let seed1 = Seed::random_seed(rng, msg1);
+            let seed2 = Seed::random_seed(rng, msg2);
+
+            let sig1 = sk.field_musig_rescue_sign(hashed_msg1[0], &seed1, p_g, rescue_params, params);
+            let sig2 = sk.field_musig_rescue_sign(hashed_msg2[0], &seed2, p_g, rescue_params, params);
+
+            assert!(vk.verify_field_musig_rescue(hashed_msg1[0], &sig1, p_g, rescue_params, params));
+            assert!(vk.verify_field_musig_rescue(hashed_msg2[0], &sig2, p_g, rescue_params, params));
+            assert!(!vk.verify_field_musig_rescue(hashed_msg1[0], &sig2, p_g, rescue_params, params));
+            assert!(!vk.verify_field_musig_rescue(hashed_msg2[0], &sig1, p_g, rescue_params, params));
+
+            let alpha = rng.gen();
+            let rsk = sk.randomize(alpha);
+            let rvk = vk.randomize(alpha, p_g, params);
+
+            let sig1 = rsk.field_musig_rescue_sign(hashed_msg1[0], &seed1, p_g, rescue_params, params);
+            let sig2 = rsk.field_musig_rescue_sign(hashed_msg2[0], &seed2, p_g, rescue_params, params);
+
+            assert!(rvk.verify_field_musig_rescue(hashed_msg1[0], &sig1, p_g, rescue_params, params));
+            assert!(rvk.verify_field_musig_rescue(hashed_msg2[0], &sig2, p_g, rescue_params, params));
+            assert!(!rvk.verify_field_musig_rescue(hashed_msg1[0], &sig2, p_g, rescue_params, params));
+            assert!(!rvk.verify_field_musig_rescue(hashed_msg2[0], &sig1, p_g, rescue_params, params));
+        }
     }
 
     #[test]
