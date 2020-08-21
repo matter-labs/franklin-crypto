@@ -256,7 +256,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
     ) -> Result<Self, SynthesisError>
     {
         let d_arr : Vec<Num<E>> = scalars.iter().map(|x| Num::Variable(x.clone())).collect();
-        let aff_points : Vec<_> = points.into_iter().map(|x| x.point.clone()).collect();
+        let aff_points : Vec<_> = points.iter().map(|x| x.point.clone()).collect();
         let res = WrapperUnchecked { 
             point: AffinePoint::multiexp(cs, &d_arr[..], &aff_points[..], bit_limit)?,
         };
@@ -279,7 +279,7 @@ fn allocate_coordinate_from_limb_witness<'a, 'b, E: Engine, CS: ConstraintSystem
         let w: Vec<_> = w.iter().map(|el| Num::Variable(el.clone())).collect();
         let fe = FieldElement::from_double_size_limb_witnesses(cs, &w, false, params)?;
 
-        return Ok((fe, rest));
+        Ok((fe, rest))
     } else {
         let num_witness = params.num_limbs_for_in_field_representation;
 
@@ -287,6 +287,6 @@ fn allocate_coordinate_from_limb_witness<'a, 'b, E: Engine, CS: ConstraintSystem
         let w: Vec<_> = w.iter().map(|el| Num::Variable(el.clone())).collect();
         let fe = FieldElement::coarsely_allocate_from_single_limb_witnesses(cs, &w, false, params)?;
 
-        return Ok((fe, rest));
+        Ok((fe, rest))
     }
 }

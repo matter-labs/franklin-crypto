@@ -249,7 +249,7 @@ impl<E: JubjubEngine> PrivateKey<E> {
         // we also pad message to max size
 
         // pad with zeroes to match representation length
-        let mut msg_padded : Vec<u8> = msg.iter().cloned().collect();
+        let mut msg_padded : Vec<u8> = msg.to_vec();
         for _ in 0..(32 - msg.len()) {
             msg_padded.extend(&[0u8;1]);
         }
@@ -261,7 +261,7 @@ impl<E: JubjubEngine> PrivateKey<E> {
         s.add_assign(&seed.0);
     
         let as_unknown = Point::from(r_g);
-        Signature { r: as_unknown, s: s }
+        Signature { r: as_unknown, s }
     }
 
 
@@ -293,7 +293,7 @@ impl<E: JubjubEngine> PrivateKey<E> {
 
         let concatenated: Vec<u8> = r_g_x_bytes.iter().cloned().collect();
 
-        let mut msg_padded : Vec<u8> = msg.iter().cloned().collect();
+        let mut msg_padded : Vec<u8> = msg.to_vec();
         msg_padded.resize(32, 0u8);
 
         // S = r + H*(R_X || M) . sk
@@ -302,7 +302,7 @@ impl<E: JubjubEngine> PrivateKey<E> {
         s.add_assign(&seed.0);
     
         let as_unknown = Point::from(r_g);
-        Signature { r: as_unknown, s: s }
+        Signature { r: as_unknown, s }
     }
 
     // sign a message by following MuSig protocol, with public key being just a trivial key,
@@ -339,7 +339,7 @@ impl<E: JubjubEngine> PrivateKey<E> {
         let mut concatenated: Vec<u8> = pk_x_bytes.as_ref().to_vec();
         concatenated.extend(r_g_x_bytes.as_ref().to_vec().into_iter());
 
-        let mut msg_padded : Vec<u8> = msg.iter().cloned().collect();
+        let mut msg_padded : Vec<u8> = msg.to_vec();
         msg_padded.resize(32, 0u8);
 
         // S = r + H*(PK_X || R_X || M) . sk
@@ -348,7 +348,7 @@ impl<E: JubjubEngine> PrivateKey<E> {
         s.add_assign(&seed.0);
     
         let as_unknown = Point::from(r_g);
-        Signature { r: as_unknown, s: s }
+        Signature { r: as_unknown, s }
     }
 
     // sign a message by following MuSig protocol, with public key being just a trivial key,
@@ -378,14 +378,14 @@ impl<E: JubjubEngine> PrivateKey<E> {
         r_g_x_bits.resize(256, false);
 
 
-        let mut concatenated_bits: Vec<bool> = pk_x_bits.clone();
+        let mut concatenated_bits: Vec<bool> = pk_x_bits;
         concatenated_bits.extend(r_g_x_bits);
         let phash_concatenated: E::Fr = baby_pedersen_hash::<E,_>(Personalization::NoteCommitment, concatenated_bits, &params).into_xy().0;
         let mut phash_first_bits: Vec<bool> = BitIterator::new(phash_concatenated.into_repr()).collect();
         phash_first_bits.reverse();
         phash_first_bits.resize(256, false);
         // we also pad message to 256 bits as LE
-        let mut msg_padded : Vec<u8> = msg.iter().cloned().collect();
+        let mut msg_padded : Vec<u8> = msg.to_vec();
         msg_padded.resize(32, 0u8);
         
         //le_bits
@@ -404,7 +404,7 @@ impl<E: JubjubEngine> PrivateKey<E> {
         s.add_assign(&seed.0);
     
         let as_unknown = Point::from(r_g);
-        Signature { r: as_unknown, s: s }
+        Signature { r: as_unknown, s }
     }
 
     pub fn sign(
@@ -447,7 +447,7 @@ impl<E: JubjubEngine> PrivateKey<E> {
         s.add_assign(&seed.0);
     
         let as_unknown = Point::from(r_g);
-        Signature { r: as_unknown, s: s }
+        Signature { r: as_unknown, s }
     }
 }
 
@@ -483,7 +483,7 @@ impl<E: RescueEngine + JubjubEngine> PrivateKey<E> {
         let mut concatenated: Vec<u8> = pk_x_bytes.as_ref().to_vec();
         concatenated.extend(r_g_x_bytes.as_ref().to_vec().into_iter());
 
-        let mut msg_padded : Vec<u8> = msg.iter().cloned().collect();
+        let mut msg_padded : Vec<u8> = msg.to_vec();
         msg_padded.resize(32, 0u8);
 
         // S = r + H*(PK_X || R_X || M) . sk
@@ -492,7 +492,7 @@ impl<E: RescueEngine + JubjubEngine> PrivateKey<E> {
         s.add_assign(&seed.0);
 
         let as_unknown = Point::from(r_g);
-        Signature { r: as_unknown, s: s }
+        Signature { r: as_unknown, s }
     }
 
     // sign a message by following MuSig protocol, with public key being just a trivial key,
@@ -521,7 +521,7 @@ impl<E: RescueEngine + JubjubEngine> PrivateKey<E> {
         s.add_assign(&seed.0);
 
         let as_unknown = Point::from(r_g);
-        Signature { r: as_unknown, s: s }
+        Signature { r: as_unknown, s }
     }
 
 }
@@ -615,7 +615,7 @@ impl<E: JubjubEngine> PublicKey<E> {
         // we also pad message to max size
 
         // pad with zeroes to match representation length
-        let mut msg_padded : Vec<u8> = msg.iter().cloned().collect();
+        let mut msg_padded : Vec<u8> = msg.to_vec();
         msg_padded.resize(32, 0u8);
 
         let c = E::Fs::to_uniform_32(msg_padded.as_ref());
@@ -662,7 +662,7 @@ impl<E: JubjubEngine> PublicKey<E> {
 
         let concatenated: Vec<u8> = r_g_x_bytes.iter().cloned().collect();
 
-        let mut msg_padded : Vec<u8> = msg.iter().cloned().collect();
+        let mut msg_padded : Vec<u8> = msg.to_vec();
         msg_padded.resize(32, 0u8);
 
         let c = h_star_s::<E>(&concatenated[..], &msg_padded[..]);
@@ -716,14 +716,14 @@ impl<E: JubjubEngine> PublicKey<E> {
         r_g_x_bits.resize(256, false);
 
 
-        let mut concatenated_bits: Vec<bool> = pk_x_bits.clone();
+        let mut concatenated_bits: Vec<bool> = pk_x_bits;
         concatenated_bits.extend(r_g_x_bits);
         let phash_concatenated = baby_pedersen_hash::<E,_>(Personalization::NoteCommitment, concatenated_bits, &params).into_xy().0;
         let mut phash_first_bits: Vec<bool> = BitIterator::new(phash_concatenated.into_repr()).collect();
         phash_first_bits.reverse();
         phash_first_bits.resize(256, false);
         // we also pad message to 256 bits as LE
-        let mut msg_padded : Vec<u8> = msg.iter().cloned().collect();
+        let mut msg_padded : Vec<u8> = msg.to_vec();
         msg_padded.resize(32, 0u8);
         
         //le_bits
@@ -787,7 +787,7 @@ impl<E: JubjubEngine> PublicKey<E> {
         let mut concatenated: Vec<u8> = pk_x_bytes.as_ref().to_vec();
         concatenated.extend(r_g_x_bytes.as_ref().to_vec().into_iter());
 
-        let mut msg_padded : Vec<u8> = msg.iter().cloned().collect();
+        let mut msg_padded : Vec<u8> = msg.to_vec();
         msg_padded.resize(32, 0u8);
 
         let c = sha256_h_star::<E>(&concatenated[..], &msg_padded[..]);
@@ -904,7 +904,7 @@ impl<E: RescueEngine + JubjubEngine> PublicKey<E> {
         let mut concatenated: Vec<u8> = pk_x_bytes.as_ref().to_vec();
         concatenated.extend(r_g_x_bytes.as_ref().to_vec().into_iter());
 
-        let mut msg_padded : Vec<u8> = msg.iter().cloned().collect();
+        let mut msg_padded : Vec<u8> = msg.to_vec();
         msg_padded.resize(32, 0u8);
 
         let c = rescue_h_star::<E>(&concatenated[..], &msg_padded[..], rescue_params);

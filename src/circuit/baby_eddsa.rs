@@ -150,7 +150,7 @@ impl <E: JubjubEngine>EddsaSignature<E> {
             |lc| lc + sb_y.get_variable()
         );
 
-        return Ok(());
+        Ok(())
     }
 
     // message here is expected to be a digest, which is internally padded to 256 bits
@@ -251,7 +251,7 @@ impl <E: JubjubEngine>EddsaSignature<E> {
             |lc| lc + sb_y.get_variable()
         );
 
-        return Ok(());
+        Ok(())
     }
     
 
@@ -341,7 +341,7 @@ impl <E: JubjubEngine>EddsaSignature<E> {
             |lc| lc + sb_y.get_variable()
         );
 
-        return Ok(());
+        Ok(())
     }
 } 
 

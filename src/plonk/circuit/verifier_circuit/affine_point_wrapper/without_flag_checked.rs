@@ -220,7 +220,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperChecked<'a, E> {
     ) -> Result<Self, SynthesisError>
     {
         let d_arr : Vec<Num<E>> = scalars.iter().map(|x| Num::Variable(x.clone())).collect();
-        let aff_points : Vec<_> = points.into_iter().map(|x| x.point.clone()).collect();
+        let aff_points : Vec<_> = points.iter().map(|x| x.point.clone()).collect();
         let res = WrapperChecked { 
             point: AffinePoint::multiexp(cs, &d_arr[..], &aff_points[..], bit_limit)?,
         };

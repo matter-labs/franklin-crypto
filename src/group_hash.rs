@@ -27,7 +27,7 @@ impl GroupHasher for BlakeHasher {
         let h = Blake2s::with_params(32, &[], &[], personalization);
 
         Self {
-            h: h
+            h
         }
     }
 
@@ -43,7 +43,7 @@ impl GroupHasher for BlakeHasher {
 
         let result = h.finalize();
 
-        result.as_ref().to_vec().clone()
+        result.as_ref().to_vec()
     }
 }
 
@@ -57,7 +57,7 @@ impl GroupHasher for Keccak256Hasher {
         h.update(personalization);
 
         Self {
-            h: h
+            h
         }
     }
 

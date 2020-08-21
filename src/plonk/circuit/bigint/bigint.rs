@@ -364,7 +364,7 @@ pub fn slice_into_limbs_of_max_size(value: Option<BigUint>, max_width: usize, li
 
     let limb_values = if let Some(value) = value {
         let mut values = Vec::with_capacity(limb_sizes.len());
-        let mut tmp = value.clone();
+        let mut tmp = value;
         for _ in 0..limb_sizes.len() {
             let value = tmp.clone() % &mask;
             values.push(Some(value));

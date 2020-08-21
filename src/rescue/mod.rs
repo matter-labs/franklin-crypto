@@ -156,7 +156,7 @@ fn sponge_fixed_length<E: RescueEngine>(
     params: &E::Params,
     input: &[E::Fr]
 ) -> Vec<E::Fr> {
-    assert!(input.len() > 0);
+    assert!(!input.is_empty());
     assert!(input.len() < 256);
     let input_len = input.len() as u64;
     let mut state = vec![E::Fr::zero(); params.state_width() as usize];
@@ -463,7 +463,7 @@ impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
         &mut self,
         input: &[E::Fr]
     ) {
-        assert!(input.len() > 0);
+        assert!(!input.is_empty());
         let rate = self.params.rate() as usize;
         let mut absorbtion_cycles = input.len() / rate;
         if input.len() % rate != 0 {
@@ -513,13 +513,13 @@ impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
                 let op = RescueOpMode::SqueezedInto(sponge_output);
                 self.mode = op;
 
-                return output;
+                output
             },
             RescueOpMode::SqueezedInto(ref mut into) => {
-                assert!(into.len() > 0, "squeezed state is depleted!");
+                assert!(!into.is_empty(), "squeezed state is depleted!");
                 let output = into.drain(0..1).next().unwrap();
 
-                return output;
+                output
             }
         }
     }

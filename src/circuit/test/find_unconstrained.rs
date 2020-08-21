@@ -66,7 +66,7 @@ impl<E: Engine> ConstraintVerifyingTestConstraintSystem<E> {
     }
 
     pub fn is_fully_constrained(&self) -> bool {
-        if self.set.len() != 0 {
+        if !self.set.is_empty() {
             println!("Unconstrained set: {:?}", self.set);
 
             return false;

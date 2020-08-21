@@ -81,7 +81,7 @@ impl<E: Engine> GateInternal<E> for TwoBitDecompositionRangecheckCustomGate {
     }
 
     fn verify_on_row(&self, row: usize, poly_storage: &AssembledPolynomialStorage<E>, last_row: bool) -> E::Fr {
-        assert!(last_row == false, "can not be applied at the last row");
+        assert!(!last_row, "can not be applied at the last row");
         let a_value = poly_storage.get_poly_at_step(PolyIdentifier::VariablesPolynomial(0), row);
         let b_value = poly_storage.get_poly_at_step(PolyIdentifier::VariablesPolynomial(1), row);
         let c_value = poly_storage.get_poly_at_step(PolyIdentifier::VariablesPolynomial(2), row);

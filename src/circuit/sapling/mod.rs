@@ -181,7 +181,7 @@ impl<'a, E: JubjubEngine> Circuit<E> for Spend<'a, E> {
             // Witness nsk as bits
             let nsk = boolean::field_into_boolean_vec_le(
                 cs.namespace(|| "nsk"),
-                self.proof_generation_key.as_ref().map(|k| k.nsk.clone())
+                self.proof_generation_key.as_ref().map(|k| k.nsk)
             )?;
 
             // NB: We don't ensure that the bit representation of nsk

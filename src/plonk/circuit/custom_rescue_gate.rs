@@ -96,7 +96,7 @@ impl<E: Engine> GateInternal<E> for Rescue5CustomGate {
         tmp.square();
         tmp.sub_assign(&b_value);
 
-        if tmp.is_zero() == false {
+        if !tmp.is_zero() {
             return tmp;
         }
 
@@ -104,7 +104,7 @@ impl<E: Engine> GateInternal<E> for Rescue5CustomGate {
         tmp.square();
         tmp.sub_assign(&c_value);
 
-        if tmp.is_zero() == false {
+        if !tmp.is_zero() {
             return tmp;
         }
 

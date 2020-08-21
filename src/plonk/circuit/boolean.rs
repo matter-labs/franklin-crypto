@@ -97,7 +97,7 @@ pub fn field_into_allocated_booleans_le_fixed<E: Engine, CS: ConstraintSystem<E>
     bit_length: Option<usize>,
 ) -> Result<Vec<Boolean>, SynthesisError> {
     let bits = field_into_allocated_bits_le_fixed(cs, value, bit_length)?;
-    let bools: Vec<_> = bits.into_iter().map(|el| Boolean::from(el)).collect();
+    let bools: Vec<_> = bits.into_iter().map(Boolean::from).collect();
 
     Ok(bools)
 }
@@ -165,7 +165,7 @@ impl AllocatedBit {
                         Ok(E::Fr::zero())
                     }
                 },
-                _ => return Err(SynthesisError::AssignmentMissing)
+                _ => Err(SynthesisError::AssignmentMissing)
             }
         })?;
 
@@ -181,7 +181,7 @@ impl AllocatedBit {
 
         Ok(AllocatedBit {
             variable: b,
-            value: value
+            value
         })
     }
 
@@ -216,7 +216,7 @@ impl AllocatedBit {
         
         Ok(AllocatedBit {
             variable: var,
-            value: value
+            value
         })
     }
 
@@ -545,7 +545,7 @@ pub fn field_into_boolean_vec_le<E: Engine, CS: ConstraintSystem<E>, F: PrimeFie
 {
     let v = field_into_allocated_bits_le::<E, CS, F>(cs, value)?;
 
-    Ok(v.into_iter().map(|e| Boolean::from(e)).collect())
+    Ok(v.into_iter().map(Boolean::from).collect())
 }
 
 pub fn field_into_allocated_bits_le<E: Engine, CS: ConstraintSystem<E>, F: PrimeField>(

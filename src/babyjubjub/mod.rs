@@ -207,9 +207,9 @@ impl JubjubBn256 {
             // d = 168696
             edwards_d: Fr::from_str("168696").unwrap(),
             // A = 168698
-            montgomery_a: montgomery_a,
+            montgomery_a,
             // 2A = 2.A
-            montgomery_2a: montgomery_2a,
+            montgomery_2a,
             // scaling factor = sqrt(4 / (a - d))
             scale: Fr::from_str("1").unwrap(),
 

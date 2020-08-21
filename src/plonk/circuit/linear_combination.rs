@@ -315,7 +315,7 @@ impl<E: Engine> LinearCombination<E> {
         self,
         cs: &mut CS
     ) -> Result<Num<E>, SynthesisError> {
-        if self.terms.len() == 0 {
+        if self.terms.is_empty() {
             return Ok(Num::Constant(self.constant));
         }
 
@@ -443,7 +443,7 @@ impl<E: Engine> LinearCombination<E> {
 
         // trivial case - single variable
 
-        assert!(terms.len() > 0);
+        assert!(!terms.is_empty());
 
         let num_terms = terms.len();
 
@@ -595,7 +595,7 @@ impl<E: Engine> LinearCombination<E> {
             // we also make sure that chained variable only goes into the last term
             {
                 let chunk: Vec<_> = (&mut it).collect();
-                assert!(chunk.len() <= CS::Params::STATE_WIDTH - 1);
+                assert!(chunk.len() < CS::Params::STATE_WIDTH);
 
                 let mut gate_term = MainGateTerm::<E>::new();
 
@@ -649,11 +649,11 @@ impl<E: Engine> LinearCombination<E> {
     pub fn unwrap_as_allocated_num(
         &self,
     ) -> Result<AllocatedNum<E>, SynthesisError> {
-        if self.constant.is_zero() == false {
+        if !self.constant.is_zero() {
             return Err(SynthesisError::Unsatisfiable);
         }
         if self.terms.len() == 1 && self.terms[0].0 == E::Fr::one() {
-            let var = (&self.terms[0].1).clone();
+            let var = self.terms[0].1;
             let var = AllocatedNum {
                 value: self.value,
                 variable: var
@@ -662,7 +662,7 @@ impl<E: Engine> LinearCombination<E> {
             return Ok(var);
         }
 
-        return Err(SynthesisError::Unsatisfiable);
+        Err(SynthesisError::Unsatisfiable)
     }
 }
 

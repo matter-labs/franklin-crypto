@@ -62,7 +62,7 @@ pub fn aggregate_proof<'a, E, CS, T, P, OldP, AD, WP>(
     let required_domain_size = if let Some(n) = vk.n {
         assert!(vk.domain_size_as_allocated_num.is_none());
         let required_domain_size = n + 1;
-        if required_domain_size.is_power_of_two() == false {
+        if !required_domain_size.is_power_of_two() {
             return Err(SynthesisError::MalformedVerifyingKey);
         }
 
@@ -591,7 +591,7 @@ pub fn aggregate_proof<'a, E, CS, T, P, OldP, AD, WP>(
     let z_omega_term = if let Some(required_domain_size) = required_domain_size { 
         let omega = omega_const.unwrap();
         
-        let mut z_omega_term = Term::<E>::from_allocated_num(z.clone());
+        let mut z_omega_term = Term::<E>::from_allocated_num(z);
         z_omega_term.scale(&omega);
 
         z_omega_term
@@ -599,14 +599,14 @@ pub fn aggregate_proof<'a, E, CS, T, P, OldP, AD, WP>(
         let omega = vk.omega_as_allocated_num.as_ref().unwrap().clone();
 
         let omega_term = Term::<E>::from_allocated_num(omega);
-        let z_term = Term::<E>::from_allocated_num(z.clone());
+        let z_term = Term::<E>::from_allocated_num(z);
 
         let z_omega_term = z_term.mul(cs, &omega_term)?;
 
         z_omega_term
     };
 
-    let u_as_term = Term::<E>::from_allocated_num(u.clone());
+    let u_as_term = Term::<E>::from_allocated_num(u);
     // z*omega*u
     let z_omega_by_u = z_omega_term.mul(cs, &u_as_term)?.collapse_into_num(cs)?.get_variable();
 

@@ -55,7 +55,7 @@ impl<E: Engine> PlonkCsSBox<E> for QuinticSBox<E> {
         force_no_custom_gates: bool
     ) -> Result<Num<E>, SynthesisError> {        
         // we need state width of 4 to make custom gate
-        if force_no_custom_gates == false && CS::Params::HAS_CUSTOM_GATES == true && CS::Params::STATE_WIDTH >= 4 {
+        if !force_no_custom_gates && CS::Params::HAS_CUSTOM_GATES && CS::Params::STATE_WIDTH >= 4 {
             return self.apply_custom_gate(cs, el);
         }
 
@@ -126,7 +126,7 @@ impl<E: Engine> PlonkCsSBox<E> for PowerSBox<E> {
         force_no_custom_gates: bool
     ) -> Result<Num<E>, SynthesisError> {        
         // we need state width of 4 to make custom gate
-        if force_no_custom_gates == false && CS::Params::HAS_CUSTOM_GATES == true && CS::Params::STATE_WIDTH >= 4 {
+        if !force_no_custom_gates && CS::Params::HAS_CUSTOM_GATES && CS::Params::STATE_WIDTH >= 4 {
             return self.apply_custom_gate(cs, el);
         }
 
@@ -347,7 +347,7 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
                     )?;
 
                     into.truncate(0);
-                    into.push(value.clone());
+                    into.push(value);
                 }
             },
             RescueOpMode::SqueezedInto(_) => {
@@ -374,7 +374,7 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
         let t = params.state_width();
         let rate = params.rate();
     
-        assert!(input.len() > 0);
+        assert!(!input.is_empty());
         let mut absorbtion_cycles = input.len() / absorbtion_len;
         if input.len() % absorbtion_len != 0 {
             absorbtion_cycles += 1;
@@ -406,7 +406,7 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
         let t = params.state_width();
         let rate = params.rate();
     
-        assert!(input.len() > 0);
+        assert!(!input.is_empty());
         let mut absorbtion_cycles = input.len() / absorbtion_len;
         if input.len() % absorbtion_len != 0 {
             absorbtion_cycles += 1;
@@ -457,13 +457,13 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
                 let op = RescueOpMode::SqueezedInto(sponge_output);
                 self.mode = op;
 
-                return Ok(output);
+                Ok(output)
             },
             RescueOpMode::SqueezedInto(ref mut into) => {
-                assert!(into.len() > 0, "squeezed state is depleted!");
+                assert!(!into.is_empty(), "squeezed state is depleted!");
                 let output = into.drain(0..1).next().expect("squeezed sponge must contain some data left");
 
-                return Ok(output);
+                Ok(output)
             }
         }
     }

@@ -98,7 +98,7 @@ fn proc_lc<E: Engine>(
     let mut to_remove = vec![];
     for (var, coeff) in map.iter() {
         if coeff.is_zero() {
-            to_remove.push(var.clone())
+            to_remove.push(*var)
         }
     }
 
@@ -362,7 +362,7 @@ impl<E: Engine> TestConstraintSystem<E> {
             }
         }
 
-        return true;
+        true
     }
 
     pub fn num_inputs(&self) -> usize {
@@ -492,7 +492,7 @@ impl<E: Engine> ConstraintSystem<E> for TestConstraintSystem<E> {
     {
         let name = name_fn().into();
         let path = compute_path(&self.current_namespace, name.clone());
-        self.set_named_obj(path.clone(), NamedObject::Namespace);
+        self.set_named_obj(path, NamedObject::Namespace);
         self.current_namespace.push(name);
     }
 

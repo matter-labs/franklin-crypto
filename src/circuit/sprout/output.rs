@@ -48,7 +48,7 @@ impl OutputNote {
         )?;
 
         Ok(OutputNote {
-            cm: cm
+            cm
         })
     }
 }

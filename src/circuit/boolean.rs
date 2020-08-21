@@ -84,7 +84,7 @@ impl AllocatedBit {
 
         Ok(AllocatedBit {
             variable: var,
-            value: value
+            value
         })
     }
 
@@ -116,7 +116,7 @@ impl AllocatedBit {
 
         Ok(AllocatedBit {
             variable: var,
-            value: value
+            value
         })
     }
     pub fn inputize<E, CS>(&self, mut cs: CS, witness: &AllocatedBit) -> Result<(), SynthesisError>
@@ -380,7 +380,7 @@ pub fn field_into_boolean_vec_le<E: Engine, CS: ConstraintSystem<E>, F: PrimeFie
 {
     let v = field_into_allocated_bits_le::<E, CS, F>(cs, value)?;
 
-    Ok(v.into_iter().map(|e| Boolean::from(e)).collect())
+    Ok(v.into_iter().map(Boolean::from).collect())
 }
 
 pub fn field_into_allocated_bits_le<E: Engine, CS: ConstraintSystem<E>, F: PrimeField>(

@@ -267,7 +267,7 @@ impl<E: Engine> Term<E> {
                 let mut v = self.get_constant_value();
                 v.add_assign(&other.get_constant_value());
 
-                return Ok(Self::from_constant(v))
+                Ok(Self::from_constant(v))
             },
             (true, false) | (false, true) => {
                 let c = if this_is_constant {
@@ -286,7 +286,7 @@ impl<E: Engine> Term<E> {
 
                 let num = non_constant.collapse_into_num(cs)?;
 
-                return Ok(Self::from_num(num));
+                Ok(Self::from_num(num))
             },
             (false, false) => {
                 let mut lc = LinearCombination::<E>::zero();
@@ -297,7 +297,7 @@ impl<E: Engine> Term<E> {
 
                 let num = lc.into_num(cs)?;
 
-                return Ok(Self::from_num(num));
+                Ok(Self::from_num(num))
             }
         }
     }
@@ -307,7 +307,7 @@ impl<E: Engine> Term<E> {
         cs: &mut CS,
         other: &[Self]
     ) -> Result<Self, SynthesisError> {
-        if other.len() == 0 {
+        if other.is_empty() {
             return Ok(self.clone());
         }
         let mut lc = LinearCombination::<E>::zero();
@@ -324,7 +324,7 @@ impl<E: Engine> Term<E> {
 
         let num = lc.into_num(cs)?;
 
-        return Ok(Self::from_num(num));
+        Ok(Self::from_num(num))
     }
 
     pub(crate) fn mul<CS: ConstraintSystem<E>>(
@@ -353,7 +353,7 @@ impl<E: Engine> Term<E> {
 
                 let n = Self::from_constant(result);
 
-                return Ok(n);
+                Ok(n)
             },
             (true, true, false) => {
                 let mut value = mul_x.get_constant_value();
@@ -362,7 +362,7 @@ impl<E: Engine> Term<E> {
                 let mut result = add_z.clone();
                 result.add_constant(&value);
 
-                return Ok(result);
+                Ok(result)
             },
             (true, false, true) | (false, true, true)=> {
                 let additive_constant = add_z.get_constant_value();
@@ -381,7 +381,7 @@ impl<E: Engine> Term<E> {
                 result.scale(&multiplicative_constant);
                 result.add_constant(&additive_constant);
 
-                return Ok(result);
+                Ok(result)
             },
             (true, false, false) | (false, true, false) => {
                 let multiplicative_constant = if x_is_constant {
@@ -400,7 +400,7 @@ impl<E: Engine> Term<E> {
 
                 let tmp = tmp.add(cs, &add_z)?;
 
-                return Ok(tmp);
+                Ok(tmp)
             },
             (false, false, true) => {
                 let mut mul_coeff = mul_x.coeff;
@@ -454,7 +454,7 @@ impl<E: Engine> Term<E> {
 
                 let new = Self::from_allocated_num(allocated_num);
 
-                return Ok(new);
+                Ok(new)
             },
             (false, false, false) => {
                 // each term is something like a*X + b
@@ -518,7 +518,7 @@ impl<E: Engine> Term<E> {
 
                 let new = Self::from_allocated_num(allocated_num);
 
-                return Ok(new);
+                Ok(new)
             }
         }
     }
@@ -541,7 +541,7 @@ impl<E: Engine> Term<E> {
 
                 let n = Self::from_constant(result);
 
-                return Ok(n);
+                Ok(n)
             },
             (true, false) => {
                 let mut value = x.get_constant_value();
@@ -551,7 +551,7 @@ impl<E: Engine> Term<E> {
                 let mut result = z.clone();
                 result.add_constant(&value);
 
-                return Ok(result);
+                Ok(result)
             },
             (false, true) => {
                 let mut mul_coeff = x.coeff;
@@ -604,7 +604,7 @@ impl<E: Engine> Term<E> {
 
                 let new = Self::from_allocated_num(allocated_num);
 
-                return Ok(new);
+                Ok(new)
             },
             (false, false) => {
                 let mut mul_coeff = x.coeff;
@@ -660,7 +660,7 @@ impl<E: Engine> Term<E> {
 
                 let new = Self::from_allocated_num(allocated_num);
 
-                return Ok(new);
+                Ok(new)
             },
         }
     }

@@ -28,7 +28,7 @@ pub fn parse_with_exponent_le<E: Engine, CS: ConstraintSystem<E>>(
     )?;
 
     let exponent_base_string = exponent_base.to_string();
-    let exponent_base_value = E::Fr::from_str(&exponent_base_string.clone()).unwrap();
+    let exponent_base_value = E::Fr::from_str(&exponent_base_string).unwrap();
 
     let mut exponent_base = AllocatedNum::alloc(
         cs.namespace(|| "allocate exponent base"), 
@@ -142,20 +142,20 @@ pub fn convert_to_float(
             if exponent_temp < exponent_base {
                 break
             }
-            exponent_temp = exponent_temp / exponent_base;
+            exponent_temp /= exponent_base;
             exponent += 1;
         }
 
         exponent_temp = 1u128;
         for _ in 0..exponent 
         {
-            exponent_temp = exponent_temp * exponent_base;
+            exponent_temp *= exponent_base;
         }    
 
         if exponent_temp * max_mantissa < integer 
         {
             exponent += 1;
-            exponent_temp = exponent_temp * exponent_base;
+            exponent_temp *= exponent_base;
         }
 
         mantissa = integer / exponent_temp;
@@ -206,7 +206,7 @@ pub fn parse_float_to_u128(
             if exponent >= max_exponent {
                 return Err(SynthesisError::Unsatisfiable)
             }
-            exponent = exponent * exponent_multiplier;
+            exponent *= exponent_multiplier;
         }
         exponent_multiplier = exponent_multiplier * exponent_multiplier;
     }
@@ -225,9 +225,9 @@ pub fn parse_float_to_u128(
             if mantissa >= max_mant {
                 return Err(SynthesisError::Unsatisfiable)
             }
-            mantissa = mantissa + mantissa_power;
+            mantissa += mantissa_power;
         }
-        mantissa_power = mantissa_power * 2u128;
+        mantissa_power *= 2u128;
     }
 
     let result = mantissa * exponent;

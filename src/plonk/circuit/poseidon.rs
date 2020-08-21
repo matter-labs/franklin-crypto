@@ -66,7 +66,7 @@ impl<E: Engine> PoseidonCsSBox<E> for QuinticSBox<E> {
             },
             Num::Variable(el) => {
                 // we take a value and make 5th power from it
-                if force_no_custom_gates == false && CS::Params::HAS_CUSTOM_GATES == true && CS::Params::STATE_WIDTH >= 4 {
+                if !force_no_custom_gates && CS::Params::HAS_CUSTOM_GATES && CS::Params::STATE_WIDTH >= 4 {
                     let out = apply_5th_power(cs, el, None)?;
 
                     return Ok(Num::Variable(out));
@@ -298,7 +298,7 @@ impl<E: PoseidonEngine> StatefulPoseidonGadget<E>
                     )?;
 
                     into.truncate(0);
-                    into.push(value.clone());
+                    into.push(value);
                 }
             },
             OpMode::SqueezedInto(_) => {
@@ -375,13 +375,13 @@ impl<E: PoseidonEngine> StatefulPoseidonGadget<E>
                 let op = OpMode::SqueezedInto(sponge_output);
                 self.mode = op;
 
-                return Ok(output);
+                Ok(output)
             },
             OpMode::SqueezedInto(ref mut into) => {
-                assert!(into.len() > 0, "squeezed state is depleted!");
+                assert!(!into.is_empty(), "squeezed state is depleted!");
                 let output = into.drain(0..1).next().expect("squeezed sponge must contain some data left");
 
-                return Ok(output);
+                Ok(output)
             }
         }
     }
