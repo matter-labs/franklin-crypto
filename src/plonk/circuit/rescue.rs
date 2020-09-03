@@ -34,7 +34,7 @@ use super::linear_combination::{
     LinearCombination
 };
 
-use crate::rescue::*;
+use crate::rescue::{RescueEngine, RescueHashParams, RescueParamsInternal, SBox, QuinticSBox, PowerSBox};
 
 use super::custom_rescue_gate::*;
 
@@ -216,6 +216,39 @@ enum RescueOpMode<E: RescueEngine> {
 pub struct StatefulRescueGadget<E: RescueEngine> {
     internal_state: Vec<LinearCombination<E>>,
     mode: RescueOpMode<E>
+}
+
+pub fn rescue_hash<E: RescueEngine, CS: ConstraintSystem<E>>(cs: &mut CS, params: &E::Params, input: &[Num<E>]) -> Result<Vec<Num<E>>, SynthesisError> 
+   where <<E as RescueEngine>::Params as RescueHashParams<E>>::SBox0: PlonkCsSBox<E>, 
+    <<E as RescueEngine>::Params as RescueHashParams<E>>::SBox1: PlonkCsSBox<E>
+{
+    let mut rescue_gadget = StatefulRescueGadget::<E>::new(
+        &params
+    );
+
+    rescue_gadget.specizalize(input.len() as u8);
+
+    rescue_gadget.absorb_nums(
+        cs,
+        &input, 
+        &params
+    )?;
+
+    rescue_gadget.pad_if_necessary(&params)?;
+
+    let mut result = vec![];
+    for _ in 0..params.rate() {
+        let res_lc = rescue_gadget.squeeze_out_single(
+            cs,
+            &params
+        )?;
+
+        let res = res_lc.into_num(cs)?;
+
+        result.push(res);
+    }
+
+    Ok(result)
 }
 
 impl<E: RescueEngine> StatefulRescueGadget<E> 

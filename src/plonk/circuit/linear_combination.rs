@@ -664,6 +664,24 @@ impl<E: Engine> LinearCombination<E> {
 
         return Err(SynthesisError::Unsatisfiable);
     }
+
+    pub fn uniquely_pack_booleans_into_single_num<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        bools: &[Boolean],
+    ) -> Result<Num<E>, SynthesisError> {
+        assert!(bools.len() <= E::Fr::CAPACITY as usize);
+
+        let mut lc = Self::zero();
+        let mut coeff = E::Fr::one();
+        for b in bools.iter() {
+            lc.add_assign_boolean_with_coeff(b, coeff);
+            coeff.double();
+        }
+
+        let num = lc.into_num(cs)?;
+
+        Ok(num)
+    }
 }
 
 #[cfg(test)]

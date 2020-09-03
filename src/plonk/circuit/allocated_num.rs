@@ -27,11 +27,22 @@ use crate::circuit::{
     Assignment
 };
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum Num<E: Engine> {
     Variable(AllocatedNum<E>),
     Constant(E::Fr)
 }
+
+impl<E: Engine> Clone for Num<E> {
+    fn clone(&self) -> Self {
+        match &self {
+            Num::Variable(ref var) => Num::Variable(*var),
+            Num::Constant(ref constant) => Num::Constant(*constant)
+        }
+    }
+}
+
+impl<E: Engine> Copy for Num<E> {}
 
 impl<E: Engine> std::fmt::Display for Num<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -72,20 +83,208 @@ impl<E: Engine> Num<E> {
         }
     }
 
-    pub(crate) fn get_constant_value(&self) -> E::Fr {
+    pub fn get_constant_value(&self) -> E::Fr {
         match self {
             Num::Variable(..) => panic!("is variable"),
             Num::Constant(c) => *c
         }
     }
 
-    pub(crate) fn get_variable(&self) -> AllocatedNum<E> {
+    pub fn get_variable(&self) -> AllocatedNum<E> {
         match self {
             Num::Constant(..) => {
                 panic!("constant")
             },
             Num::Variable(v) => {
                 v.clone()
+            }
+        }
+    }
+
+    pub fn equals<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        a: &Self,
+        b: &Self
+    ) -> Result<Boolean, SynthesisError> {
+        match (a, b) {
+            (Num::Variable(ref a), Num::Variable(ref b)) => {
+                AllocatedNum::equals(cs, a, b)
+            },
+            (Num::Variable(ref var), Num::Constant(constant)) | 
+            (Num::Constant(constant), Num::Variable(ref var)) => {
+                let delta = var.sub_constant(cs, *constant)?;
+
+                delta.is_zero(cs)
+            },
+            (Num::Constant(a), Num::Constant(b)) => {
+                let is_equal = a == b;
+                Ok(Boolean::Constant(is_equal))
+            }
+        }
+    }
+
+    pub fn add<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+        other: &Self,
+    ) -> Result<Self, SynthesisError> {
+        match (self, other) {
+            (Num::Variable(ref a), Num::Variable(ref b)) => {
+                let new = a.add(cs, b)?;
+
+                Ok(Num::Variable(new))
+            },
+            (Num::Variable(ref var), Num::Constant(constant)) | 
+            (Num::Constant(constant), Num::Variable(ref var)) => {
+                let new = var.add_constant(cs, *constant)?;
+
+                Ok(Num::Variable(new))
+            },
+            (Num::Constant(a), Num::Constant(b)) => {
+                let mut result = *a;
+                result.add_assign(&b);
+
+                Ok(Num::Constant(result))
+            }
+        }
+    }
+
+    pub fn sub<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+        other: &Self,
+    ) -> Result<Self, SynthesisError> {
+        match (self, other) {
+            (Num::Variable(ref a), Num::Variable(ref b)) => {
+                let new = a.sub(cs, b)?;
+
+                Ok(Num::Variable(new))
+            },
+            (Num::Variable(ref var), Num::Constant(constant)) => {
+                let new = var.sub_constant(cs, *constant)?;
+
+                Ok(Num::Variable(new))
+            },
+            (Num::Constant(constant), Num::Variable(ref var)) => {
+                use crate::plonk::circuit::simple_term::Term;
+                let mut term = Term::<E>::from_allocated_num(var.clone());
+                term.negate();
+                term.add_constant(constant);
+
+                let new = term.collapse_into_num(cs)?;
+
+                Ok(new)
+            },
+            (Num::Constant(a), Num::Constant(b)) => {
+                let mut result = *a;
+                result.sub_assign(&b);
+
+                Ok(Num::Constant(result))
+            }
+        }
+    }
+
+    pub fn conditionally_select<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        condition_flag: &Boolean,
+        a: &Self,
+        b: &Self
+    ) -> Result<Self, SynthesisError> {
+        match (a, b) {
+            (Num::Variable(ref a), Num::Variable(ref b)) => {
+                let num = AllocatedNum::conditionally_select(cs, a, b, condition_flag)?;
+
+                Ok(Num::Variable(num))
+            },
+            (Num::Variable(ref var), Num::Constant(constant)) => {
+                let allocated = AllocatedNum::alloc(cs, 
+                || {
+                    Ok(*constant)
+                })?;
+
+                allocated.assert_equal_to_constant(cs, *constant)?;
+                let num = AllocatedNum::conditionally_select(cs, var, &allocated, condition_flag)?;
+
+                Ok(Num::Variable(num))
+            },
+
+            (Num::Constant(constant), Num::Variable(ref var)) => {
+                let allocated = AllocatedNum::alloc(cs, 
+                || {
+                    Ok(*constant)
+                })?;
+
+                allocated.assert_equal_to_constant(cs, *constant)?;
+                let num = AllocatedNum::conditionally_select(cs, &allocated, var, condition_flag)?;
+
+                Ok(Num::Variable(num))
+            },
+            (&Num::Constant(a), &Num::Constant(b)) => {
+                match condition_flag {
+                    Boolean::Constant(flag) => {
+                        let result_value = if *flag { 
+                            a
+                        } else { 
+                            b
+                        };
+
+                        Ok(Num::Constant(result_value))
+                    },
+                    Boolean::Is(cond) => {
+                        let c = AllocatedNum::alloc(
+                            cs,
+                            || {
+                                if *cond.get_value().get()? {
+                                    Ok(a)
+                                } else {
+                                    Ok(b)
+                                }
+                            }
+                        )?;
+        
+                        // a * condition + b*(1-condition) = c ->
+                        // (a - b) *condition - c + b = 0
+        
+                        let mut a_minus_b = a;
+                        a_minus_b.sub_assign(&b);
+        
+                        let mut main_term = MainGateTerm::<E>::new();
+                        let term = ArithmeticTerm::from_variable_and_coeff(cond.get_variable(), a_minus_b);
+                        main_term.add_assign(term);
+                        main_term.add_assign(ArithmeticTerm::constant(b));
+                        main_term.sub_assign(ArithmeticTerm::from_variable(c.get_variable()));
+        
+                        Ok(Num::Variable(c))
+                    },
+        
+                    Boolean::Not(cond) => {
+                        let c = AllocatedNum::alloc(
+                            cs,
+                            || {
+                                if *cond.get_value().get()? {
+                                    Ok(b)
+                                } else {
+                                    Ok(a)
+                                }
+                            }
+                        )?;
+        
+                        // b * condition + a*(1-condition) = c ->
+                        // (b - a) * condition - c + a = 0
+        
+                        let mut b_minus_a = b;
+                        b_minus_a.sub_assign(&a);
+        
+                        let mut main_term = MainGateTerm::<E>::new();
+                        let term = ArithmeticTerm::from_variable_and_coeff(cond.get_variable(), b_minus_a);
+                        main_term.add_assign(term);
+        
+                        main_term.sub_assign(ArithmeticTerm::from_variable(c.get_variable()));
+                        main_term.add_assign(ArithmeticTerm::constant(a));
+        
+                        Ok(Num::Variable(c))
+                    }
+                }
             }
         }
     }
@@ -104,6 +303,8 @@ impl<E: Engine> Clone for AllocatedNum<E> {
         }
     }
 }
+
+impl<E: Engine> Copy for AllocatedNum<E> {}
 
 impl<E: Engine> AllocatedNum<E> {
     pub fn get_variable(&self) -> Variable {
@@ -394,6 +595,17 @@ impl<E: Engine> AllocatedNum<E> {
         cs.allocate_main_gate(term)?;
 
         Ok(flag.into())
+    }
+
+    // returns a==b
+    pub fn equals<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        a: &Self,
+        b: &Self,
+    ) -> Result<Boolean, SynthesisError> {
+        let delta = a.sub(cs, b)?;
+
+        delta.is_zero(cs)
     }
 
     pub fn add<CS>(
