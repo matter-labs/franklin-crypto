@@ -795,6 +795,10 @@ impl Boolean {
             },
             // a XOR b = (NOT a) XOR (NOT b)
             (&Boolean::Is(ref a), &Boolean::Is(ref b)) | (&Boolean::Not(ref a), &Boolean::Not(ref b)) => {
+                // no matter what is in the variables, we just collapse it to constant `false`
+                if a.get_variable() == b.get_variable() {
+                    return Ok(Boolean::constant(false));
+                }
                 Ok(Boolean::Is(AllocatedBit::xor(cs, a, b)?))
             }
         }

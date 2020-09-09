@@ -47,11 +47,12 @@ use self::range_constraint_gate::TwoBitDecompositionRangecheckCustomGate;
 // dummy for now, will address later based on either lookup/range check or trivial
 // single bit / two bit decompositions
 pub fn constraint_num_bits<E: Engine, CS: ConstraintSystem<E>>(cs: &mut CS, var: Variable, num_bits: usize) -> Result<(), SynthesisError> {
-    println!("Warning, using unimplemented strict range check function");
+    // println!("Warning, using unimplemented strict range check function");
     Ok(())
 }
 
-fn split_into_slices<F: PrimeField>(
+// splits an element into slices of fixed bit widths in LE order
+pub fn split_into_slices<F: PrimeField>(
     el: &F,
     slice_width: usize,
     num_slices: usize
@@ -74,8 +75,7 @@ fn split_into_slices<F: PrimeField>(
     slices
 }
 
-
-fn split_some_into_slices<F: PrimeField>(
+pub fn split_some_into_slices<F: PrimeField>(
     el: Option<F>,
     slice_width: usize,
     num_slices: usize

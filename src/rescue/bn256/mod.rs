@@ -24,6 +24,7 @@ pub struct Bn256RescueParams {
     security_level: u32,
     sbox_0: PowerSBox<bn256::Bn256>,
     sbox_1: QuinticSBox<bn256::Bn256>,
+    custom_gates_allowed: bool,
 }
 
 impl Bn256RescueParams {
@@ -173,7 +174,12 @@ impl Bn256RescueParams {
             security_level: 126,
             sbox_0: PowerSBox { power: alpha_inv_repr, inv: 5u64 },
             sbox_1: QuinticSBox { _marker: std::marker::PhantomData },
+            custom_gates_allowed: false,
         }
+    }
+
+    pub fn set_allow_custom_gate(&mut self, allowed: bool) {
+        self.custom_gates_allowed = allowed;
     }
 }
 
@@ -229,6 +235,9 @@ impl RescueHashParams<bn256::Bn256> for Bn256RescueParams {
     }
     fn sbox_1(&self) -> &Self::SBox1 {
         &self.sbox_1
+    }
+    fn can_use_custom_gates(&self) -> bool {
+        self.custom_gates_allowed
     }
 }
 

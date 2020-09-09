@@ -777,6 +777,11 @@ impl<E: Engine> AllocatedNum<E> {
     ) -> Result<Self, SynthesisError>
         where CS: ConstraintSystem<E>
     {
+        // we quickly work on a special case if we actually do not select anything
+        if a.get_variable() == b.get_variable() {
+            return Ok(a.clone());
+        }
+        // code below is valid if a variable != b variable
         let res = match condition {
             Boolean::Constant(flag) => if *flag { a.clone() } else { b.clone() },
             
