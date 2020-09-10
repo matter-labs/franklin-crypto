@@ -8,11 +8,11 @@ use rand::{Rand, Rng};
 pub mod bn256;
 pub mod rescue_transcript;
 
-pub trait SBox<E: Engine>: Sized + Clone {
+pub trait SBox<E: Engine>: Sized + Clone + std::fmt::Debug {
     fn apply(&self, elements: &mut [E::Fr]);
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CubicSBox<E: Engine> {
     pub _marker: PhantomData<E>
 }
@@ -28,7 +28,7 @@ impl<E: Engine>SBox<E> for CubicSBox<E> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct QuinticSBox<E: Engine> {
     pub _marker: PhantomData<E>
 }
@@ -44,7 +44,7 @@ impl<E: Engine>SBox<E> for QuinticSBox<E> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PowerSBox<E: Engine> {
     pub power: <E::Fr as PrimeField>::Repr,
     pub inv: u64,
@@ -58,7 +58,7 @@ impl<E: Engine>SBox<E> for PowerSBox<E> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct InversionSBox<E: Engine> {
     pub _marker: PhantomData<E>
 }
@@ -137,7 +137,7 @@ pub trait RescueHashParams<E: Engine>: RescueParamsInternal<E> {
     }
 }
 
-pub trait RescueParamsInternal<E: Engine>: Send + Sync + Sized + Clone {
+pub trait RescueParamsInternal<E: Engine>: Send + Sync + Sized + Clone + std::fmt::Debug {
     fn set_round_constants(&mut self, to: Vec<E::Fr>);
 }
 
