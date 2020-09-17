@@ -46,7 +46,12 @@ use self::range_constraint_gate::TwoBitDecompositionRangecheckCustomGate;
 
 // dummy for now, will address later based on either lookup/range check or trivial
 // single bit / two bit decompositions
+#[track_caller]
 pub fn constraint_num_bits<E: Engine, CS: ConstraintSystem<E>>(cs: &mut CS, var: Variable, num_bits: usize) -> Result<(), SynthesisError> {
+    if let Ok(value) = cs.get_value(var) {
+        let bits = value.into_repr().num_bits() as usize;
+        debug_assert!(bits <= num_bits);
+    }
     // println!("Warning, using unimplemented strict range check function");
     Ok(())
 }

@@ -663,6 +663,7 @@ impl Boolean {
         }
     }
 
+    #[track_caller]
     pub fn enforce_equal<E, CS>(
         cs: &mut CS,
         a: &Self,
@@ -671,6 +672,12 @@ impl Boolean {
         where E: Engine,
               CS: ConstraintSystem<E>
     {
+        match (a.get_value(), b.get_value()) {
+            (Some(a), Some(b)) => {
+                debug_assert_eq!(a, b);
+            },
+            _ => {}
+        };
         match (a, b) {
             (&Boolean::Constant(a), &Boolean::Constant(b)) => {
                 if a == b {
