@@ -2361,16 +2361,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         }
 
         let must_be_zero = ab_in_base_field.add_multiple(cs, &addition_chain)?;
-        let must_be_zero = must_be_zero.collapse_into_num(cs)?;
-
-        match must_be_zero {
-            Num::Constant(c) => {
-                assert!(c.is_zero());
-            },
-            Num::Variable(var) => {
-                var.assert_equal_to_constant(cs, E::Fr::zero())?;
-            }
-        }
+        must_be_zero.enforce_zero(cs)?;
 
         Ok(())
     }
@@ -2508,16 +2499,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         }
 
         let must_be_zero = ab_in_base_field.add_multiple(cs, &addition_chain)?;
-        let must_be_zero = must_be_zero.collapse_into_num(cs)?;
-
-        match must_be_zero {
-            Num::Constant(c) => {
-                assert!(c.is_zero());
-            },
-            Num::Variable(var) => {
-                var.assert_equal_to_constant(cs, E::Fr::zero())?;
-            }
-        }
+        must_be_zero.enforce_zero(cs)?;
 
         Ok(())
     }
@@ -2953,23 +2935,30 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
     }
 
     pub fn enforce_equal<CS: ConstraintSystem<E>>(
-        &self,
+        self,
         cs: &mut CS,
-        other: &Self
-    ) -> Result<(), SynthesisError> {
-        let c = self.compute_congruency(cs, other)?;
+        other: Self,
+    ) -> Result<(Self, Self), SynthesisError> {
+        let a = self.force_reduce_into_field(cs)?;
+        let b = other.force_reduce_into_field(cs)?;
 
-        if c.is_constant() {
-            let c = c.get_constant_value();
-            assert!(c.is_zero());
-        } else {
-            let num = c.collapse_into_num(cs)?;
-            let n = num.get_variable();
+        // compare each binary limb
+        for (al, bl) in a.binary_limbs.iter().zip(b.binary_limbs.iter()) {
+            let mut alc = al.clone();
+            alc.negate();
 
-            n.assert_is_zero(cs)?;
+            let diff = alc.term.add(cs, &bl.term)?;
+            diff.enforce_zero(cs)?;
         }
 
-        Ok(())
+        // same for base field limb
+        let mut a_base = a.base_field_limb.clone();
+        a_base.negate();
+
+        let diff = a_base.add(cs, &b.base_field_limb)?;
+        diff.enforce_zero(cs)?;
+
+        Ok((a, b))
     }
 
     pub fn enforce_not_equal<CS: ConstraintSystem<E>>(
@@ -3098,6 +3087,7 @@ mod test {
         test_square_on_random_witnesses(&params, &init_function);
         test_negation_on_random_witnesses(&params, &init_function);
         test_equality_on_random_witnesses(&params, &init_function);
+        test_enforce_equal(&params, &init_function);
         test_non_equality_on_random_witnesses(&params, &init_function);
         test_select_on_random_witnesses(&params, &init_function);
         test_conditional_negation_on_random_witnesses(&params, &init_function);
@@ -3158,6 +3148,7 @@ mod test {
         test_square_on_random_witnesses(&params, &init_function);
         test_negation_on_random_witnesses(&params, &init_function);
         test_equality_on_random_witnesses(&params, &init_function);
+        test_enforce_equal(&params, &init_function);
         test_non_equality_on_random_witnesses(&params, &init_function);
         test_select_on_random_witnesses(&params, &init_function);
         test_conditional_negation_on_random_witnesses(&params, &init_function);
@@ -3190,6 +3181,7 @@ mod test {
         test_square_on_random_witnesses(&params, &init_function);
         test_negation_on_random_witnesses(&params, &init_function);
         test_equality_on_random_witnesses(&params, &init_function);
+        test_enforce_equal(&params, &init_function);
         test_non_equality_on_random_witnesses(&params, &init_function);
         test_select_on_random_witnesses(&params, &init_function);
         test_conditional_negation_on_random_witnesses(&params, &init_function);
@@ -3316,13 +3308,59 @@ mod test {
                 &params
             ).unwrap();
 
-            b.enforce_equal(&mut cs, &a).unwrap();
-            a.enforce_equal(&mut cs, &a_const).unwrap();
+            let (b, a ) = b.enforce_equal(&mut cs, a).unwrap();
+            let (a, a_const) = a.enforce_equal(&mut cs, a_const).unwrap();
 
             let (ab, (a, b)) = a.add(&mut cs, b).unwrap();
             let (ba, (b, a)) = b.add(&mut cs, a).unwrap();
 
-            ab.enforce_equal(&mut cs, &ba).unwrap();
+            ab.enforce_equal(&mut cs, ba).unwrap();
+
+            assert!(cs.is_satisfied());
+        }
+    }
+
+   
+    fn test_enforce_equal<E: Engine, F: PrimeField, P: PlonkConstraintSystemParams<E>, I: Fn() -> TrivialAssembly::<E, P, Width4MainGateWithDNext>>(
+        params: &RnsParameters<E, F>,
+        init: &I
+    ){
+        use crate::bellman::pairing::bn256::{Bn256, Fq, FqRepr, Fr};
+        use crate::bellman::pairing::ff::{BitIterator, Field, PrimeField, PrimeFieldRepr};
+        use num_traits::Num;
+
+        let r = params.base_field_modulus.clone();
+        let q = params.represented_field_modulus.clone();
+
+        let testcases = [
+            (BigUint::from(7u32), BigUint::from(7u32) + q.clone()),
+            (
+                BigUint::from(7u32),
+                BigUint::from(7u32) + BigUint::from(2u32) * q.clone(),
+            ),
+            (
+                BigUint::from(7u32) + q.clone(),
+                BigUint::from(7u32) + BigUint::from(2u32) * q.clone(),
+            ),
+            // here one limb in a is exactly the same as another limb in b,  should panic!
+            // (
+            //     // limb0 = 0, limb1=ff
+            //     BigUint::from_str_radix("ff00000000000000000", 16).unwrap(),
+            //     // limb0 = ff, limb1=00
+            //     BigUint::from_str_radix("00000000000000000ff", 16).unwrap(),
+            // ),
+        ];
+
+        for (a_bi, b_bi) in testcases.iter() {
+            let mut cs = init();
+
+            let a = biguint_to_fe::<F>(a_bi.clone());
+            let a = FieldElement::new_allocated(&mut cs, Some(a), params).unwrap();
+            println!("a: {}", a);
+            let b = biguint_to_fe::<F>(b_bi.clone());
+            let b = FieldElement::new_allocated(&mut cs, Some(b), params).unwrap();
+
+            a.enforce_equal(&mut cs, b).unwrap();
 
             assert!(cs.is_satisfied());
         }
@@ -3398,12 +3436,12 @@ mod test {
 
             let n = n.reduction_impl(&mut cs).unwrap();
 
-            n.enforce_equal(&mut cs, &n_const).unwrap();
+            let (n, n_const) = n.enforce_equal(&mut cs, n_const).unwrap();
 
             let (nn, n) = n.negated(&mut cs).unwrap();
             let nn = nn.reduction_impl(&mut cs).unwrap();
 
-            nn.enforce_equal(&mut cs, &a).unwrap();
+            nn.enforce_equal(&mut cs, a).unwrap();
 
             assert!(cs.is_satisfied());
         }
@@ -3552,7 +3590,7 @@ mod test {
                 &params
             ).unwrap();
 
-            another.enforce_equal(&mut cs, &t).unwrap();
+            another.enforce_equal(&mut cs, t).unwrap();
 
             assert!(cs.is_satisfied());
         }
@@ -3589,7 +3627,7 @@ mod test {
                 &params
             ).unwrap();
 
-            another.enforce_equal(&mut cs, &t).unwrap();
+            another.enforce_equal(&mut cs, t).unwrap();
 
             assert!(cs.is_satisfied());
         }
@@ -3626,7 +3664,7 @@ mod test {
                 &params
             ).unwrap();
 
-            another.enforce_equal(&mut cs, &t).unwrap();
+            another.enforce_equal(&mut cs, t).unwrap();
 
             assert!(cs.is_satisfied());
         }
@@ -3678,11 +3716,11 @@ mod test {
 
             let (rrr, rr) = rr.negated(&mut cs).unwrap();
 
-            rrr.enforce_equal(&mut cs, &result).unwrap();
+            let (rrr, result) = rrr.enforce_equal(&mut cs, result).unwrap();
 
             let (rrrr, rrr) = rrr.negated(&mut cs).unwrap();
 
-            rrrr.enforce_equal(&mut cs, &rr).unwrap();
+            rrrr.enforce_equal(&mut cs, rr).unwrap();
 
             if i == 0 {
                 let t0 = a.reduce_if_necessary(&mut cs).unwrap();
