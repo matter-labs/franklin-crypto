@@ -110,6 +110,8 @@ pub struct AllocatedBit {
     value: Option<bool>
 }
 
+impl Copy for AllocatedBit {}
+
 impl AllocatedBit {
     pub fn get_value(&self) -> Option<bool> {
         self.value
@@ -378,11 +380,9 @@ impl AllocatedBit {
         // Constrain (1-a) * (1-b) = (1-c), ensuring c is 1 iff
         // any of a, b are both 1.
 
-        // (a-1)(b-1) = (c-1) => ab-a-b+1 = c-1
-        // ab-a-b-c+2=0 
+        // (1-a)(1-b) = (1-c) => ab-a-b+1 = 1-c
+        // ab-a-b+c=0 
 
-        let mut two = E::Fr::one();
-        two.double();
         let mut gate_term = MainGateTerm::new();
 
         let mut multiplicative_term = ArithmeticTerm::from_variable(a.get_variable());
@@ -390,8 +390,7 @@ impl AllocatedBit {
         gate_term.add_assign(multiplicative_term);
         gate_term.sub_assign(ArithmeticTerm::from_variable(a.get_variable()));
         gate_term.sub_assign(ArithmeticTerm::from_variable(b.get_variable()));
-        gate_term.sub_assign(ArithmeticTerm::from_variable(result_var));
-        gate_term.add_assign(ArithmeticTerm::constant(two));
+        gate_term.add_assign(ArithmeticTerm::from_variable(result_var));
 
         cs.allocate_main_gate(gate_term)?;
 
@@ -637,7 +636,7 @@ pub fn field_into_allocated_bits_le<E: Engine, CS: ConstraintSystem<E>, F: Prime
 
 /// This is a boolean value which may be either a constant or
 /// an interpretation of an `AllocatedBit`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum Boolean {
     /// Existential view of the boolean variable
     Is(AllocatedBit),

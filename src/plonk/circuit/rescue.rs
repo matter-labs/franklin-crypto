@@ -25,6 +25,10 @@ use crate::circuit::{
     Assignment
 };
 
+use super::boolean::{
+    Boolean
+};
+
 use super::allocated_num::{
     AllocatedNum,
     Num
@@ -208,11 +212,13 @@ impl<E: Engine> PowerSBox<E> {
     }
 }
 
+#[derive(Clone, Debug)]
 enum RescueOpMode<E: RescueEngine> {
     AccumulatingToAbsorb(Vec<Num<E>>),
     SqueezedInto(Vec<LinearCombination<E>>)
 }
 
+#[derive(Clone, Debug)]
 pub struct StatefulRescueGadget<E: RescueEngine> {
     internal_state: Vec<LinearCombination<E>>,
     mode: RescueOpMode<E>
@@ -265,6 +271,55 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
             mode: op
         }
     }
+
+    // pub fn conditionally_select<CS: ConstraintSystem<E>>(
+    //     cs: &mut CS,
+    //     flag: &Boolean,
+    //     first: &Self,
+    //     second: &Self,
+    //     params: &E::Params
+    // ) -> Result<Self, SynthesisError> {
+    //     unreachable!("Not yet valid");
+    //     match (&first.mode, &second.mode) {
+    //         (RescueOpMode::AccumulatingToAbsorb(first_buffer), RescueOpMode::AccumulatingToAbsorb(second_buffer)) => {
+    //             let mut first_buffer = first_buffer.clone();
+    //             let mut second_buffer = second_buffer.clone();
+    //             let padding_element = Num::Constant(E::Fr::one());
+
+    //             first_buffer.resize(params.rate() as usize, padding_element.clone());
+    //             second_buffer.resize(params.rate() as usize, padding_element.clone());
+
+    //             let mut selected_buffer = vec![];
+    //             for i in 0..(params.rate() as usize) {
+    //                 let selected = Num::conditionally_select(cs, flag, &first_buffer[i], &second_buffer[i])?;
+    //                 selected_buffer.push(selected);
+    //             }
+
+    //             let selected_internal_state = vec![];
+    //             for (a, b) in first.internal_state.iter().zip(second.internal_state.iter()) {
+    //                 let a = a.into_num(cs)?;
+    //                 let b = b.into_num(cs)?;
+    //                 let selected = Num::conditionally_select(cs, flag, &a, &b)?;
+    //                 let mut lc = LinearCombination::zero();
+    //                 lc.add_assign_number_with_coeff(&selected, E::Fr::one());
+    //                 selected_internal_state.push(lc);
+    //             }
+
+    //             let selected = Self {
+    //                 internal_state: selected_internal_state,
+    //                 mode: RescueOpMode::AccumulatingToAbsorb(selected_buffer)
+    //             };
+
+    //             Ok(selected)
+    //         }
+    //         (RescueOpMode::SqueezedInto(..), RescueOpMode::SqueezedInto(..)) => {
+    //             todo!();
+    //         },
+    //         _ => {
+    //             assert!(false, "opmodes are different");
+    //         }
+    //     }
+    // }
 
     fn rescue_mimc_over_lcs<CS: ConstraintSystem<E>>(
         cs: &mut CS,
