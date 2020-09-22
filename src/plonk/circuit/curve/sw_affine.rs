@@ -738,7 +738,6 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
             assert_eq!(current_round_entries.len(), table.width);
 
             let q = table.lookup_for_skewed_entries(cs, &current_round_entries)?;
-            // println!("Q.x = {}, Q.y = {}", q.x.get_field_value().unwrap(), q.y.get_field_value().unwrap());
 
             let (new_acc, _) = acc.double_and_add(cs, q)?;
 
@@ -754,9 +753,6 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
             let (with_skew, (acc_original, _)) = acc.sub_unequal(cs, p.clone())?;
 
             let last_entry = entry.last().unwrap();
-
-            // let (result, _) = AffinePoint::select(cs, last_entry, with_skew, acc_original)?;
-            // acc = result;
 
             let with_skew_value = with_skew.get_value();
             let with_skew_x = with_skew.x;
