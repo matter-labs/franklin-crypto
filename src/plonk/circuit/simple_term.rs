@@ -149,6 +149,7 @@ impl<E: Engine> Term<E> {
         }
     }
 
+    #[track_caller]
     pub fn into_num(&self) -> Num<E> {
         let one = E::Fr::one();
         assert!(self.coeff == one, "term must not containt coefficient to cast into Num");
@@ -157,10 +158,11 @@ impl<E: Engine> Term<E> {
         self.num.clone()
     }
 
+    #[track_caller]
     pub(crate) fn get_variable(&self) -> AllocatedNum<E> {
         match &self.num {
             Num::Constant(..) => {
-                panic!("constant")
+                panic!("this term is constant")
             },
             Num::Variable(v) => {
                 v.clone()
@@ -168,10 +170,11 @@ impl<E: Engine> Term<E> {
         }
     }
 
+    #[track_caller]
     pub fn into_variable(&self) -> AllocatedNum<E> {
         match &self.num {
             Num::Constant(..) => {
-                panic!("constant")
+                panic!("this term is constant")
             },
             Num::Variable(v) => {
                 assert_eq!(E::Fr::one(), self.coeff);

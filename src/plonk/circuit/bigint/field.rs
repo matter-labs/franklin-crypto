@@ -463,8 +463,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
         let this_value = some_biguint_to_fe::<F>(&this_value);
 
-        // assert_eq!(fe_to_biguint(&this_value.unwrap()) % &params.base_field_modulus, fe_to_biguint(&base_field_term.get_value().unwrap()));
-
         let new = Self {
             binary_limbs: binary_limbs_allocated,
             base_field_limb: base_field_term,
@@ -793,8 +791,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
         let this_value = some_biguint_to_fe::<F>(&this_value);
 
-        // assert_eq!(fe_to_biguint(&this_value.unwrap()) % &params.base_field_modulus, fe_to_biguint(&base_field_term.get_value().unwrap()));
-
         let new = Self {
             binary_limbs: binary_limbs_allocated,
             base_field_limb: base_field_term,
@@ -957,28 +953,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         self.base_field_limb.is_constant()
     }
 
-    pub fn equals<CS: ConstraintSystem<E>>(
-        &self,
-        cs: &mut CS,
-        other: &Self
-    ) -> Result<Boolean, SynthesisError> {
-        let c = self.compute_congruency(cs, other)?;
-
-        let flag = match c.is_constant() {
-            true => {
-                let c = c.get_constant_value();
-                Ok(Boolean::constant(c.is_zero()))
-            },
-            false => {
-                let num = c.collapse_into_num(cs)?;
-                let n = num.get_variable();
-                n.is_zero(cs)
-            },
-        };
-       
-        flag
-    }
-
     pub fn is_zero<CS: ConstraintSystem<E>>(
         self,
         cs: &mut CS,
@@ -986,17 +960,24 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
     {
         let x = self;
         let x = x.reduce_if_necessary(cs)?;
+
+        let mut lc = LinearCombination::zero();
   
         let num = x.base_field_limb.collapse_into_num(cs)?;
-        let mut flag = num.is_zero(cs)?;
+        let not_zero = num.is_zero(cs)?.not();
+        lc.add_assign_boolean_with_coeff(&not_zero, E::Fr::one());
         
         for limb in x.binary_limbs.iter() {
             let num = limb.term.collapse_into_num(cs)?;
-            let is_num_zero = num.is_zero(cs)?;
-            flag = Boolean::and(cs, &flag, &is_num_zero)?;
+            let not_zero = num.is_zero(cs)?.not();
+            lc.add_assign_boolean_with_coeff(&not_zero, E::Fr::one());
         }
+
+        let num = lc.into_num(cs)?;
+        // if any of the limbs !=0 then lc != 0
+        let is_zero = num.is_zero(cs)?;
         
-        Ok((flag, x))
+        Ok((is_zero, x))
     }
 
     pub fn negated<CS: ConstraintSystem<E>>(
@@ -1764,21 +1745,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         // result*den = q*p + (a1 + a2 + ... + an)
         // so we place nums into the remainders (don't need to negate here)
 
-        // let f = {
-        //     let mut num = F::zero();
-        //     for n in nums.iter() {
-        //         let n_value = n.get_field_value();
-        //         num.add_assign(&n_value.unwrap());
-        //     }
-
-        //     let d_value = den.get_field_value();
-
-        //     let mut d = den.get_field_value().unwrap().inverse().unwrap();
-        //     d.mul_assign(&num);
-
-        //     d
-        // };
-
         let den = den.reduce_if_necessary(cs)?;
 
         let mut value_is_none = false;
@@ -1850,22 +1816,11 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
         let q_elem = Self::coarsely_allocate_for_unknown_width(cs, q, params)?;
 
-        // let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
-
-        // let q_elem = Self::from_double_size_limb_witnesses(
-        //     cs, 
-        //     &q_wit, 
-        //     true, 
-        //     params
-        // )?;
-
         let result_wit = Self::new_allocated(
             cs, 
             some_biguint_to_fe::<F>(&result),
             params
         )?;
-
-        // assert!(result_wit.get_field_value().unwrap() == f);
 
         Self::constraint_fma_with_multiple_additions(
             cs, 
@@ -2684,19 +2639,81 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         cs: &mut CS,
         other: &Self
     ) -> Result<(), SynthesisError> {
-        let c = self.compute_congruency(cs, other)?;
+        match (self.is_constant(), other.is_constant()) {
+            (true, true) => {
+                let a = self.get_field_value().unwrap();
+                let b = other.get_field_value().unwrap();
+                assert!(a == b);
 
-        if c.is_constant() {
-            let c = c.get_constant_value();
-            assert!(c.is_zero());
-        } else {
-            let num = c.collapse_into_num(cs)?;
-            let n = num.get_variable();
+                return Ok(())
+            },
+            _ => {
 
-            n.assert_is_zero(cs)?;
+            }
+        };
+
+        let this = self.clone().force_reduce_into_field(cs)?;
+        let other = other.clone().force_reduce_into_field(cs)?;
+
+        for (a, b) in this.binary_limbs.iter().zip(other.binary_limbs.iter()) {
+            let a = a.term.into_num();
+            let b = b.term.into_num();
+            a.enforce_equal(cs, &b)?;
         }
 
+        let a = this.base_field_limb.into_num();
+        let b = other.base_field_limb.into_num();
+
+        a.enforce_equal(cs, &b)?;
+
         Ok(())
+    }
+
+    // pub fn equals<CS: ConstraintSystem<E>>(
+    //     cs: &mut CS,
+    //     first: Self,
+    //     second: Self
+    // ) -> Result<(Boolean, (Self, Self)), SynthesisError> {
+    #[track_caller]
+    pub fn equals<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+        other: &Self
+    ) -> Result<Boolean, SynthesisError> {
+        match (self.is_constant(), other.is_constant()) {
+            (true, true) => {
+                let a = self.get_field_value().unwrap();
+                let b = other.get_field_value().unwrap();
+
+                return Ok(Boolean::constant(a == b));
+            },
+            _ => {
+
+            }
+        };
+
+        let mut lc = LinearCombination::zero();
+
+        let this = self.clone().force_reduce_into_field(cs)?;
+        let other = other.clone().force_reduce_into_field(cs)?;
+
+        for (a, b) in this.binary_limbs.iter().zip(other.binary_limbs.iter()) {
+            let a = a.term.into_num();
+            let b = b.term.into_num();
+            let not_equal = Num::equals(cs, &a, &b)?.not();
+            lc.add_assign_boolean_with_coeff(&not_equal, E::Fr::one());
+        }
+
+        let a = this.base_field_limb.into_num();
+        let b = other.base_field_limb.into_num();
+        let not_equal = Num::equals(cs, &a, &b)?.not();
+        lc.add_assign_boolean_with_coeff(&not_equal, E::Fr::one());
+
+        let as_num = lc.into_num(cs)?;
+        // if any of the terms was not equal then lc != 0
+        let equal = as_num.is_zero(cs)?;
+
+        Ok(equal)
     }
 
     pub fn enforce_not_equal<CS: ConstraintSystem<E>>(
@@ -2704,17 +2721,8 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         cs: &mut CS,
         other: &Self
     ) -> Result<(), SynthesisError> {
-        let c = self.compute_congruency(cs, other)?;
-
-        if c.is_constant() {
-            let c = c.get_constant_value();
-            assert!(!c.is_zero());
-        } else {
-            let num = c.collapse_into_num(cs)?;
-            let n = num.get_variable();
-
-            n.assert_not_zero(cs)?;
-        }
+        let equal = self.equals(cs, other)?;
+        Boolean::enforce_equal(cs, &equal, &Boolean::constant(false))?;
 
         Ok(())
     }

@@ -103,6 +103,28 @@ impl<E: Engine> Num<E> {
         }
     }
 
+    #[track_caller]
+    pub fn enforce_equal<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+        b: &Self
+    ) -> Result<(), SynthesisError> {
+        match (self, b) {
+            (Num::Variable(ref a), Num::Variable(ref b)) => {
+                a.enforce_equal(cs, b)
+            },
+            (Num::Variable(ref var), Num::Constant(constant)) | 
+            (Num::Constant(constant), Num::Variable(ref var)) => {
+                var.assert_equal_to_constant(cs, *constant)
+            },
+            (Num::Constant(a), Num::Constant(b)) => {
+                assert_eq!(a, b);
+
+                Ok(())
+            }
+        }
+    }
+
     pub fn equals<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         a: &Self,
@@ -384,32 +406,6 @@ impl<E: Engine> AllocatedNum<E> {
             value: Some(E::Fr::one()),
             variable: cs.get_explicit_one().expect("must get an explicit one from CS"),
         }
-
-        // use std::sync::Once;
-
-        // static INIT: Once = Once::new();
-        // static mut VAR: Option<Variable> = None;
-
-        // unsafe {
-        //     INIT.call_once(|| {
-        //         let var = cs.get_explicit_one().expect("must get an explicit once from CS");
-        //         let allocated = Self {
-        //             value: Some(E::Fr::one()),
-        //             variable: var
-        //         };
-        //         allocated.assert_equal_to_constant(cs, E::Fr::one()).expect("must enforce equality");
-        //         VAR = Some(allocated.get_variable());
-        //     });
-        // }
-
-        // let var = unsafe {
-        //     VAR.unwrap()
-        // };
-     
-        // AllocatedNum {
-        //     value: Some(E::Fr::one()),
-        //     variable: var,
-        // }
     }
 
     // allocate a variable with value "zero"
@@ -418,32 +414,6 @@ impl<E: Engine> AllocatedNum<E> {
             value: Some(E::Fr::zero()),
             variable: cs.get_explicit_zero().expect("must get an explicit zero from CS"),
         }
-
-        // use std::sync::Once;
-
-        // static INIT: Once = Once::new();
-        // static mut ZERO_VAR: Option<Variable> = None;
-
-        // unsafe {
-        //     INIT.call_once(|| {
-        //         let var = cs.get_explicit_zero().expect("must get an explicit once from CS");
-        //         let allocated = Self {
-        //             value: Some(E::Fr::zero()),
-        //             variable: var
-        //         };
-        //         allocated.assert_equal_to_constant(cs, E::Fr::zero()).expect("must enforce equality");
-        //         ZERO_VAR = Some(allocated.get_variable());
-        //     });
-        // }
-
-        // let var = unsafe {
-        //     ZERO_VAR.unwrap()
-        // };
-     
-        // AllocatedNum {
-        //     value: Some(E::Fr::zero()),
-        //     variable: var,
-        // }
     }
 
     pub fn enforce_equal<CS>(
