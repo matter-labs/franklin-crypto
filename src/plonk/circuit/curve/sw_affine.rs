@@ -48,9 +48,9 @@ use super::super::bigint::bigint::*;
 
 #[derive(Clone, Debug)]
 pub struct AffinePoint<'a, E: Engine, G: CurveAffine> where <G as CurveAffine>::Base: PrimeField {
-    pub(crate) x: FieldElement<'a, E, G::Base>,
-    pub(crate) y: FieldElement<'a, E, G::Base>,
-    pub(crate) value: Option<G>,
+    pub x: FieldElement<'a, E, G::Base>,
+    pub y: FieldElement<'a, E, G::Base>,
+    pub value: Option<G>,
 }
 
 impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffine>::Base: PrimeField {
@@ -197,6 +197,7 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         Ok((new, this))
     }
 
+    #[track_caller]
     pub fn add_unequal<CS: ConstraintSystem<E>>(
         self,
         cs: &mut CS,
@@ -277,6 +278,7 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         Ok((new, (this, other)))
     }
 
+    #[track_caller]
     pub fn sub_unequal<CS: ConstraintSystem<E>>(
         self,
         cs: &mut CS,
@@ -296,8 +298,6 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
 
         let this_value = self.get_value();
         let other_value = other.get_value();
-
-        // debug_assert!(this_value.unwrap() != other_value.unwrap());
 
         let this_x = self.x;
         let this_y = self.y;
@@ -365,6 +365,7 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         Ok((new, (this, other)))
     }
 
+    #[track_caller]
     pub fn double<CS: ConstraintSystem<E>>(
         self,
         cs: &mut CS,
@@ -431,6 +432,7 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         Ok((new, this))
     }
 
+    #[track_caller]
     pub fn double_and_add<CS: ConstraintSystem<E>>(
         self,
         cs: &mut CS,
@@ -566,15 +568,55 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
 
         Ok((selected, (first, second)))
     }
+
+    #[track_caller]
+    pub fn is_on_curve_for_zero_a<CS: ConstraintSystem<E>>(
+        self,
+        cs: &mut CS,
+        curve_b: G::Base
+    ) -> Result<(Boolean, Self), SynthesisError> {
+        let params = self.x.representation_params;
+        assert_eq!(curve_b, G::b_coeff());
+        let b = FieldElement::new_constant(curve_b, params);
+
+        let x = self.x;
+        let y = self.y;
+        let value = self.value;
+
+        let (lhs, y) = y.square(cs)?;
+        let (x_squared, x) = x.square(cs)?;
+        let (x_cubed, (x_squared, x)) = x_squared.mul(cs, x)?;
+
+        let (rhs, _) = x_cubed.add(cs, b)?;
+
+        // account for lazy addition
+        let rhs = rhs.force_reduce_into_field(cs)?;
+
+        let is_on_curve = lhs.equals(cs, &rhs)?;
+
+        let p = Self {
+            x,
+            y,
+            value
+        };
+
+
+        Ok((is_on_curve, p))
+    }
 }
 
 impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
+
+    #[track_caller]
     pub fn mul<CS: ConstraintSystem<E>>(
         self,
         cs: &mut CS,
         scalar: &Num::<E>,
         bit_limit: Option<usize>
     ) -> Result<(Self, Self), SynthesisError> {
+        if let Some(value) = scalar.get_value() {
+            assert!(!value.is_zero(), "can not multiply by zero in the current approach");
+        }
         if scalar.is_constant() {
             return self.mul_by_fixed_scalar(cs, &scalar.get_value().unwrap());
         }
@@ -683,6 +725,7 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
         Ok((result, this))
     }
 
+    #[track_caller]
     pub fn multiexp<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         scalars: &[Num::<E>],
@@ -796,6 +839,7 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
     }
 }
 
+#[track_caller]
 pub fn decompose_allocated_num_into_skewed_table<E: Engine, CS: ConstraintSystem<E>>(
     cs: &mut CS,
     num: &AllocatedNum<E>,
@@ -881,6 +925,7 @@ fn get_bit<R: PrimeFieldRepr>(repr: &R, bit: usize) -> bool {
     repr.as_ref()[limb_index] & mask > 0
 }
 
+#[track_caller]
 fn compute_skewed_naf_table<F: PrimeField>(value: &Option<F>, bit_limit: Option<usize>) -> Vec<Option<bool>> {
     let bit_limit = if let Some(limit) = bit_limit {
         limit

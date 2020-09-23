@@ -83,17 +83,19 @@ impl<E: Engine> Num<E> {
         }
     }
 
+    #[track_caller]
     pub fn get_constant_value(&self) -> E::Fr {
         match self {
-            Num::Variable(..) => panic!("is variable"),
+            Num::Variable(..) => panic!("this Num is not a constant"),
             Num::Constant(c) => *c
         }
     }
 
+    #[track_caller]
     pub fn get_variable(&self) -> AllocatedNum<E> {
         match self {
             Num::Constant(..) => {
-                panic!("constant")
+                panic!("this Num is not a variable")
             },
             Num::Variable(v) => {
                 v.clone()

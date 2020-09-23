@@ -242,13 +242,13 @@ impl<'a, E: Engine, F: PrimeField> RnsParameters<E, F>{
 #[derive(Clone, Debug)]
 pub struct FieldElement<'a, E: Engine, F: PrimeField>{
     // this is kind-of normal UintX limbs
-    pub(crate) binary_limbs: Vec<Limb<E>>,
+    pub binary_limbs: Vec<Limb<E>>,
     // we can not multiply by power of modulus of our base field E,
     // so we keep only one single limb
-    pub(crate) base_field_limb: Term<E>,
+    pub base_field_limb: Term<E>,
 
-    pub(crate) representation_params: &'a RnsParameters<E, F>,
-    pub(crate) value: Option<F>,
+    pub representation_params: &'a RnsParameters<E, F>,
+    pub value: Option<F>,
 }
 
 impl<'a, E: Engine, F: PrimeField> std::fmt::Display for FieldElement<'a, E, F> {
@@ -348,7 +348,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         may_overflow: bool,
         params: &'a RnsParameters<E, F>
     ) -> Result<Self, SynthesisError> {
-        assert!(params.num_binary_limbs ==  witnesses.len());
+        assert!(params.num_binary_limbs == witnesses.len());
         assert!(params.binary_limbs_params.limb_size_bits % params.range_check_info.minimal_multiple == 0, 
             "limb size must be divisible by range constraint strategy granularity");
 
@@ -979,28 +979,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         flag
     }
 
-    // pub fn is_zero<CS: ConstraintSystem<E>>(
-    //     &mut self,
-    //     cs: &mut CS,
-    // ) -> Result<Boolean, SynthesisError> 
-    // {
-    //     let x = self.clone();
-    //     let x = x.reduce_if_necessary(cs)?;
-  
-    //     let num = x.base_field_limb.collapse_into_num(cs)?;
-    //     let mut flag = num.is_zero(cs)?;
-        
-    //     for limb in self.binary_limbs.iter() {
-    //         let num = limb.term.collapse_into_num(cs)?;
-    //         let is_num_zero = num.is_zero(cs)?;
-    //         flag = Boolean::and(cs, &flag, &is_num_zero)?;
-    //     }
-
-    //     *self = x;
-        
-    //     Ok(flag)
-    // }
-
     pub fn is_zero<CS: ConstraintSystem<E>>(
         self,
         cs: &mut CS,
@@ -1040,10 +1018,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         // let's see if we ever need to reduce individual limbs into the default ranges
         // first trivial check
         let mut needs_reduction = self.get_max_value() > self.representation_params.max_representable_value();
-        // if needs_reduction {
-        //     println!("Val = {}\nMAX = {}", self.get_max_value().to_str_radix(16), self.representation_params.max_representable_value().to_str_radix(16));
-        // }
-        // let mut needs_reduction = self.get_max_value() > self.representation_params.max_representable_value() * self.representation_params.max_representable_value();
         let max_limb_value = &self.representation_params.binary_limbs_params.limb_max_intermediate_value;
         for binary_limb in self.binary_limbs.iter() {
             needs_reduction = needs_reduction || &binary_limb.max_value() > max_limb_value;
@@ -1058,11 +1032,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
     ) -> Result<Self, SynthesisError> {
         if self.is_constant() {
             return Ok(self);
-            // let reallocated = Self::new_constant(
-            //     self.get_field_value().unwrap(),
-            //     self.representation_params
-            // );
-            // return Ok(reallocated);
         }
 
         if self.needs_reduction() {
@@ -1107,164 +1076,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             max_q_bits, 
             &params
         )?;
-
-        // let q_fe = some_biguint_to_fe::<E::Fr>(&q);
-        // let q_represented_field_value = some_biguint_to_fe::<F>(&q);
-
-        // let q_as_field_repr = if max_q_bits <= params.binary_limbs_params.limb_size_bits {
-        //     let q_max_value = (BigUint::from(1u64) << max_q_bits) - BigUint::from(1u64);
-
-        //     let allocated = AllocatedNum::alloc(
-        //         cs, 
-        //         || {
-        //             Ok(*q_fe.get()?)
-        //         }
-        //     )?;
-    
-        //     let _ = create_range_constraint_chain(cs, &allocated, max_q_bits)?;
-        //     let term = Term::<E>::from_allocated_num(allocated);
-        //     let q_limb = Limb::new(term.clone(), q_max_value);
-    
-        //     let q_empty_limb = Self::zero_limb();
-    
-        //     let mut q_new_binary_limbs = Vec::with_capacity(self.binary_limbs.len());
-        //     q_new_binary_limbs.push(q_limb.clone());
-        //     q_new_binary_limbs.resize(params.num_binary_limbs, q_empty_limb);
-    
-        //     let q_base_field_term = term;
-    
-        //     let q_as_field_repr = Self {
-        //         base_field_limb: q_base_field_term,
-        //         binary_limbs: q_new_binary_limbs,
-        //         representation_params: params,
-        //         value: q_represented_field_value
-        //     };
-
-        //     q_as_field_repr
-        // } else {
-        //     // we need more limbs for quotient
-        //     assert!(max_q_bits <= E::Fr::CAPACITY as usize);
-        //     let mut num_limbs = max_q_bits / params.binary_limbs_params.limb_size_bits;
-        //     if max_q_bits % self.representation_params.binary_limbs_params.limb_size_bits != 0 {
-        //         num_limbs += 1;
-        //     }
-
-        //     // let q_max_value = (BigUint::from(1u64) << max_q_bits) - BigUint::from(1u64);
-
-        //     let allocated = AllocatedNum::alloc(
-        //         cs, 
-        //         || {
-        //             Ok(*q_fe.get()?)
-        //         }
-        //     )?;
-    
-        //     let chain = create_range_constraint_chain(cs, &allocated, max_q_bits)?;
-        //     let term = Term::<E>::from_allocated_num(allocated);
-
-        //     let mut q_new_binary_limbs = Vec::with_capacity(self.binary_limbs.len());
-
-        //     assert!(max_q_bits % chain.len() == 0);
-        //     let constraint_bits_per_step = max_q_bits / chain.len();
-
-        //     // let mut shift = 0;
-
-        //     let mut expected_limb_bits = Vec::with_capacity(num_limbs);
-
-        //     for l in 0..num_limbs {
-        //         let bits = if max_q_bits > params.binary_limbs_params.limb_size_bits {
-        //             max_q_bits -= params.binary_limbs_params.limb_size_bits;
-
-        //             params.binary_limbs_params.limb_size_bits
-        //         } else {
-        //             max_q_bits
-        //         };
-
-        //         if bits != 0 {
-        //             expected_limb_bits.push(bits);
-        //         } else {
-        //             break;
-        //         }
-        //     }
-
-        //     let mut reversed_low_limbs = Vec::with_capacity(expected_limb_bits.len());
-
-        //     let mut previous_high_bits: Option<Term<E>> = None;
-        //     let mut total_bits = 0;
-
-        //     for bits in expected_limb_bits.into_iter().rev() {
-        //         let bits_to_take = total_bits + bits;
-        //         let max_limb_value = (BigUint::from(1u64) << bits) - BigUint::from(1u64);
-                
-
-        //         let subvalue_index = bits_to_take / constraint_bits_per_step - 1;
-
-        //         // this is low part + high part
-
-        //         if let Some(high_part) = previous_high_bits.take() {
-        //             // there are higher bits in a chain already, so we get low + high part
-        //             let combined_part = chain[subvalue_index].clone();
-        //             let combined_term = Term::from_allocated_num(combined_part);
-
-        //             let mut shift = E::Fr::one();
-        //             for _ in 0..bits {
-        //                 shift.double();
-        //             }
-
-        //             let mut high_part_shifted_and_negated = high_part;
-        //             high_part_shifted_and_negated.scale(&shift);
-        //             high_part_shifted_and_negated.negate();
-
-        //             let lower_part = combined_term.add(cs, &high_part_shifted_and_negated)?;
-
-        //             let q_limb = Limb::new(lower_part, max_limb_value);
-        //             reversed_low_limbs.push(q_limb);
-
-        //             previous_high_bits = Some(combined_term);
-        //         } else {
-        //             // there is no previous part, so this is actually the highest part
-        //             let allocated = chain[subvalue_index].clone();
-        //             let term = Term::<E>::from_allocated_num(allocated);
-
-        //             let q_limb = Limb::new(term.clone(), max_limb_value);
-        //             reversed_low_limbs.push(q_limb);
-
-        //             previous_high_bits = Some(term);
-        //         }
-
-        //         total_bits += bits;
-        //     }
-
-        //     reversed_low_limbs.reverse();
-        //     q_new_binary_limbs.extend(reversed_low_limbs);
-
-        //     let q_empty_limb = Self::zero_limb();
-        //     q_new_binary_limbs.resize(params.num_binary_limbs, q_empty_limb);
-    
-        //     let q_base_field_term = term;
-    
-        //     let q_as_field_repr = Self{
-        //         base_field_limb: q_base_field_term,
-        //         binary_limbs: q_new_binary_limbs,
-        //         representation_params: params,
-        //         value: q_represented_field_value
-        //     };
-
-        //     q_as_field_repr
-        // };
-
-        // assert!(max_q_bits <= self.representation_params.binary_limbs_params.limb_size_bits, 
-        //     "during requction q has {} bits, limb size is {}", max_q_bits, params.binary_limbs_params.limb_size_bits);
-
-        // create remainder
-
-        // let r_wit = Self::slice_into_double_limb_witnesses(rem, cs, params)?;
-    
-        // let r_elem = Self::from_double_size_limb_witnesses(
-        //     cs, 
-        //     &r_wit, 
-        //     false, 
-        //     params
-        // )?;
 
         let r_fe = some_biguint_to_fe::<F>(&rem);
 
@@ -1446,8 +1257,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
         let new_value = this.get_field_value().add(&this.get_field_value());
 
-        // assert_eq!(fe_to_biguint(&new_value.unwrap()) % &params.base_field_modulus, fe_to_biguint(&new_base_limb.get_value().unwrap()));
-
         let new = Self {
             binary_limbs: new_binary_limbs,
             base_field_limb: new_base_limb,
@@ -1516,55 +1325,10 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             previous = Some(borrow_bits);
         }
 
-        // let (multiples, extra_class) = {
-        //     let mut extra = 0u64;
-        //     // we have to add at least one modulus to avoid underflow
-        //     let mut multiple = BigUint::from(0u64);
-
-        //     let other_max = other.get_max_value();
-
-        //     loop {
-        //         if &multiple < &other_max {
-        //             multiple += &params.represented_field_modulus.clone();
-        //             extra += 1u64;  
-        //         } else {
-        //             break
-        //         }
-        //     }
-
-        //     // println!("Adding extra {} moduluses", extra);
-
-        //     (multiple, extra)
-        // };
-
         // now we can determine how many moduluses of the represented field 
         // we have to add to never underflow
 
         let shift = params.binary_limbs_params.limb_size_bits * (params.num_binary_limbs - 1);
-
-        // let (multiples, extra_class) = {
-        //     let mut extra = 1u64;
-        //     // we have to add at least one modulus to avoid underflow
-        //     let mut multiple = params.represented_field_modulus.clone();
-        //     let start = params.binary_limbs_params.limb_size_bits * (params.num_binary_limbs - 1);
-        //     let end = start + params.binary_limbs_params.limb_size_bits;
-
-        //     loop {
-        //         let slice = get_bit_slice(
-        //             multiple.clone(), 
-        //             start, 
-        //             end
-        //         );
-        //         if &slice < borrow_max_values.last().unwrap() {
-        //             multiple += &params.represented_field_modulus.clone();
-        //             extra += 1u64;
-        //         } else {
-        //             break
-        //         }
-        //     }
-
-        //     (multiple, extra)
-        // };
 
         let mut multiples_to_add_at_least = borrow_max_values.last().unwrap().clone() << shift;
         multiples_to_add_at_least = multiples_to_add_at_least / &params.represented_field_modulus;
@@ -1582,8 +1346,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                 start, 
                 end
             );
-
-            // println!("Slice = {}, max borrow = {}", slice.to_str_radix(16),borrow_max_values.last().unwrap().to_str_radix(16));
 
             if &slice < borrow_max_values.last().unwrap() {
                 multiples += &params.represented_field_modulus;
@@ -1709,14 +1471,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
         let q_elem = Self::coarsely_allocate_for_unknown_width(cs, q, params)?;
 
-        // let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
-
-        // let q_elem = Self::from_double_size_limb_witnesses(
-        //     cs, 
-        //     &q_wit, 
-        //     true, 
-        //     params
-        // )?;
 
         let r_elem = Self::new_allocated(
             cs, 
@@ -1764,15 +1518,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         };
 
         let q_elem = Self::coarsely_allocate_for_unknown_width(cs, q, params)?;
-
-        // let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
-
-        // let q_elem = Self::from_double_size_limb_witnesses(
-        //     cs, 
-        //     &q_wit, 
-        //     true, 
-        //     params
-        // )?;
 
         let r_elem = Self::new_allocated(
             cs, 
@@ -1846,15 +1591,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
         let q_elem = Self::coarsely_allocate_for_unknown_width(cs, q, params)?;
 
-        // let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
-
-        // let q_elem = Self::from_double_size_limb_witnesses(
-        //     cs, 
-        //     &q_wit, 
-        //     true, 
-        //     params
-        // )?;
-
         let r_elem = Self::new_allocated(
             cs, 
             some_biguint_to_fe(&r), 
@@ -1922,15 +1658,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         };
 
         let q_elem = Self::coarsely_allocate_for_unknown_width(cs, q, params)?;
-
-        // let q_wit = Self::slice_into_double_limb_witnesses(q, cs, params, true)?;
-
-        // let q_elem = Self::from_double_size_limb_witnesses(
-        //     cs, 
-        //     &q_wit, 
-        //     true, 
-        //     params
-        // )?;
 
         let r_elem = Self::new_allocated(
             cs, 
