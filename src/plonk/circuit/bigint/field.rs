@@ -2942,20 +2942,24 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         let a = self.force_reduce_into_field(cs)?;
         let b = other.force_reduce_into_field(cs)?;
 
-        // compare each binary limb
+        // compare each binary limb by enforce_zero on the difference
         for (al, bl) in a.binary_limbs.iter().zip(b.binary_limbs.iter()) {
             let mut alc = al.clone();
             alc.negate();
+            let mut diff = LinearCombination::<E>::zero();
+            diff.add_assign_term(&alc.term);
+            diff.add_assign_term(&bl.term);
 
-            let diff = alc.term.add(cs, &bl.term)?;
             diff.enforce_zero(cs)?;
         }
 
         // same for base field limb
         let mut a_base = a.base_field_limb.clone();
         a_base.negate();
+        let mut diff = LinearCombination::<E>::zero();
+        diff.add_assign_term(&a_base);
+        diff.add_assign_term(&b.base_field_limb);
 
-        let diff = a_base.add(cs, &b.base_field_limb)?;
         diff.enforce_zero(cs)?;
 
         Ok((a, b))
@@ -3356,7 +3360,7 @@ mod test {
 
             let a = biguint_to_fe::<F>(a_bi.clone());
             let a = FieldElement::new_allocated(&mut cs, Some(a), params).unwrap();
-            println!("a: {}", a);
+            
             let b = biguint_to_fe::<F>(b_bi.clone());
             let b = FieldElement::new_allocated(&mut cs, Some(b), params).unwrap();
 
