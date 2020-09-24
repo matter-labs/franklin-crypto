@@ -208,6 +208,32 @@ impl<E: Engine> Num<E> {
         }
     }
 
+    pub fn mul<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+        other: &Self,
+    ) -> Result<Self, SynthesisError> {
+        match (self, other) {
+            (Num::Variable(ref a), Num::Variable(ref b)) => {
+                let new = a.mul(cs, b)?;
+
+                Ok(Num::Variable(new))
+            },
+            (Num::Variable(ref var), Num::Constant(constant)) | 
+            (Num::Constant(constant), Num::Variable(ref var)) => {
+                let new = var.mul_constant(cs, *constant)?;
+
+                Ok(Num::Variable(new))
+            },
+            (Num::Constant(a), Num::Constant(b)) => {
+                let mut result = *a;
+                result.mul_assign(&b);
+
+                Ok(Num::Constant(result))
+            }
+        }
+    }
+
     pub fn conditionally_select<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         condition_flag: &Boolean,
@@ -693,6 +719,38 @@ impl<E: Engine> AllocatedNum<E> {
         c.negate();
 
         self.add_constant(cs, c)
+    }
+
+    pub fn mul_constant<CS>(
+        &self,
+        cs: &mut CS,
+        constant: E::Fr
+    ) -> Result<Self, SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        let mut value = None;
+
+        let result = cs.alloc(|| {
+            let mut tmp = *self.value.get()?;
+            tmp.mul_assign(&constant);
+
+            value = Some(tmp);
+
+            Ok(tmp)
+        })?;
+
+        let self_term = ArithmeticTerm::from_variable_and_coeff(self.variable, constant);
+        let result_term = ArithmeticTerm::from_variable(result);
+        let mut term = MainGateTerm::new();
+        term.add_assign(self_term);
+        term.sub_assign(result_term);
+
+        cs.allocate_main_gate(term)?;
+
+        Ok(AllocatedNum {
+            value: value,
+            variable: result
+        })
     }
 
     pub fn mul<CS>(
