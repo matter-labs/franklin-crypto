@@ -164,8 +164,6 @@ impl<E: Engine> Limb<E> {
     }
 
     pub fn get_field_value(&self) -> Option<E::Fr> {
-        // debug_assert!(self.get_value() < repr_to_biguint::<E::Fr>(&E::Fr::char()), "self value = {}, char = {}", self.get_value().to_str_radix(16), E::Fr::char());
-
         let v = self.term.get_value();
 
         v
@@ -195,7 +193,7 @@ impl<E: Engine> Limb<E> {
     }
 }
 
-pub(crate) fn repr_to_biguint<F: PrimeField>(repr: &F::Repr) -> BigUint {
+pub fn repr_to_biguint<F: PrimeField>(repr: &F::Repr) -> BigUint {
     let mut b = BigUint::from(0u64);
     for &limb in repr.as_ref().iter().rev() {
         b <<= 64;
@@ -235,11 +233,11 @@ pub fn mod_inverse(el: &BigUint, modulus: &BigUint) -> BigUint {
     y
 }
 
-pub(crate) fn biguint_to_fe<F: PrimeField>(value: BigUint) -> F {
+pub fn biguint_to_fe<F: PrimeField>(value: BigUint) -> F {
     F::from_str(&value.to_str_radix(10)).unwrap()
 }
 
-pub(crate) fn biguint_to_repr<F: PrimeField>(mut value: BigUint) -> F::Repr {
+pub fn biguint_to_repr<F: PrimeField>(mut value: BigUint) -> F::Repr {
     use num_traits::ToPrimitive;
 
     let mut repr = F::Repr::default();
@@ -253,7 +251,7 @@ pub(crate) fn biguint_to_repr<F: PrimeField>(mut value: BigUint) -> F::Repr {
     repr
 }
 
-pub(crate) fn some_biguint_to_fe<F: PrimeField>(value: &Option<BigUint>) -> Option<F> {
+pub fn some_biguint_to_fe<F: PrimeField>(value: &Option<BigUint>) -> Option<F> {
     match value {
         Some(value) => {
             let n = F::from_str(&value.to_str_radix(10)).unwrap();
@@ -264,13 +262,13 @@ pub(crate) fn some_biguint_to_fe<F: PrimeField>(value: &Option<BigUint>) -> Opti
     }
 }
 
-pub(crate) fn fe_to_biguint<F: PrimeField>(el: &F) -> BigUint {
+pub fn fe_to_biguint<F: PrimeField>(el: &F) -> BigUint {
     let repr = el.into_repr();
 
     repr_to_biguint::<F>(&repr)
 }
 
-pub(crate) fn some_fe_to_biguint<F: PrimeField>(el: &Option<F>) -> Option<BigUint> {
+pub fn some_fe_to_biguint<F: PrimeField>(el: &Option<F>) -> Option<BigUint> {
     match el {
         Some(el) => {
             let repr = el.into_repr();
@@ -283,7 +281,7 @@ pub(crate) fn some_fe_to_biguint<F: PrimeField>(el: &Option<F>) -> Option<BigUin
     }
 }
 
-pub(crate) fn get_bit_slice(v: BigUint, start: usize, end: usize) -> BigUint {
+pub fn get_bit_slice(v: BigUint, start: usize, end: usize) -> BigUint {
     let mut tmp = v;
     tmp >>= start;
 

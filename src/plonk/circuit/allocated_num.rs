@@ -208,6 +208,13 @@ impl<E: Engine> Num<E> {
         }
     }
 
+    pub fn negate<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS
+    ) -> Result<Self, SynthesisError> {
+        Num::Constant(E::Fr::zero()).sub(cs, self)
+    }
+
     pub fn mul<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,
