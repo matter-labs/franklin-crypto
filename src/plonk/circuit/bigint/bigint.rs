@@ -203,6 +203,7 @@ pub fn repr_to_biguint<F: PrimeField>(repr: &F::Repr) -> BigUint {
     b
 }
 
+#[track_caller]
 pub fn mod_inverse(el: &BigUint, modulus: &BigUint) -> BigUint {
     use crate::num_bigint::BigInt;
     use crate::num_integer::{Integer, ExtendedGcd};

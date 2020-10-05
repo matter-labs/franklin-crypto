@@ -62,6 +62,7 @@ pub struct MultiexpTable<'a, E: Engine, G: CurveAffine> where G::Base: PrimeFiel
 }
 
 impl<'a, E: Engine, G: CurveAffine> MultiexpTable<'a, E, G> where G::Base: PrimeField {
+    #[track_caller]
     pub fn new<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         points: &[AffinePoint<'a, E, G>]
@@ -141,6 +142,7 @@ impl<'a, E: Engine, G: CurveAffine> MultiexpTable<'a, E, G> where G::Base: Prime
         Ok(table)
     }
 
+    #[track_caller]
     fn make_width_four_table<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         chunk: &[AffinePoint<'a, E, G>]
@@ -198,6 +200,7 @@ impl<'a, E: Engine, G: CurveAffine> MultiexpTable<'a, E, G> where G::Base: Prime
         Ok((limb_selection_tables, entries))
     }
 
+    #[track_caller]
     fn make_width_three_table<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         chunk: &[AffinePoint<'a, E, G>]
@@ -249,6 +252,7 @@ impl<'a, E: Engine, G: CurveAffine> MultiexpTable<'a, E, G> where G::Base: Prime
         Ok((limb_selection_tables, entries))
     }
 
+    #[track_caller]
     fn make_width_two_table<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         chunk: &[AffinePoint<'a, E, G>]
@@ -436,6 +440,7 @@ impl<'a, E: Engine, G: CurveAffine> MultiexpTable<'a, E, G> where G::Base: Prime
         Ok(point)
     }
 
+    #[track_caller]
     pub fn make_base<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS
@@ -467,6 +472,7 @@ impl<'a, E: Engine, G: CurveAffine> MultiexpTable<'a, E, G> where G::Base: Prime
         Ok(base)
     }
 
+    #[track_caller]
     pub fn lookup_for_skewed_entries<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,

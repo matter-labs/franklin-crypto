@@ -148,6 +148,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub(crate) static RANGE_GATES_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 // This is a case for no lookup tables that constraints 8 bits per gate
+#[track_caller]
 pub fn create_range_constraint_chain<E: Engine, CS: ConstraintSystem<E>>(
     cs: &mut CS, 
     to_constraint: &AllocatedNum<E>, 

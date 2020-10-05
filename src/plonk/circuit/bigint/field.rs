@@ -615,13 +615,14 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
     /// Allocate a field element from witnesses for individual binary(!) limbs,
     /// such that highest limb may be a little (up to range constraint granularity)
     /// larger than for an element that is in a field.
-    /// If `may_overflow` == true then all limbs may be as large limb bit width
+    #[track_caller]
     pub fn coarsely_allocate_for_known_bit_width<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         value: Option<BigUint>,
         width: usize,
         params: &'a RnsParameters<E, F>
     ) -> Result<Self, SynthesisError> {
+        assert!(width > 0);
         assert!(params.binary_limbs_params.limb_size_bits % params.range_check_info.minimal_multiple == 0, 
             "limb size must be divisible by range constraint strategy granularity");
 
@@ -1130,6 +1131,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         needs_reduction
     }
 
+    #[track_caller]
     pub fn reduce_if_necessary<CS: ConstraintSystem<E>>(
         self,
         cs: &mut CS
@@ -1145,6 +1147,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         Ok(self)
     }
 
+    #[track_caller]
     pub fn force_reduce_into_field<CS: ConstraintSystem<E>>(
         self,
         cs: &mut CS
@@ -1152,6 +1155,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         self.reduction_impl(cs)
     }
 
+    #[track_caller]
     pub(crate) fn reduction_impl<CS: ConstraintSystem<E>>(
         self,
         cs: &mut CS
@@ -1161,6 +1165,11 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         }
 
         let params = self.representation_params;
+        // let max_q_bits = (self.get_max_value() / &params.represented_field_modulus).bits() as usize;
+        // if max_q_bits == 0 {
+        //     // already reduced
+        //     return Ok(self)
+        // }
 
         // first perform actual reduction in the field that we try to represent
         let (q, rem) = if let Some(v) = self.get_value() {
@@ -1174,12 +1183,18 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         let max_q_bits = (self.get_max_value() / &params.represented_field_modulus).bits() as usize;
         assert!(max_q_bits <= E::Fr::CAPACITY as usize, "for no quotient size can overflow capacity");
 
-        let q_as_field_repr = Self::coarsely_allocate_for_known_bit_width(
-            cs,
-            q, 
-            max_q_bits, 
-            &params
-        )?;
+        let q_as_field_repr = if max_q_bits == 0 {
+            Self::zero(&params)
+        } else { 
+            let q_as_field_repr = Self::coarsely_allocate_for_known_bit_width(
+                cs,
+                q, 
+                max_q_bits, 
+                &params
+            )?;
+
+            q_as_field_repr
+        };
 
         let r_fe = some_biguint_to_fe::<F>(&rem);
 
@@ -1780,6 +1795,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         return Ok((r_elem, (this, to_add)));
     }
 
+    #[track_caller]
     pub fn div<CS: ConstraintSystem<E>>(
         self,
         cs: &mut CS,
@@ -1856,6 +1872,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         Ok((inv_wit, (this, den)))
     }
 
+    #[track_caller]
     pub(crate) fn div_from_addition_chain<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         nums: Vec<Self>,
@@ -2757,6 +2774,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         Ok(this)
     }
 
+    #[track_caller]
     pub fn enforce_equal<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,
@@ -2775,8 +2793,8 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             }
         };
 
-        let this = self.clone().force_reduce_into_field(cs)?;
-        let other = other.clone().force_reduce_into_field(cs)?;
+        let this = self.clone().force_reduce_into_field(cs)?.enforce_is_normalized(cs)?;
+        let other = other.clone().force_reduce_into_field(cs)?.enforce_is_normalized(cs)?;
 
         for (a, b) in this.binary_limbs.iter().zip(other.binary_limbs.iter()) {
             let a = a.term.into_num();
@@ -2817,8 +2835,8 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
         let mut lc = LinearCombination::zero();
 
-        let this = self.clone().force_reduce_into_field(cs)?;
-        let other = other.clone().force_reduce_into_field(cs)?;
+        let this = self.clone().force_reduce_into_field(cs)?.enforce_is_normalized(cs)?;
+        let other = other.clone().force_reduce_into_field(cs)?.enforce_is_normalized(cs)?;
 
         for (a, b) in this.binary_limbs.iter().zip(other.binary_limbs.iter()) {
             let a = a.term.into_num();
@@ -2839,6 +2857,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         Ok(equal)
     }
 
+    #[track_caller]
     pub fn enforce_not_equal<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,
