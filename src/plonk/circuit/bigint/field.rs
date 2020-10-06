@@ -95,6 +95,7 @@ impl<'a, E: Engine, F: PrimeField> RnsParameters<E, F>{
             minimal_multiple: 2,
             optimal_multiple: 8,
             multiples_per_gate: 4,
+            linear_terms_used: 4,
             strategy: RangeConstraintStrategy::CustomTwoBitGate
         };
 
@@ -423,10 +424,13 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                         RangeConstraintStrategy::MultiTable => {
                             self::range_constraint_functions::coarsely_enforce_using_multitable(cs, var, expected_width)?;
                         },
+                        RangeConstraintStrategy::SingleTableInvocation => {
+                            self::single_table_range_constraint::enforce_using_single_column_table(cs, var, expected_width)?;
+                        },
                         RangeConstraintStrategy::CustomTwoBitGate => {
                             let _ = create_range_constraint_chain(cs, var, expected_width)?;
                         }
-                        _ => {unimplemented!("range constraint strategies other than multitable or custom gate are not yet handled")}
+                        _ => {unimplemented!("range constraint strategies other than multitable, single table or custom gate are not yet handled")}
                     }
 
                     let term = Term::<E>::from_allocated_num(var.clone());
@@ -564,10 +568,13 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                         RangeConstraintStrategy::MultiTable => {
                             self::range_constraint_functions::coarsely_enforce_using_multitable(cs, var, expected_width)?;
                         },
+                        RangeConstraintStrategy::SingleTableInvocation => {
+                            self::single_table_range_constraint::enforce_using_single_column_table(cs, var, expected_width)?;
+                        },
                         RangeConstraintStrategy::CustomTwoBitGate => {
                             let _ = create_range_constraint_chain(cs, var, expected_width)?;
                         }
-                        _ => {unimplemented!("range constraint strategies other than multitable or custom gate are not yet handled")}
+                        _ => {unimplemented!("range constraint strategies other than multitable, single table or custom gate are not yet handled")}
                     }
 
                     let term = Term::<E>::from_allocated_num(var.clone());
@@ -664,10 +671,13 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                 RangeConstraintStrategy::MultiTable => {
                     self::range_constraint_functions::coarsely_enforce_using_multitable(cs, &a, size)?;
                 },
+                RangeConstraintStrategy::SingleTableInvocation => {
+                    self::single_table_range_constraint::enforce_using_single_column_table(cs, &a, size)?;
+                },
                 RangeConstraintStrategy::CustomTwoBitGate => {
                     let _ = create_range_constraint_chain(cs, &a, size)?;
                 }
-                _ => {unimplemented!("range constraint strategies other than multitable or custom gate are not yet handled")}
+                _ => {unimplemented!("range constraint strategies other than multitable, single table or custom gate are not yet handled")}
             }
 
             let term = Term::<E>::from_allocated_num(a.clone());
@@ -2374,7 +2384,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             let max_bits = max_value.bits() as usize;
 
             assert!(max_bits >= 2*params.binary_limbs_params.limb_size_bits);
-            assert!(max_bits <= E::Fr::CAPACITY as usize);
+            assert!(max_bits <= E::Fr::CAPACITY as usize, "max width is higher than unique representation in double limb carry propagation");
 
             let carry_max_bits = max_bits - 2*params.binary_limbs_params.limb_size_bits;
 
@@ -2515,6 +2525,9 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             RangeConstraintStrategy::MultiTable => {
                 super::range_constraint_functions::adaptively_coarsely_constraint_multiple_with_multitable(cs, &double_limb_carries, &double_limb_max_bits)?;
             },
+            RangeConstraintStrategy::SingleTableInvocation => {
+                super::single_table_range_constraint::adaptively_constraint_multiple_with_single_table(cs, &double_limb_carries, &double_limb_max_bits)?;
+            },
             RangeConstraintStrategy::CustomTwoBitGate => {
                 super::range_constraint_functions::adaptively_coarsely_constraint_multiple_with_two_bit_decomposition(cs, &double_limb_carries, &double_limb_max_bits)?;
             },
@@ -2615,6 +2628,9 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         match params.range_check_info.strategy {
             RangeConstraintStrategy::MultiTable => {
                 super::range_constraint_functions::adaptively_coarsely_constraint_multiple_with_multitable(cs, &carries, &limb_max_bits)?;
+            },
+            RangeConstraintStrategy::SingleTableInvocation => {
+                super::single_table_range_constraint::adaptively_constraint_multiple_with_single_table(cs, &carries, &limb_max_bits)?;
             },
             RangeConstraintStrategy::CustomTwoBitGate => {
                 super::range_constraint_functions::adaptively_coarsely_constraint_multiple_with_two_bit_decomposition(cs, &carries, &limb_max_bits)?;
@@ -2869,86 +2885,86 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         Ok(())
     }
 
-    pub(crate) fn compute_congruency<CS: ConstraintSystem<E>>(
-        &self,
-        cs: &mut CS,
-        other: &Self,
-    ) -> Result<Term<E>, SynthesisError> {
-        let params = self.representation_params;
+    // pub(crate) fn compute_congruency<CS: ConstraintSystem<E>>(
+    //     &self,
+    //     cs: &mut CS,
+    //     other: &Self,
+    // ) -> Result<Term<E>, SynthesisError> {
+    //     let params = self.representation_params;
 
-        let mut this = self.clone();
-        let mut other = other.clone();
+    //     let mut this = self.clone();
+    //     let mut other = other.clone();
         
-        let mut l = Self::cong_factor(self.get_max_value(), &params.represented_field_modulus);
-        if l.is_none() {
-            this = this.reduction_impl(cs)?;
-            l = Self::cong_factor(this.get_max_value(), &params.represented_field_modulus);
-        }
-        let mut r = Self::cong_factor(other.get_max_value(), &params.represented_field_modulus);
-        if r.is_none() {
-            other = other.reduction_impl(cs)?;
-            r = Self::cong_factor(other.get_max_value(), &params.represented_field_modulus);
-        }
+    //     let mut l = Self::cong_factor(self.get_max_value(), &params.represented_field_modulus);
+    //     if l.is_none() {
+    //         this = this.reduction_impl(cs)?;
+    //         l = Self::cong_factor(this.get_max_value(), &params.represented_field_modulus);
+    //     }
+    //     let mut r = Self::cong_factor(other.get_max_value(), &params.represented_field_modulus);
+    //     if r.is_none() {
+    //         other = other.reduction_impl(cs)?;
+    //         r = Self::cong_factor(other.get_max_value(), &params.represented_field_modulus);
+    //     }
 
-        let l = l.unwrap();
-        let r = r.unwrap();
+    //     let l = l.unwrap();
+    //     let r = r.unwrap();
 
-        let represented_modulus_modulo_base = Term::<E>::from_constant(
-            biguint_to_fe(params.represented_field_modulus.clone() % &params.base_field_modulus)
-        );
+    //     let represented_modulus_modulo_base = Term::<E>::from_constant(
+    //         biguint_to_fe(params.represented_field_modulus.clone() % &params.base_field_modulus)
+    //     );
 
-        let mut tmp = other.base_field_limb.clone();
-        tmp.negate();
+    //     let mut tmp = other.base_field_limb.clone();
+    //     tmp.negate();
 
-        let difference = this.base_field_limb.add(cs, &tmp)?;
-        let mut accumulator = represented_modulus_modulo_base.clone();
+    //     let difference = this.base_field_limb.add(cs, &tmp)?;
+    //     let mut accumulator = represented_modulus_modulo_base.clone();
 
-        let mut difference_accumulator = difference.clone();
+    //     let mut difference_accumulator = difference.clone();
 
-        for _ in 0..l {
-            let mut tmp = accumulator.clone();
-            tmp.negate();
-            let diff = difference.add(cs, &tmp)?;
-            difference_accumulator = difference_accumulator.mul(cs, &diff)?;
-            accumulator = accumulator.add(cs, &represented_modulus_modulo_base)?;
-        }
+    //     for _ in 0..l {
+    //         let mut tmp = accumulator.clone();
+    //         tmp.negate();
+    //         let diff = difference.add(cs, &tmp)?;
+    //         difference_accumulator = difference_accumulator.mul(cs, &diff)?;
+    //         accumulator = accumulator.add(cs, &represented_modulus_modulo_base)?;
+    //     }
 
-        accumulator = represented_modulus_modulo_base.clone();
+    //     accumulator = represented_modulus_modulo_base.clone();
 
-        for _ in 0..r {
-            let diff = difference.add(cs, &accumulator)?;
-            difference_accumulator = difference_accumulator.mul(cs, &diff)?;
-            accumulator = accumulator.add(cs, &represented_modulus_modulo_base)?;
-        }
+    //     for _ in 0..r {
+    //         let diff = difference.add(cs, &accumulator)?;
+    //         difference_accumulator = difference_accumulator.mul(cs, &diff)?;
+    //         accumulator = accumulator.add(cs, &represented_modulus_modulo_base)?;
+    //     }
 
-        Ok(difference_accumulator)
-    }
+    //     Ok(difference_accumulator)
+    // }
 
-    pub(crate) fn get_congruency_class(&self) -> u64 {
-        let params = self.representation_params;
-        let quant = params.represented_field_modulus.clone() % &params.base_field_modulus;
+    // pub(crate) fn get_congruency_class(&self) -> u64 {
+    //     let params = self.representation_params;
+    //     let quant = params.represented_field_modulus.clone() % &params.base_field_modulus;
 
-        let from_value = self.get_value().unwrap() % &params.base_field_modulus;
-        let from_limb = fe_to_biguint(&self.base_field_limb.get_value().unwrap());
+    //     let from_value = self.get_value().unwrap() % &params.base_field_modulus;
+    //     let from_limb = fe_to_biguint(&self.base_field_limb.get_value().unwrap());
 
-        println!("From value = {}, from limb = {}", from_value.to_str_radix(16), from_limb.to_str_radix(16));
+    //     println!("From value = {}, from limb = {}", from_value.to_str_radix(16), from_limb.to_str_radix(16));
 
-        let difference = if from_value > from_limb {
-            from_value - from_limb 
-        } else {
-            from_limb - from_value
-        };
+    //     let difference = if from_value > from_limb {
+    //         from_value - from_limb 
+    //     } else {
+    //         from_limb - from_value
+    //     };
 
-        println!("Diff = {}", difference.to_str_radix(16));
+    //     println!("Diff = {}", difference.to_str_radix(16));
 
-        let (cong, rem) =  difference.div_rem(&quant);
+    //     let (cong, rem) =  difference.div_rem(&quant);
 
-        assert_eq!(rem, BigUint::from(0u64));
+    //     assert_eq!(rem, BigUint::from(0u64));
 
-        use num_traits::ToPrimitive;
+    //     use num_traits::ToPrimitive;
 
-        cong.to_u64().unwrap()
-    }
+    //     cong.to_u64().unwrap()
+    // }
 }
 
 #[cfg(test)]

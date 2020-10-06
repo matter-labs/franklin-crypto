@@ -41,6 +41,7 @@ pub mod field;
 pub mod range_constraint_gate;
 pub mod range_constraint_functions;
 pub mod range_constraint_with_two_bit_gate;
+pub mod single_table_range_constraint;
 
 use self::range_constraint_gate::TwoBitDecompositionRangecheckCustomGate;
 
@@ -296,6 +297,7 @@ pub struct RangeConstraintInfo {
     pub minimal_multiple: usize,
     pub optimal_multiple: usize,
     pub multiples_per_gate: usize,
+    pub linear_terms_used: usize,
     pub strategy: RangeConstraintStrategy,
 }
 
@@ -303,13 +305,15 @@ const RANGE_CHECK_MULTIAPPLICATION_TABLE_NAME: &'static str = "Range check table
 const RANGE_CHECK_SINGLE_APPLICATION_TABLE_NAME: &'static str = "Range check table for a single column";
 
 pub fn get_range_constraint_info<E: Engine, CS: ConstraintSystem<E>>(cs: &CS) -> Vec<RangeConstraintInfo> {
-    let mut strategies = vec![];
+    let mut strategies = Vec::with_capacity(4);
 
     use crate::bellman::plonk::better_better_cs::cs::PolyIdentifier;
 
     if let Ok(multi) = cs.get_multitable(RANGE_CHECK_MULTIAPPLICATION_TABLE_NAME) {
         let width = crate::log2_floor(multi.size());
         let multiples = multi.applies_over().len();
+        let table_width_over_polys = multi.applies_over().len();
+
         assert!(multiples <= 3);
         assert!(multi.applies_over() == &[PolyIdentifier::VariablesPolynomial(0), PolyIdentifier::VariablesPolynomial(1), PolyIdentifier::VariablesPolynomial(2)]);
 
@@ -317,6 +321,7 @@ pub fn get_range_constraint_info<E: Engine, CS: ConstraintSystem<E>>(cs: &CS) ->
             minimal_multiple: width as usize,
             optimal_multiple: (width as usize) * multiples,
             multiples_per_gate: multiples,
+            linear_terms_used: table_width_over_polys,
             strategy: RangeConstraintStrategy::MultiTable
         };
 
@@ -325,6 +330,7 @@ pub fn get_range_constraint_info<E: Engine, CS: ConstraintSystem<E>>(cs: &CS) ->
 
     if let Ok(single) = cs.get_table(RANGE_CHECK_SINGLE_APPLICATION_TABLE_NAME) {
         let width = crate::log2_floor(single.size());
+        let table_width_over_polys = single.applies_over().len();
 
         assert!(single.applies_over() == &[PolyIdentifier::VariablesPolynomial(0), PolyIdentifier::VariablesPolynomial(1), PolyIdentifier::VariablesPolynomial(2)]);
 
@@ -332,6 +338,7 @@ pub fn get_range_constraint_info<E: Engine, CS: ConstraintSystem<E>>(cs: &CS) ->
             minimal_multiple: width as usize,
             optimal_multiple: width as usize,
             multiples_per_gate: 1,
+            linear_terms_used: table_width_over_polys,
             strategy: RangeConstraintStrategy::SingleTableInvocation
         };
     
@@ -343,6 +350,7 @@ pub fn get_range_constraint_info<E: Engine, CS: ConstraintSystem<E>>(cs: &CS) ->
             minimal_multiple: 2,
             optimal_multiple: 8,
             multiples_per_gate: 4,
+            linear_terms_used: 0,
             strategy: RangeConstraintStrategy::CustomTwoBitGate
         };
 
@@ -353,6 +361,7 @@ pub fn get_range_constraint_info<E: Engine, CS: ConstraintSystem<E>>(cs: &CS) ->
         minimal_multiple: 1,
         optimal_multiple: 1,
         multiples_per_gate: 1,
+        linear_terms_used: 0,
         strategy: RangeConstraintStrategy::NaiveSingleBit
     };
 

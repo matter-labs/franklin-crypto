@@ -12,6 +12,7 @@ pub mod bigint;
 pub mod simple_term;
 pub mod curve;
 pub mod verifier_circuit;
+pub mod tables;
 
 use crate::bellman::pairing::Engine;
 use crate::bellman::plonk::better_better_cs::cs::PlonkConstraintSystemParams;
