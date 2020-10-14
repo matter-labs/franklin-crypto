@@ -456,6 +456,12 @@ impl<E: Engine> AllocatedNum<E> {
     ) -> Result<(), SynthesisError>
         where CS: ConstraintSystem<E>
     {
+        match (self.get_value(), other.get_value()) {
+            (Some(a), Some(b)) => {
+                assert_eq!(a, b);
+            },
+            _ => {}
+        }
         let self_term = ArithmeticTerm::from_variable(self.variable);
         let other_term = ArithmeticTerm::from_variable(other.variable);
         let mut term = MainGateTerm::new();
@@ -521,6 +527,7 @@ impl<E: Engine> AllocatedNum<E> {
         Ok(())
     }
 
+    #[track_caller]
     pub fn assert_equal_to_constant<CS>(
         &self,
         cs: &mut CS,
@@ -528,6 +535,9 @@ impl<E: Engine> AllocatedNum<E> {
     ) -> Result<(), SynthesisError>
         where CS: ConstraintSystem<E>
     {
+        if let Some(v) = self.get_value() {
+            assert_eq!(v, constant);
+        }
         let self_term = ArithmeticTerm::from_variable(self.variable);
         let other_term = ArithmeticTerm::constant(constant);
         let mut term = MainGateTerm::new();

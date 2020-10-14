@@ -222,30 +222,6 @@ impl AllocatedBit {
         })
     }
 
-    // pub fn inputize<E, CS>(&self, mut cs: CS, witness: &AllocatedBit) -> Result<(), SynthesisError>
-    //     where
-    //         E: Engine,
-    //         CS: ConstraintSystem<E>,
-    // {
-    //     let input = cs.alloc_input(
-    //         || "input variable",
-    //         || {
-    //             if self.get_value().grab()? {
-    //                 Ok(E::Fr::one())
-    //             } else {
-    //                 Ok(E::Fr::zero())
-    //             }
-    //         },
-    //     )?;
-    //     cs.enforce(
-    //         || "enforce input is correct",
-    //         |lc| lc + input,
-    //         |lc| lc + CS::one(),
-    //         |lc| lc + self.get_variable(),
-    //     );
-    //     Ok(())
-    // }
-
     /// Performs an XOR operation over the two operands, returning
     /// an `AllocatedBit`.
     pub fn xor<E, CS>(
@@ -553,86 +529,7 @@ pub fn field_into_allocated_bits_le<E: Engine, CS: ConstraintSystem<E>, F: Prime
 ) -> Result<Vec<AllocatedBit>, SynthesisError>
 {
     field_into_allocated_bits_le_fixed(cs, value, None)
-    // // Deconstruct in big-endian bit order
-    // let values = match value {
-    //     Some(ref value) => {
-    //         let mut field_char = BitIterator::new(F::char());
-
-    //         let mut tmp = Vec::with_capacity(F::NUM_BITS as usize);
-
-    //         let mut found_one = false;
-    //         for b in BitIterator::new(value.into_repr()) {
-    //             // Skip leading bits
-    //             found_one |= field_char.next().unwrap();
-    //             if !found_one {
-    //                 continue;
-    //             }
-
-    //             tmp.push(Some(b));
-    //         }
-
-    //         assert_eq!(tmp.len(), F::NUM_BITS as usize);
-
-    //         tmp
-    //     },
-    //     None => {
-    //         vec![None; F::NUM_BITS as usize]
-    //     }
-    // };
-
-    // // Allocate in little-endian order
-    // let bits = values.into_iter().rev().enumerate().map(|(i, b)| {
-    //     AllocatedBit::alloc(
-    //         cs,
-    //         b
-    //     )
-    // }).collect::<Result<Vec<_>, SynthesisError>>()?;
-
-    // Ok(bits)
 }
-
-// pub fn field_into_allocated_bits_le_fixed<E: Engine, CS: ConstraintSystem<E>, F: PrimeField>(
-//     mut cs: CS,
-//     value: Option<F>,
-//     bit_length: usize,
-// ) -> Result<Vec<AllocatedBit>, SynthesisError> {
-//     assert!(bit_length <= F::NUM_BITS as usize);
-//     // Deconstruct in big-endian bit order
-//     let values = match value {
-//         Some(ref value) => {
-//             let mut field_char = BitIterator::new(F::char());
-
-//             let mut tmp = Vec::with_capacity(F::NUM_BITS as usize);
-
-//             let mut found_one = false;
-//             for b in BitIterator::new(value.into_repr()) {
-//                 // Skip leading bits
-//                 found_one |= field_char.next().unwrap();
-//                 if !found_one {
-//                     continue;
-//                 }
-
-//                 tmp.push(Some(b));
-//             }
-
-//             assert_eq!(tmp.len(), F::NUM_BITS as usize);
-
-//             tmp
-//         }
-//         None => vec![None; F::NUM_BITS as usize],
-//     };
-
-//     // Allocate in little-endian order
-//     let bits = values
-//         .into_iter()
-//         .rev()
-//         .enumerate()
-//         .take(bit_length)
-//         .map(|(i, b)| AllocatedBit::alloc(cs.namespace(|| format!("bit {}", i)), b))
-//         .collect::<Result<Vec<_>, SynthesisError>>()?;
-
-//     Ok(bits)
-// }
 
 /// This is a boolean value which may be either a constant or
 /// an interpretation of an `AllocatedBit`.
@@ -673,7 +570,7 @@ impl Boolean {
     {
         match (a.get_value(), b.get_value()) {
             (Some(a), Some(b)) => {
-                debug_assert_eq!(a, b);
+                assert_eq!(a, b);
             },
             _ => {}
         };
