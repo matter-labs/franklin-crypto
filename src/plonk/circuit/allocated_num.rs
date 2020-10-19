@@ -449,6 +449,7 @@ impl<E: Engine> AllocatedNum<E> {
         }
     }
 
+    #[track_caller]
     pub fn enforce_equal<CS>(
         &self,
         cs: &mut CS,
