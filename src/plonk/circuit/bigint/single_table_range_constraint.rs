@@ -201,7 +201,7 @@ pub fn enforce_using_single_column_table<E: Engine, CS: ConstraintSystem<E>>(
 
 // enforces that this value is either `num_bits` long or a little longer 
 // up to a single range constraint width from the table
-fn enforce_shorter_range_into_into_single_gate<E: Engine, CS: ConstraintSystem<E>>(
+fn enforce_shorter_range_into_single_gate<E: Engine, CS: ConstraintSystem<E>>(
     cs: &mut CS, 
     to_constraint: &AllocatedNum<E>, 
     num_bits: usize
@@ -217,10 +217,6 @@ fn enforce_shorter_range_into_into_single_gate<E: Engine, CS: ConstraintSystem<E
 
     assert_eq!(linear_terms_used, 3);
     assert!(num_bits < width_per_gate);
-
-    // we do two things simultaneously:
-    // - arithmetic constraint a + 2^k * b + 2^2k * c - d = 0
-    // - range constraint that a, b, c have width W
 
     let explicit_zero_var = cs.get_explicit_zero()?;
     let dummy_var = CS::get_dummy_variable();
@@ -271,7 +267,7 @@ fn enforce_shorter_range_into_into_single_gate<E: Engine, CS: ConstraintSystem<E
 
 // enforces that this value is either `num_bits` long or a little longer 
 // up to a single range constraint width from the table
-fn enforce_range_into_into_single_gate<E: Engine, CS: ConstraintSystem<E>>(
+fn enforce_range_into_single_gate<E: Engine, CS: ConstraintSystem<E>>(
     cs: &mut CS, 
     to_constraint: &AllocatedNum<E>, 
     num_bits: usize
@@ -287,10 +283,6 @@ fn enforce_range_into_into_single_gate<E: Engine, CS: ConstraintSystem<E>>(
 
     assert_eq!(linear_terms_used, 3);
     assert_eq!(num_bits, width_per_gate);
-
-    // we do two things simultaneously:
-    // - arithmetic constraint a + 2^k * b + 2^2k * c - d = 0
-    // - range constraint that a, b, c have width W
 
     let explicit_zero_var = cs.get_explicit_zero()?;
     let dummy_var = CS::get_dummy_variable();
