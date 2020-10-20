@@ -623,22 +623,6 @@ impl<E: Engine> LinearCombination<E> {
                     &vars,
                     &[]
                 )?;
-
-
-
-                // for _ in num_terms..consume_from_lc {
-                //     let t = ArithmeticTerm::from_variable_and_coeff(dummy, E::Fr::zero());
-                //     gate_term.add_assign(t);
-                // }
-
-                // debug_assert_eq!(gate_term.len_without_constant(), consume_from_lc);
-
-                // // now chained value only goes into the last gate
-
-                // let t = ArithmeticTerm::from_variable_and_coeff(next_step_var_in_chain, one_fr);
-                // gate_term.add_assign(t);
-
-                // cs.allocate_main_gate(gate_term)?;
             }
             assert!(it.next().is_none());
         }
@@ -663,6 +647,13 @@ impl<E: Engine> LinearCombination<E> {
         }
 
         return Err(SynthesisError::Unsatisfiable);
+    }
+
+    pub fn uniquely_pack_le_booleans_into_single_num<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        bools: &[Boolean],
+    ) -> Result<Num<E>, SynthesisError> {
+        Self::uniquely_pack_booleans_into_single_num(cs, bools)
     }
 
     pub fn uniquely_pack_booleans_into_single_num<CS: ConstraintSystem<E>>(
