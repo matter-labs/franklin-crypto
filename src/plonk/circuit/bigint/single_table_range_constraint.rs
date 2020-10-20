@@ -62,7 +62,7 @@ pub fn enforce_using_single_column_table<E: Engine, CS: ConstraintSystem<E>>(
     assert_eq!(width_per_gate, minimal_per_gate);
 
     if num_bits < width_per_gate {
-        return enforce_shorter_range_into_into_single_gate(
+        return enforce_shorter_range_into_single_gate(
             cs,
             to_constraint,
             num_bits
@@ -70,7 +70,7 @@ pub fn enforce_using_single_column_table<E: Engine, CS: ConstraintSystem<E>>(
     }
 
     if num_bits == width_per_gate {
-        return enforce_range_into_into_single_gate(
+        return enforce_range_into_single_gate(
             cs,
             to_constraint,
             num_bits
@@ -188,7 +188,7 @@ pub fn enforce_using_single_column_table<E: Engine, CS: ConstraintSystem<E>>(
     if remainder_bits != 0 {
         // constraint the last segment
         let to_constraint = last_allocated_var.unwrap();
-        enforce_shorter_range_into_into_single_gate(
+        enforce_shorter_range_into_single_gate(
             cs,
             &to_constraint,
             remainder_bits
@@ -346,9 +346,9 @@ pub fn adaptively_constraint_multiple_with_single_table<E: Engine, CS: Constrain
             if w <= minimal_per_gate {
                 let collapsed = t.collapse_into_num(cs)?.get_variable();
                 if w < minimal_per_gate {
-                    enforce_shorter_range_into_into_single_gate(cs, &collapsed, w)?;
+                    enforce_shorter_range_into_single_gate(cs, &collapsed, w)?;
                 } else {
-                    enforce_range_into_into_single_gate(cs, &collapsed, w)?;
+                    enforce_range_into_single_gate(cs, &collapsed, w)?;
                 }
             } else {
                 let r = t.collapse_into_num(cs)?.get_variable();
