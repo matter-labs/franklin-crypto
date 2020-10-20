@@ -62,10 +62,11 @@ impl <E: JubjubEngine>EddsaSignature<E> {
     ) -> Result<(), SynthesisError>
         where CS: ConstraintSystem<E>
     {
-        // TODO check that s < Fs::Char
-        let scalar_bits = field_into_boolean_vec_le(
-            cs.namespace(|| "Get S bits"),
-            self.s.get_value()
+        use bellman::PrimeField;
+
+        let scalar_bits = self.s.into_bits_le_fixed(
+            cs.namespace(|| "Get S bits"), 
+            E::Fs::NUM_BITS as usize
         )?;
 
         let sb = generator.mul(
@@ -148,10 +149,11 @@ impl <E: JubjubEngine>EddsaSignature<E> {
     ) -> Result<(), SynthesisError>
         where CS: ConstraintSystem<E>
     {
-        // TODO check that s < Fs::Char
-        let scalar_bits = field_into_boolean_vec_le(
-            cs.namespace(|| "Get S bits"),
-            self.s.get_value()
+        use bellman::PrimeField;
+
+        let scalar_bits = self.s.into_bits_le_fixed(
+            cs.namespace(|| "Get S bits"), 
+            E::Fs::NUM_BITS as usize
         )?;
 
         let sb = generator.mul(
@@ -249,18 +251,14 @@ impl <E: JubjubEngine>EddsaSignature<E> {
     ) -> Result<(), SynthesisError>
         where CS: ConstraintSystem<E>
     {
-        // TODO check that s < Fs::Char
-
         // message is always padded to 256 bits in this gadget, but still checked on synthesis
         assert!(message.len() <= max_message_len * 8);
 
-        // let scalar_bits = AllocatedNum::alloc(
-        //     cs.namespace(|| "Allocate S witness"),
-        //     || Ok(*self.s.get_value().get()?)
-        // )?;
+        use bellman::PrimeField;
 
-        let scalar_bits = self.s.into_bits_le(
-            cs.namespace(|| "Get S bits")
+        let scalar_bits = self.s.into_bits_le_fixed(
+            cs.namespace(|| "Get S bits"), 
+            E::Fs::NUM_BITS as usize
         )?;
 
         // generator.assert_not_small_order(
