@@ -765,6 +765,15 @@ impl Boolean {
         }
     }
 
+    pub fn conditionally_select<E: Engine, CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        flag: &Self,
+        a: &Self,
+        b: &Self
+    ) -> Result<Self, SynthesisError> {
+        Self::sha256_ch(cs, &flag, a, b)
+    }
+
     /// Computes (a and b) xor ((not a) and c)
     pub fn sha256_ch<'a, E, CS>(
         cs: &mut CS,
@@ -884,10 +893,13 @@ impl Boolean {
         let one = E::Fr::one();
         let mut minus_one = one;
         minus_one.negate();
-        let mut tmp_lc = b.lc(E::Fr::one());
-        tmp_lc.add_assign(&c.lc(minus_one));
-
+        let mut tmp_lc = LinearCombination::zero();
+        tmp_lc.add_assign_boolean_with_coeff(&b, E::Fr::one());
+        tmp_lc.add_assign_boolean_with_coeff(&c, minus_one);
         let tmp = tmp_lc.into_allocated_num(cs)?;
+
+        // let mut tmp_lc = b.lc(E::Fr::one());
+        // tmp_lc.add_assign(&c.lc(minus_one));
 
         // TODO: move tmp into one of the match arms below
         // only when it's needed
