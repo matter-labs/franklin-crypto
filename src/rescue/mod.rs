@@ -6,6 +6,7 @@ use super::group_hash::GroupHasher;
 use rand::{Rand, Rng};
 
 pub mod bn256;
+#[cfg(feature = "plonk")]
 pub mod rescue_transcript;
 
 pub trait SBox<E: Engine>: Sized + Clone + std::fmt::Debug {

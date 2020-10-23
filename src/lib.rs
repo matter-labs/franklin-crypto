@@ -39,6 +39,7 @@ pub mod interpolation;
 pub mod as_waksman;
 pub mod rescue;
 
+#[cfg(feature = "plonk")]
 pub mod plonk;
 
 extern crate serde;
