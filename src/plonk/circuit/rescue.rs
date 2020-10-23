@@ -42,6 +42,26 @@ use crate::rescue::{RescueEngine, RescueHashParams, RescueParamsInternal, SBox, 
 
 use super::custom_rescue_gate::*;
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+pub(crate) static RESCUE_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+pub fn reset_counter() {
+    RESCUE_COUNTER.store(0, Ordering::Relaxed);
+}
+
+pub fn increment_counter() {
+    RESCUE_COUNTER.fetch_add(1, Ordering::SeqCst);
+}
+
+pub fn increment_counter_by(val: usize) {
+    RESCUE_COUNTER.fetch_add(val, Ordering::SeqCst);
+}
+
+pub fn output_counter() -> usize {
+    RESCUE_COUNTER.load(Ordering::Relaxed)
+}
+
 pub trait PlonkCsSBox<E: Engine>: SBox<E> {
     const SHOULD_APPLY_FORWARD: bool;
     fn apply_constraints<CS: ConstraintSystem<E>>(&self, cs: &mut CS, element: &Num<E>, force_no_custom_gates: bool) -> Result<Num<E>, SynthesisError>;
@@ -228,6 +248,7 @@ pub fn rescue_hash<E: RescueEngine, CS: ConstraintSystem<E>>(cs: &mut CS, params
    where <<E as RescueEngine>::Params as RescueHashParams<E>>::SBox0: PlonkCsSBox<E>, 
     <<E as RescueEngine>::Params as RescueHashParams<E>>::SBox1: PlonkCsSBox<E>
 {
+    let before = cs.get_current_step_number();
     let mut rescue_gadget = StatefulRescueGadget::<E>::new(
         &params
     );
@@ -253,6 +274,8 @@ pub fn rescue_hash<E: RescueEngine, CS: ConstraintSystem<E>>(cs: &mut CS, params
 
         result.push(res);
     }
+
+    increment_counter_by(cs.get_current_step_number() - before);
 
     Ok(result)
 }
@@ -415,6 +438,8 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
         value: Num<E>,
         params: &E::Params
     ) -> Result<(), SynthesisError> {
+        let before = cs.get_current_step_number();
+
         match self.mode {
             RescueOpMode::AccumulatingToAbsorb(ref mut into) => {
                 // two cases
@@ -449,6 +474,8 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
             }
         }
 
+        increment_counter_by(cs.get_current_step_number() - before);
+
         Ok(())
     }
 
@@ -458,6 +485,8 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
         input: &[AllocatedNum<E>],
         params: &E::Params
     ) -> Result<(), SynthesisError>{
+        let before = cs.get_current_step_number();
+
         let absorbtion_len = params.rate() as usize;
         let t = params.state_width();
         let rate = params.rate();
@@ -481,6 +510,8 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
             )?;
         }
 
+        increment_counter_by(cs.get_current_step_number() - before);
+
         Ok(())
     }
 
@@ -490,6 +521,8 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
         input: &[Num<E>],
         params: &E::Params
     ) -> Result<(), SynthesisError>{
+        let before = cs.get_current_step_number();
+
         let absorbtion_len = params.rate() as usize;
         let t = params.state_width();
         let rate = params.rate();
@@ -513,6 +546,8 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
             )?;
         }
 
+        increment_counter_by(cs.get_current_step_number() - before);
+
         Ok(())
     }
 
@@ -521,6 +556,8 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
         cs: &mut CS,
         params: &E::Params
     ) -> Result<LinearCombination<E>, SynthesisError> {
+        let before = cs.get_current_step_number();
+        
         match self.mode {
             RescueOpMode::AccumulatingToAbsorb(ref mut into) => {
                 let rate = params.rate() as usize;
@@ -545,12 +582,16 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
                 let op = RescueOpMode::SqueezedInto(sponge_output);
                 self.mode = op;
 
+                increment_counter_by(cs.get_current_step_number() - before);
+
                 return Ok(output);
             },
             RescueOpMode::SqueezedInto(ref mut into) => {
                 assert!(into.len() > 0, "squeezed state is depleted!");
                 let output = into.drain(0..1).next().expect("squeezed sponge must contain some data left");
 
+                increment_counter_by(cs.get_current_step_number() - before);
+                
                 return Ok(output);
             }
         }

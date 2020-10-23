@@ -142,8 +142,6 @@ fn split_into_bit_constraint_slices<F: PrimeField>(
     slices
 }
 
-
-
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub(crate) static RANGE_GATES_COUNTER: AtomicUsize = AtomicUsize::new(0);

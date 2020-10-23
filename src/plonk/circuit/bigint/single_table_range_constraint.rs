@@ -42,6 +42,39 @@ use crate::plonk::circuit::linear_combination::LinearCombination;
 
 use std::sync::Arc;
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+pub static NUM_RANGE_CHECK_INVOCATIONS: AtomicUsize = AtomicUsize::new(0);
+pub static NUM_SHORT_RANGE_CHECK_INVOCATIONS: AtomicUsize = AtomicUsize::new(0);
+pub static NUM_GATES_SPENT_ON_RANGE_CHECKS: AtomicUsize = AtomicUsize::new(0);
+
+
+pub fn reset_stats() {
+    NUM_RANGE_CHECK_INVOCATIONS.store(0, Ordering::Relaxed);
+    NUM_SHORT_RANGE_CHECK_INVOCATIONS.store(0, Ordering::Relaxed);
+    NUM_GATES_SPENT_ON_RANGE_CHECKS.store(0, Ordering::Relaxed);
+}
+
+fn increment_invocation_count() {
+    NUM_RANGE_CHECK_INVOCATIONS.fetch_add(1, Ordering::SeqCst);
+}
+
+fn increment_short_checks_count() {
+    NUM_SHORT_RANGE_CHECK_INVOCATIONS.fetch_add(1, Ordering::SeqCst);
+}
+
+fn increment_total_gates_count(val: usize) {
+    NUM_GATES_SPENT_ON_RANGE_CHECKS.fetch_add(val, Ordering::SeqCst);
+}
+
+pub fn print_stats() {
+    let total_checks = NUM_RANGE_CHECK_INVOCATIONS.load(Ordering::Relaxed);
+    let short_checks = NUM_SHORT_RANGE_CHECK_INVOCATIONS.load(Ordering::Relaxed);
+    let total_gates = NUM_GATES_SPENT_ON_RANGE_CHECKS.load(Ordering::Relaxed);
+
+    println!("Has made in total of {} range checks, with {} being short (singe gate) and {} gates in total", total_checks, short_checks, total_gates);
+}
+
 // enforces that this value is either `num_bits` long or a little longer 
 // up to a single range constraint width from the table
 pub fn enforce_using_single_column_table<E: Engine, CS: ConstraintSystem<E>>(
@@ -52,7 +85,7 @@ pub fn enforce_using_single_column_table<E: Engine, CS: ConstraintSystem<E>>(
     let strategies = get_range_constraint_info(&*cs);
     assert_eq!(CS::Params::STATE_WIDTH, 4);
     assert!(strategies.len() > 0);
-    assert!(strategies[0].strategy == RangeConstraintStrategy::SingleTableInvocation);
+    assert_eq!(strategies[0].strategy, RangeConstraintStrategy::SingleTableInvocation);
 
     let width_per_gate = strategies[0].optimal_multiple;
     let minimal_per_gate = strategies[0].minimal_multiple;
@@ -76,6 +109,8 @@ pub fn enforce_using_single_column_table<E: Engine, CS: ConstraintSystem<E>>(
             num_bits
         );
     }
+
+    increment_invocation_count();
 
     // we do two things simultaneously:
     // - arithmetic constraint like 2^k * a + d - d_next = 0
@@ -194,6 +229,8 @@ pub fn enforce_using_single_column_table<E: Engine, CS: ConstraintSystem<E>>(
             remainder_bits
         )?;
     }
+
+    increment_total_gates_count(num_gates_for_coarse_constraint + (remainder_bits != 0) as usize);
     
     Ok(())
 }
@@ -206,6 +243,9 @@ fn enforce_shorter_range_into_single_gate<E: Engine, CS: ConstraintSystem<E>>(
     to_constraint: &AllocatedNum<E>, 
     num_bits: usize
 ) -> Result<(), SynthesisError> {
+    increment_invocation_count();
+    increment_short_checks_count();
+    increment_total_gates_count(1);
     let strategies = get_range_constraint_info(&*cs);
     assert_eq!(CS::Params::STATE_WIDTH, 4);
     assert!(strategies.len() > 0);
@@ -272,6 +312,9 @@ fn enforce_range_into_single_gate<E: Engine, CS: ConstraintSystem<E>>(
     to_constraint: &AllocatedNum<E>, 
     num_bits: usize
 ) -> Result<(), SynthesisError> {
+    increment_invocation_count();
+    increment_short_checks_count();
+    increment_total_gates_count(1);
     let strategies = get_range_constraint_info(&*cs);
     assert_eq!(CS::Params::STATE_WIDTH, 4);
     assert!(strategies.len() > 0);

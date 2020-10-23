@@ -150,15 +150,44 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         self.value
     }
 
+    fn normalize_coordinates<CS: ConstraintSystem<E>>(
+        self,
+        cs: &mut CS
+    ) -> Result<Self, SynthesisError> {
+        let this_value = self.value;
+
+        let this_x = self.x.force_reduce_close_to_modulus(cs)?;
+        let this_y = self.y.force_reduce_close_to_modulus(cs)?;
+
+        let this = Self {
+            x: this_x,
+            y: this_y,
+            value: this_value
+        };
+
+        Ok(this)
+    }
+
     pub fn equals<CS: ConstraintSystem<E>>(
-        &self,
         cs: &mut CS,
-        other: &Self,
-    ) -> Result<Boolean, SynthesisError> 
+        this: Self,
+        other: Self,
+    ) -> Result<(Boolean, (Self, Self)), SynthesisError> 
     {
-        let x_check = self.x.equals(cs, &other.x)?;
-        let y_check = self.y.equals(cs, &other.y)?;
-        Boolean::and(cs, &x_check, &y_check)
+        let this = this.normalize_coordinates(cs)?;
+        let other = other.normalize_coordinates(cs)?;
+
+        let this_x = this.x.clone();
+        let this_y = this.y.clone();
+
+        let other_x = other.x.clone();
+        let other_y = other.y.clone();
+
+        let x_check = FieldElement::equals_assuming_reduced(cs, this_x, other_x)?;
+        let y_check = FieldElement::equals_assuming_reduced(cs, this_y, other_y)?;
+        let equals = Boolean::and(cs, &x_check, &y_check)?;
+
+        Ok((equals, (this, other)))
     }
 
     pub fn negate<CS: ConstraintSystem<E>>(
@@ -229,9 +258,12 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
 
         let (other_x_negated, other_x) = other_x.negated(cs)?;
         let (other_y_negated, other_y) = other_y.negated(cs)?;
-        
-        this_x.enforce_not_equal(cs, &other_x).expect("points have equal X coordinates in addition function");
-        this_y.enforce_not_equal(cs, &other_y).expect("points have equal Y coordinates in addition function");
+
+        // points are on curve, so we only need to be sure that other_y_negated != this_y,
+        // and other_y != this_y
+
+        let (this_y, other_y_negated) = FieldElement::enforce_not_equal(cs, this_y, other_y_negated)?;
+        let (this_y, other_y) = FieldElement::enforce_not_equal(cs, this_y, other_y)?;
 
         let (lambda, (mut tmp, _)) = FieldElement::div_from_addition_chain(cs, vec![other_y, this_y_negated], other_x_minus_this_x)?;
 
@@ -313,8 +345,11 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let (other_x_negated, other_x) = other_x.negated(cs)?;
         let (other_y_negated, other_y) = other_y.negated(cs)?;
 
-        this_x.enforce_not_equal(cs, &other_x).expect("points have equal X coordinates in subtraction function");
-        this_y.enforce_not_equal(cs, &other_y).expect("points have equal Y coordinates in subtraction function");
+        // points are on curve, so we only need to be sure that other_y_negated != this_y,
+        // and other_y != this_y
+
+        let (this_y, other_y_negated) = FieldElement::enforce_not_equal(cs, this_y, other_y_negated)?;
+        let (this_y, other_y) = FieldElement::enforce_not_equal(cs, this_y, other_y)?;
 
         let (lambda, (mut tmp, _)) = FieldElement::div_from_addition_chain(cs, vec![other_y, this_y], other_x_minus_this_x)?;
 
@@ -392,7 +427,6 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         // Assume A == 0 for now
 
         let (two_y, y) = y.double(cs)?;
-        // let (two_y, (y, _)) = y.clone().add(cs, y)?;
 
         let (lambda, _) = three_x_squared.div(cs, two_y)?;
 
@@ -442,6 +476,8 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
 
         // even though https://www.researchgate.net/publication/283556724_New_Fast_Algorithms_for_Elliptic_Curve_Arithmetic_in_Affine_Coordinates exists
         // inversions are cheap, so Montgomery ladder is better
+
+        // we can also try https://eprint.iacr.org/2015/1060.pdf
 
         let this_value = self.get_value();
         let other_value = other.get_value();
@@ -590,16 +626,20 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let (rhs, _) = x_cubed.add(cs, b)?;
 
         // account for lazy addition
-        let rhs = rhs.force_reduce_into_field(cs)?;
+        let rhs = rhs.force_reduce_close_to_modulus(cs)?;
+        let lhs = lhs.force_reduce_close_to_modulus(cs)?;
 
-        let is_on_curve = lhs.equals(cs, &rhs)?;
+        let is_on_curve = FieldElement::equals_assuming_reduced(cs, lhs, rhs)?;
+
+        // let is_on_curve = lhs.equals(cs, &rhs)?;
+        // dbg!(lhs.get_field_value());
+        // dbg!(rhs.get_field_value());
 
         let p = Self {
             x,
             y,
             value
         };
-
 
         Ok((is_on_curve, p))
     }
@@ -630,7 +670,6 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
         let v = scalar.get_variable();
 
         let entries = decompose_allocated_num_into_skewed_table(cs, &v, bit_limit)?;
-
         // we add a random point to the accumulator to avoid having zero anywhere (with high probability)
         // and unknown discrete log allows us to be "safe"
 
@@ -654,9 +693,7 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
 
         for e in entries_without_first_and_last.iter() {
             let (selected_y, _) = FieldElement::select(cs, e, minus_y.clone(), y.clone())?;  
-
-            // let (t, (tt, y_negated)) = FieldElement::conditional_negation(cs, e, y)?;    
-
+  
             let t_value = match (this_value, e.get_value()) {
                 (Some(val), Some(bit)) => {
                     let mut val = val;
@@ -669,7 +706,6 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
                 _ => None
             };
 
-            // y = tt;
             let t = Self {
                 x: x,
                 y: selected_y,
@@ -834,7 +870,7 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
         let offset = Self::constant(offset_value, params);
 
         let (result, _) = acc.sub_unequal(cs, offset)?;
-
+        
         Ok(result)
     }
 }
@@ -1561,7 +1597,88 @@ mod test {
             if i == 0 {
                 let base = cs.n();
                 let _ = a.mul(&mut cs, &b, None).unwrap();
-                println!("Single multiplication taken {} gates", cs.n() - base);
+                println!("Affine single multiplication taken {} gates", cs.n() - base);
+            }
+        }
+    }
+
+    #[test]
+    fn test_base_curve_multiplication_with_range_table(){
+        use crate::plonk::circuit::tables::inscribe_default_range_table_for_bit_width_over_first_three_columns;
+        use crate::plonk::circuit::bigint::*;
+        use crate::plonk::circuit::bigint::single_table_range_constraint::{reset_stats, print_stats};
+        use rand::{XorShiftRng, SeedableRng, Rng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        let info = RangeConstraintInfo {
+            minimal_multiple: 17,
+            optimal_multiple: 17,
+            multiples_per_gate: 1,
+            linear_terms_used: 3,
+            strategy: RangeConstraintStrategy::SingleTableInvocation,
+        };
+        let params = RnsParameters::<Bn256, Fq>::new_for_field_with_strategy(
+            68,
+            110, 
+            4, 
+            info,
+            true
+        );
+
+        for i in 0..10 {
+            let mut cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+            inscribe_default_range_table_for_bit_width_over_first_three_columns(&mut cs, 17).unwrap();
+            let a_f: G1Affine = rng.gen();
+            let b_f: Fr = rng.gen();
+
+            let a = AffinePoint::alloc(
+                &mut cs, 
+                Some(a_f), 
+                &params
+            ).unwrap();
+
+            let b = AllocatedNum::alloc(
+                &mut cs, 
+                || {
+                    Ok(b_f)
+                }
+            ).unwrap();
+
+            let b = Num::Variable(b);
+    
+            let (result, a) = a.mul(&mut cs, &b, None).unwrap();
+
+            let result_recalculated = a_f.mul(b_f.into_repr()).into_affine();
+
+            assert!(cs.is_satisfied());
+
+            let x_fe = result.x.get_field_value().unwrap();
+            let y_fe = result.y.get_field_value().unwrap();
+
+            let (x, y) = result.get_value().unwrap().into_xy_unchecked();
+
+            assert_eq!(x_fe, x, "x coords mismatch between value and coordinates");
+            assert_eq!(y_fe, y, "y coords mismatch between value and coordinates");
+
+            let (x, y) = result_recalculated.into_xy_unchecked();
+
+            assert_eq!(x_fe, x, "x coords mismatch between expected result and circuit result");
+            assert_eq!(y_fe, y, "y coords mismatch between expected result and circuit result");
+
+            assert_eq!(result.get_value().unwrap(), result_recalculated, "mismatch between expected result and circuit result");
+
+            let (x, y) = a_f.into_xy_unchecked();
+            assert_eq!(a.x.get_field_value().unwrap(), x, "x coords mismatch, input was mutated");
+            assert_eq!(a.y.get_field_value().unwrap(), y, "y coords mismatch, input was mutated");
+
+            if i == 0 {
+                reset_stats();
+                crate::plonk::circuit::counter::reset_counter();
+                let base = cs.n();
+                let _ = a.mul(&mut cs, &b, None).unwrap();
+                println!("Affine single multiplication taken {} gates", cs.n() - base);
+                println!("Affine spent {} gates in equality checks", crate::plonk::circuit::counter::output_counter());
+                print_stats();
             }
         }
     }

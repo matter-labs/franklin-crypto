@@ -131,6 +131,17 @@ impl<E: Engine> Limb<E> {
         }
     }
 
+    pub fn new_constant_from_field_value(
+        value: E::Fr
+    ) -> Self {
+        let term = Term::<E>::from_constant(value);
+
+        Self {
+            term,
+            max_value: fe_to_biguint(&value)
+        }
+    }
+
     pub fn max_bits(&mut self) -> usize {
         (self.max_value.bits() as usize) + 1
     }
