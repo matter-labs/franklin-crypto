@@ -15,10 +15,12 @@ use crate::bellman::plonk::better_better_cs::cs::{
     MainGateTerm
 };
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Byte<E: Engine> {
     pub inner: Num<E>
 }
+
+impl<E: Engine> Copy for Byte<E> {}
 
 impl<E: Engine> Byte<E> {
     pub fn empty() -> Self {
