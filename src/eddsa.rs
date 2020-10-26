@@ -137,7 +137,7 @@ impl<E: JubjubEngine> Seed<E> {
         concatenated.extend_from_slice(&zero[..]);
         concatenated.extend_from_slice(&priv_key[..]);
         concatenated.extend_from_slice(h1.as_slice());
-
+   
         mac.input(&concatenated[..]);
         key.copy_from_slice(mac.clone().result().code().as_mut_slice()); // key = HMAC(key, concatenated)
 
