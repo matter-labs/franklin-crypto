@@ -10,7 +10,7 @@ version = "0.0.5"
 crate-type = ["lib", "staticlib"]
 
 [features]
-default = ["multicore"]
+default = ["multicore", "plonk"]
 multicore = ["bellman/multicore"]
 plonk = ["bellman/plonk"]
  
@@ -35,7 +35,7 @@ poseidon_hash = { path = "../poseidon_hash" }
 # poseidon_hash = {git = "https://github.com/shamatar/poseidon_hash.git"}
 
 blake2s_simd = { version = "0.5" }
-hex = "*"
+hex = "0.4"
 
 [dev-dependencies]
 hex-literal = "0.1"

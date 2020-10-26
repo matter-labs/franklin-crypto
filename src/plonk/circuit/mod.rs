@@ -14,6 +14,8 @@ pub mod curve;
 pub mod verifier_circuit;
 pub mod tables;
 pub mod counter;
+pub mod byte;
+pub mod utils;
 
 use crate::bellman::pairing::Engine;
 use crate::bellman::plonk::better_better_cs::cs::PlonkConstraintSystemParams;

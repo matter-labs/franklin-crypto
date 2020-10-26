@@ -34,7 +34,7 @@ use crate::bellman::plonk::better_better_cs::cs::{
 
 use crate::circuit::Assignment;
 
-use super::allocated_num::AllocatedNum;
+use super::allocated_num::*;
 
 pub mod bigint;
 pub mod field;
@@ -48,12 +48,33 @@ use self::range_constraint_gate::TwoBitDecompositionRangecheckCustomGate;
 // dummy for now, will address later based on either lookup/range check or trivial
 // single bit / two bit decompositions
 #[track_caller]
-pub fn constraint_num_bits<E: Engine, CS: ConstraintSystem<E>>(cs: &mut CS, var: Variable, num_bits: usize) -> Result<(), SynthesisError> {
-    if let Ok(value) = cs.get_value(var) {
-        let bits = value.into_repr().num_bits() as usize;
-        debug_assert!(bits <= num_bits);
+pub fn constraint_num_bits<E: Engine, CS: ConstraintSystem<E>>(cs: &mut CS, el: &Num<E>, num_bits: usize) -> Result<(), SynthesisError> {
+    match el {
+        Num::Constant(c) => {
+            let bits = c.into_repr().num_bits() as usize;
+            assert!(bits <= num_bits);
+        },
+        Num::Variable(el) => {
+            if let Some(value) = el.get_value() {
+                let bits = value.into_repr().num_bits() as usize;
+                assert!(bits <= num_bits);
+            }
+            let infos = get_range_constraint_info(&*cs);
+            match infos[0].strategy {
+                RangeConstraintStrategy::MultiTable => {
+                    self::range_constraint_functions::coarsely_enforce_using_multitable(cs, &el, num_bits)?;
+                },
+                RangeConstraintStrategy::SingleTableInvocation => {
+                    self::single_table_range_constraint::enforce_using_single_column_table(cs, &el, num_bits)?;
+                },
+                RangeConstraintStrategy::CustomTwoBitGate => {
+                    let _ = create_range_constraint_chain(cs, &el, num_bits)?;
+                }
+                _ => {unimplemented!("range constraint strategies other than multitable, single table or custom gate are not yet handled")}
+            }
+        }
     }
-    // println!("Warning, using unimplemented strict range check function");
+    
     Ok(())
 }
 
