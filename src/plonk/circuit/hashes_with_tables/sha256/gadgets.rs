@@ -18,6 +18,7 @@ use crate::plonk::circuit::assignment::{
 
 use super::tables::*;
 use super::utils::*;
+use super::super::utils::*;
 
 use std::sync::Arc;
 use std::ops::Add;
@@ -28,6 +29,7 @@ use std::cmp;
 use crate::num_bigint::BigUint;
 use crate::num_traits::cast::ToPrimitive;
 use crate::num_traits::{ Zero, One };
+use crate::itertools::Itertools;
 
 type Result<T> = std::result::Result<T, SynthesisError>;
 
@@ -1697,20 +1699,45 @@ impl<E: Engine> Sha256Gadget<E> {
         Ok(res)
     }
 
-    // pub fn sha256_from_bytes<CS: ConstraintSystem<E>>(&self, cs: &mut CS, bytes: &[Byte<E>]) -> Result<[Num<E>; 8]>
-    // {
-    //     // first apply the right padding:
-    //     // begin with the original message of length L bits
-    //     // append a single '1' bit
-    //     // append K '0' bits, where K is the minimum number >= 0 such that L + 1 + K + 64 is a multiple of 512
-    //     // append L as a 64-bit big-endian integer, making the total post-processed length a multiple of 512 bits
-    //     let L = bytes.len() * 8;
-    //     let num_of_zero_bytes = if (bytes.len() % 64) <  
-    //     (64 - (bytes.len() % 64) - 1 - 8)
-    //     else {
-
-    //     }
-
+    pub fn sha256_from_bytes<CS: ConstraintSystem<E>>(&self, cs: &mut CS, bytes: &[Byte<E>]) -> Result<[Num<E>; 8]>
+    {
+        // first apply the right padding:
+        // begin with the original message of length L bits
+        // append a single '1' bit
+        // append K '0' bits, where K is the minimum number >= 0 such that L + 1 + K + 64 is a multiple of 512
+        // append L as a 64-bit big-endian integer, making the total post-processed length a multiple of 512 bits
+        let L = (bytes.len() * 8) as u64;
+        let last_block_size = bytes.len() % 64;
+        let (num_of_zero_bytes, pad_overflowed) = if last_block_size <= (64 - 1 - 8) {
+            (64 - 1 - 8 - last_block_size, false)
+        }
+        else {
+            (128 - 1 - 8 - last_block_size, true)
+        };
         
-    // }
+        let mut padded = vec![];
+        padded.extend(bytes.iter().cloned());
+        padded.push(Byte::from_cnst(cs, u64_to_ff(1 << 7)));
+        padded.extend(iter::repeat(Byte::from_cnst(cs, E::Fr::zero())).take(num_of_zero_bytes));
+
+        // represent L as big integer number:
+        let L_bytes_repr = L.to_be_bytes();
+        padded.extend(L_bytes_repr.into_iter().map(|num| { Byte::from_cnst(cs, u64_to_ff(*num as u64)) }));
+
+        assert_eq!(padded.len() % 64, 0);
+
+        // now convert the byte array to array of 32-bit words
+        let mut words32 = Vec::with_capacity(padded.len() % 4);
+        let cfs = [u64_to_ff(1 << 24), u64_to_ff(1 << 16), u64_to_ff(1 << 8), E::Fr::one()];
+        for chunk in padded.chunks(4) {
+            let tmp = Num::lc(
+                cs, 
+                &cfs,
+                &[chunk[0].into_num(), chunk[1].into_num(), chunk[2].into_num(), chunk[3].into_num()], 
+            )?;
+            words32.push(tmp);
+        }
+
+        self.sha256(cs, &words32[..])           
+    }
 }

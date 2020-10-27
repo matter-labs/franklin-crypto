@@ -6,6 +6,8 @@ use crate::bellman::SynthesisError;
 use crate::bellman::Engine;
 
 use super::utils::*;
+use super::super::utils::*;
+
 use itertools::Itertools;
 
 // GENERAL PURPOSE TABLES (so to say)
