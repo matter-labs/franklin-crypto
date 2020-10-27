@@ -1,25 +1,30 @@
-use crate::plonk::better_better_cs::cs::*;
-use crate::plonk::better_better_cs::lookup_tables::*;
-use crate::plonk::better_better_cs::utils;
-use crate::pairing::ff::*;
-use crate::pairing::ff::{PrimeField, PrimeFieldRepr};
-use crate::SynthesisError;
-use crate::Engine;
-use crate::plonk::better_better_cs::gadgets::num::{
+use crate::bellman::plonk::better_better_cs::cs::*;
+use crate::bellman::plonk::better_better_cs::lookup_tables::*;
+use crate::bellman::plonk::better_better_cs::utils;
+use crate::bellman::pairing::ff::*;
+use crate::bellman::pairing::ff::{PrimeField, PrimeFieldRepr};
+use crate::bellman::SynthesisError;
+use crate::bellman::Engine;
+use crate::plonk::circuit::allocated_num::{
     AllocatedNum,
     Num,
 };
-
-use super::tables::*;
-use super::utils::*;
-use crate::plonk::better_better_cs::gadgets::assignment::{
+use crate::plonk::circuit::byte::{
+    Byte,
+};
+use crate::plonk::circuit::assignment::{
     Assignment
 };
+
+use super::tables::*;
+use super::super::utils::*;
+
 use std::sync::Arc;
 use splitmut::SplitMut;
 use std::{ iter, mem };
 use std::collections::HashMap;
 use std::cell::RefCell;
+use std::ops::Index;
 
 type Result<T> = std::result::Result<T, SynthesisError>;
 
@@ -50,8 +55,9 @@ impl<E: Engine> Default for DecomposedNum<E> {
     }
 }
 
-impl<E: Engine> DecomposedNum<E> {
-    pub fn get_var_by_idx(&self, idx: usize) -> &Num<E> {
+impl<E: Engine> Index<usize> for DecomposedNum<E> {
+    type Output = Num<E>;
+    fn index<'a>(&'a self, idx: usize) -> &'a Num<E> {
         let res = match idx {
             0 => &self.r0,
             1 => &self.r1,
@@ -62,6 +68,7 @@ impl<E: Engine> DecomposedNum<E> {
         res
     }
 }
+
 
 #[derive(Clone)]
 pub struct Reg<E: Engine> {
@@ -93,29 +100,22 @@ impl<E: Engine> Reg<E> {
 pub struct HashState<E: Engine>(Vec<Reg<E>>);
 
 
-#[derive(Copy, Clone)]
-pub enum VarTracker {
-    NotAssigned,
-    Variable,
-    Constant,
-}
-
 // the purpose of this (and the following) struct is explained in the comments of the main text
 // all linear variables are represented in the form (bool, coef, var)
 // where the boolean flag asserts that variable was actually assigned a value (for self-test and debugging assistance)
 #[derive(Clone)]
 pub struct GateVarHelper<E: Engine>{
-    assigned: VarTracker,
+    is_assigned: bool,
     coef: E::Fr,
-    val: AllocatedNum<E>,
+    val: Num<E>,
 }
 
 impl<E: Engine> Default for GateVarHelper<E> {
     fn default() -> Self {
         GateVarHelper {
-            assigned: VarTracker::NotAssigned,
+            is_assigned: false,
             coef: E::Fr::zero(),
-            val: AllocatedNum::default(),
+            val: Num::default(),
         }
     }
 }
@@ -142,33 +142,32 @@ impl<E: Engine> Default for GateAllocHelper<E> {
 }
 
 impl<E: Engine> GateAllocHelper<E> {
+    pub fn new() -> Self {
+        GateAllocHelper::default()
+    }
+
     // force variable - checks that the variable is indeed AllocatedVar and not constant
-    pub fn set_var(&mut self, idx: usize, coef: E::Fr, input: Num<E>, force_allocated: bool) -> Result<()>
+    pub fn set_var(&mut self, idx: usize, coef: E::Fr, input: Num<E>, force_allocated: bool)
     {
         assert!(idx < CS_WIDTH);
         if force_allocated && input.is_constant() {
-            return Err(SynthesisError::UnexpectedIdentity);
+            panic!("The variable should be actually allocated.")
         }
-
-        match input {
-            Num::Constant(fr) => {
-                self.vars[idx].assigned = VarTracker::Constant;
-                let mut tmp = fr;
-                tmp.mul_assign(&coef);
-                self.cnst_sel.add_assign(&tmp);
-            }
-            Num::Allocated(var) => {
-                self.vars[idx].assigned = VarTracker::Variable;
-                self.vars[idx].coef = coef;
+        self.vars[idx].is_assigned = true;
+         self.vars[idx].coef = coef;
                 self.vars[idx].val = var;
-            }
-        }
-
-        Ok(())
     }
 
     pub fn set_table(&mut self, table: Arc<LookupTableApplication<E>>) {
         self.table = Some(table)
+    }
+
+    pub fn link_with_next_row(&mut self, coef: E::Fr) {
+        self.d_next_sel = coef;
+    }
+
+    pub fn set_cnst_sel(&mut self, fr: E::Fr) {
+        self.cnst_sel = fr;
     }
 
     pub fn is_prepared(&self) -> bool {
@@ -178,23 +177,11 @@ impl<E: Engine> GateAllocHelper<E> {
             }
         }
         return true;
-    }
-
-    pub fn link_with_next_row(&mut self, coef: E::Fr) {
-        self.d_next_sel = coef;
-    }
-
-    pub fn new() -> Self {
-        GateAllocHelper::default()
-    }
-
-    pub fn set_cnst_sel(&mut self, fr: E::Fr) {
-        self.cnst_sel = fr;
-    }
+    }    
 }
 
 
-// for explanations have a llok in main text 
+// for explanations have a look in main text 
 // let the third column (results of corresponding xors be: q0, q1, q2, q3)
 // returns (z, [q0, q1, q2, q3], Option(w0, w1, w2))
 #[derive(Clone)]
@@ -206,7 +193,7 @@ pub struct XorRotOutput<E: Engine> {
 }
 
 
-pub struct OptimizedBlake2sGadget<E: Engine> {
+pub struct Blake2sGadget<E: Engine> {
     xor_table: Arc<LookupTableApplication<E>>,
     xor_rotate4_table: Arc<LookupTableApplication<E>>,
     xor_rotate7_table: Arc<LookupTableApplication<E>>,
@@ -217,6 +204,8 @@ pub struct OptimizedBlake2sGadget<E: Engine> {
 
     declared_cnsts: RefCell<HashMap<E::Fr, AllocatedNum<E>>>,
     allocated_cnsts : RefCell<HashMap<E::Fr, AllocatedNum<E>>>,
+
+    // constants used throughout the ...;
 }
 
 impl<E: Engine> OptimizedBlake2sGadget<E> {
@@ -244,24 +233,24 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
     fn alloc_num_from_u64<CS: ConstraintSystem<E>>(&self, cs: &mut CS, n: Option<u64>) -> Result<Num<E>> {
         let val = n.map(|num| { self.u64_to_ff(num) });
         let new_var = AllocatedNum::alloc(cs, || {val.grab()})?;
-        Ok(Num::Allocated(new_var))
+        Ok(Num::Variable(new_var))
     }
 
     fn alloc_reg_from_u64<CS: ConstraintSystem<E>>(&self, cs: &mut CS, n: Option<u64>) -> Result<Reg<E>> {
         let full_val = n.map(|num| { self.u64_to_ff(num) });
-        let full = Num::Allocated(AllocatedNum::alloc(cs, || {full_val.grab()})?);
+        let full = Num::Variable(AllocatedNum::alloc(cs, || {full_val.grab()})?);
         
         let r0_val = n.map(|num| { self.u64_to_ff(num & 0xff) });
-        let r0 = Num::Allocated(AllocatedNum::alloc(cs, || {r0_val.grab()})?);
+        let r0 = Num::Variable(AllocatedNum::alloc(cs, || {r0_val.grab()})?);
 
         let r1_val = n.map(|num| { self.u64_to_ff((num >> CHUNK_SIZE) & 0xff) });
-        let r1 = Num::Allocated(AllocatedNum::alloc(cs, || {r1_val.grab()})?);
+        let r1 = Num::Variable(AllocatedNum::alloc(cs, || {r1_val.grab()})?);
 
         let r2_val = n.map(|num| { self.u64_to_ff((num >> (2 * CHUNK_SIZE)) & 0xff) });
-        let r2 = Num::Allocated(AllocatedNum::alloc(cs, || {r2_val.grab()})?);
+        let r2 = Num::Variable(AllocatedNum::alloc(cs, || {r2_val.grab()})?);
 
         let r3_val = n.map(|num| { self.u64_to_ff((num >> (3 * CHUNK_SIZE)) & 0xff) });
-        let r3 = Num::Allocated(AllocatedNum::alloc(cs, || {r3_val.grab()})?);
+        let r3 = Num::Variable(AllocatedNum::alloc(cs, || {r3_val.grab()})?);
 
         let res = Reg {
             full, 
@@ -272,7 +261,7 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
 
     fn unwrap_allocated(&self, num: &Num<E>) -> AllocatedNum<E> {
         match num {
-            Num::Allocated(var) => var.clone(),
+            Num::Variable(var) => var.clone(),
             _ => panic!("should be allocated"),
         }
     }
@@ -439,10 +428,10 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
 
     fn to_allocated<CS: ConstraintSystem<E>>(&self, cs: &mut CS, input: &Num<E>) -> Result<Num<E>> {
         let res = match input {
-            Num::Allocated(_) => input.clone(),
+            Num::Variable(_) => input.clone(),
             Num::Constant(fr) => {
                 if fr.is_zero() {
-                    Num::Allocated(AllocatedNum::alloc_zero(cs)?)
+                    Num::Variable(AllocatedNum::alloc_zero(cs)?)
                 }
                 else {
                     let allocated_map = self.allocated_cnsts.borrow();
@@ -457,7 +446,7 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
                             var.clone()
                         },
                     };
-                    Num::Allocated(var)
+                    Num::Variable(var)
                 }
             },
         };
@@ -591,11 +580,11 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
         let (b, c) = match t {
             Num::Constant(fr) => {
                 assert!(fr.is_zero());
-                (Num::Allocated(AllocatedNum::alloc_zero(cs)?), of.clone())
+                (Num::Variable(AllocatedNum::alloc_zero(cs)?), of.clone())
             }
-            Num::Allocated(_) => {
+            Num::Variable(_) => {
                 let tmp = self.xor(cs, &of, t)?;
-                (t.clone(), Num::Allocated(tmp))
+                (t.clone(), Num::Variable(tmp))
             }
         };
 
@@ -715,10 +704,10 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
                 }
             },
             (_, _) => {
-                let q0 = Num::Allocated(self.xor_rot(cs, &a.decomposed.r0, &b.decomposed.r0, rot)?);
-                let q1 = Num::Allocated(self.xor(cs, &a.decomposed.r1, &b.decomposed.r1)?);
-                let q2 = Num::Allocated(self.xor(cs, &a.decomposed.r2, &b.decomposed.r2)?);
-                let q3 = Num::Allocated(self.xor(cs, &a.decomposed.r3, &b.decomposed.r3)?);               
+                let q0 = Num::Variable(self.xor_rot(cs, &a.decomposed.r0, &b.decomposed.r0, rot)?);
+                let q1 = Num::Variable(self.xor(cs, &a.decomposed.r1, &b.decomposed.r1)?);
+                let q2 = Num::Variable(self.xor(cs, &a.decomposed.r2, &b.decomposed.r2)?);
+                let q3 = Num::Variable(self.xor(cs, &a.decomposed.r3, &b.decomposed.r3)?);               
 
                 let fr1 = a.get_value();
                 let fr2 = b.get_value();
@@ -770,7 +759,7 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
                         Ok(cur_val)
                     })?;
                     
-                    *w = Num::Allocated(new_var);
+                    *w = Num::Variable(new_var);
                     cur = w;
                 }
                  
@@ -922,7 +911,7 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
             let n = (r0 + (r1 << 8) + (r2 << 16) + (r3 << 24)) ^ cnst;
             Ok(self.u64_to_ff(n))
         })?;
-        let full = Num::Allocated(full_var);
+        let full = Num::Variable(full_var);
         
         let mut idx_used = [false, false, false, false];
         let mut res_chunks = [input.r0.clone(), input.r1.clone(), input.r2.clone(), input.r3.clone()];
@@ -937,7 +926,7 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
                 let num = Num::Constant(self.u64_to_ff(byte_val));
                 let b = self.to_allocated(cs, &num)?;
                 
-                let c = Num::Allocated(self.xor(cs, &a, &b)?);
+                let c = Num::Variable(self.xor(cs, &a, &b)?);
                 res_chunks[i] = c.clone();
 
                 let mut row = GateAllocHelper::default();
@@ -961,7 +950,7 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
                         
                     Ok(d_val)
                 })?;
-                d = Num::Allocated(w)
+                d = Num::Variable(w)
             }
         }
 
@@ -972,7 +961,7 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
             // for all unused chunks allocate with initial values:
             // equation of the form a * coef_a + b * coef_b + c * coef_d - d = 0;
             let mut pos = 0;
-            let dummy = Num::Allocated(AllocatedNum::alloc_zero(cs)?);
+            let dummy = Num::Variable(AllocatedNum::alloc_zero(cs)?);
             let mut row = GateAllocHelper::default();
 
             for i in 0..3 {
@@ -1021,14 +1010,14 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
             Ok(self.u64_to_ff(n ^ m))
         })?;
         
-        let full = Num::Allocated(full_var);
+        let full = Num::Variable(full_var);
         let mut res_chunks = <[Num<E>; 4]>::default();
         let mut d = full.clone();
 
         for i in 0..4 {   
             let a = x.get_var_by_idx(i).clone();
             let b = y.get_var_by_idx(i).clone();
-            let c = Num::Allocated(self.xor(cs, &a, &b)?);
+            let c = Num::Variable(self.xor(cs, &a, &b)?);
             res_chunks[i] = c.clone();
 
             let mut row = GateAllocHelper::default();
@@ -1052,7 +1041,7 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
                     
                 Ok(d_val)
             })?;
-            d = Num::Allocated(w)
+            d = Num::Variable(w)
         }
         
         let reg = Reg {
@@ -1076,18 +1065,18 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
         for i in 0..4 {
             let a = x.get_var_by_idx(i).clone();
             let b = y.get_var_by_idx(i).clone();
-            let c = Num::Allocated(self.xor(cs, &a, &b)?);
+            let c = Num::Variable(self.xor(cs, &a, &b)?);
             temp_chunks[i] = c.clone();
 
             let (d, cnst_sel) = match self.declared_cnsts.borrow().is_empty() {
-                true => (Num::Allocated(AllocatedNum::alloc_zero(cs)?), E::Fr::zero()),
+                true => (Num::Variable(AllocatedNum::alloc_zero(cs)?), E::Fr::zero()),
                 false => {
                     let mut input_dict = self.declared_cnsts.borrow_mut();
                     let mut output_dict = self.allocated_cnsts.borrow_mut();
                     let key = input_dict.keys().next().unwrap().clone();
                     let val = input_dict.remove(&key).unwrap();
                     
-                    let d = Num::Allocated(val.clone());
+                    let d = Num::Variable(val.clone());
                     let mut cnst_sel = key.clone();
                     cnst_sel.negate();
 
@@ -1244,14 +1233,5 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
             res.push(elem.full);
         }
         Ok(res)
-    }
-}
-
-impl<E: Engine> Blake2sGadget<E> for OptimizedBlake2sGadget<E> {
-    fn new<CS: ConstraintSystem<E>>(cs: &mut CS) -> Result<Self> {
-        OptimizedBlake2sGadget::new(cs)
-    }
-    fn digest<CS: ConstraintSystem<E>>(&self, cs: &mut CS, data: &[Num<E>]) -> Result<Vec<Num<E>>> {
-        self.digest(cs, data)
     }
 }

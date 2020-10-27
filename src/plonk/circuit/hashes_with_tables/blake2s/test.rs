@@ -1,29 +1,30 @@
 #[cfg(test)]
 mod test {
-    use crate::plonk::better_better_cs::cs::*;
-    use crate::pairing::ff::*;
-    use crate::SynthesisError;
-    use crate::Engine;
+    use crate::bellman::plonk::better_better_cs::cs::*;
+    use crate::bellman::pairing::ff::*;
+    use crate::bellman::SynthesisError;
+    use crate::bellman::Engine;
     use blake2::{Blake2s, Digest};
-    use crate::plonk::better_better_cs::gadgets::num::{
+    use crate::plonk::circuit::allocated_num::{
         AllocatedNum,
         Num,
     };
-    use crate::pairing::bn256::{Bn256, Fr};
+    use crate::plonk::circuit::byte::{
+        Byte,
+    };
 
     use super::super::gadgets::*;
-    use super::super::optimized_gadgets::*;
-    use super::super::utils::*;
+    use super::super::super::utils::*;
     use rand::{Rng, SeedableRng, StdRng};
 
 
-    struct TestBlake2sCircuit<E:Engine, G: Blake2sGadget<E>>{
+    struct TestBlake2sCircuit<E:Engine>{
         input: Vec<E::Fr>,
         output: [E::Fr; 8],
         _gadget_marker: std::marker::PhantomData<G>,
     }
 
-    impl<E: Engine, G: Blake2sGadget<E>> Circuit<E> for TestBlake2sCircuit<E, G> {
+    impl<E: Engine> Circuit<E> for TestBlake2sCircuit<E> {
         type MainGate = Width4MainGateWithDNext;
 
         fn declare_used_gates() -> Result<Vec<Box<dyn GateInternal<E>>>, SynthesisError> {

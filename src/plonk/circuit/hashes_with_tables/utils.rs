@@ -1,9 +1,9 @@
 use crate::bellman::pairing::ff::*;
+use crate::bellman::SynthesisError;
 use crate::num_bigint::BigUint;
 use crate::num_traits::cast::ToPrimitive;
 use crate::num_traits::{ Zero, One };
 use std::{ iter, mem };
-use splitmut::SplitMut;
 
 
 pub fn pow(base: usize, exp: usize) -> usize {
@@ -159,12 +159,5 @@ impl<I> Iterator for Iter<I> where I: Iterator {
     fn next(&mut self) -> Option<Self::Item> {
         let first = mem::replace(&mut self.0, false);
         self.1.next().map(|e| (first, self.1.peek().is_none(), e))
-    }
-}
-
-
-impl From<splitmut::SplitMutError> for SynthesisError {
-    fn from(_splitmut_err: splitmut::SplitMutError) -> SynthesisError {
-        SynthesisError::UnexpectedIdentity
     }
 }
