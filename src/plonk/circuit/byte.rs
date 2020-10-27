@@ -83,6 +83,7 @@ impl<E: Engine> Byte<E> {
 
 pub trait IntoBytes<E: Engine>: Send + Sync {
     fn into_le_bytes<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Vec<Byte<E>>, SynthesisError>;
+    fn into_be_bytes<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Vec<Byte<E>>, SynthesisError>;
 }
 
 pub fn uniquely_encode_le_bytes_into_num<E: Engine, CS: ConstraintSystem<E>>(
@@ -176,4 +177,64 @@ pub fn uniquely_encode_be_bytes_to_field_elements<F: PrimeField>(
     }
     
     results
+}
+
+impl<E: Engine> IntoBytes<E> for Num<E> {
+    fn into_le_bytes<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Vec<Byte<E>>, SynthesisError> {
+        let mut num_bytes = (E::Fr::NUM_BITS / 8) as usize;
+        if E::Fr::NUM_BITS % 8 != 0 {
+            num_bytes += 1;
+        }
+
+        let result = match self {
+            Num::Variable(ref var) => {
+                let mut minus_one = E::Fr::one();
+                minus_one.negate();
+                let factor = E::Fr::from_str("256").unwrap();
+                let mut coeff = E::Fr::one();
+                let mut result = Vec::with_capacity(num_bytes);
+                let mut lc = LinearCombination::zero();
+                lc.add_assign_number_with_coeff(&self, minus_one);
+                let witness = split_some_into_slices(var.get_value(), 8, num_bytes);
+                for w in witness.into_iter() {
+                    let allocated = AllocatedNum::alloc(
+                        cs,
+                        || {
+                            Ok(*w.get()?)
+                        }
+                    )?;
+                    let num = Num::Variable(allocated);
+                    let byte = Byte::from_num(cs, num.clone())?;
+                    result.push(byte);
+
+                    lc.add_assign_number_with_coeff(&num, coeff);
+                    coeff.mul_assign(&factor);
+                }
+
+                lc.enforce_zero(cs)?;
+
+                result
+            },
+            Num::Constant(constant) => {
+                let mut result = Vec::with_capacity(num_bytes);
+                let witness = split_into_slices(constant, 8, num_bytes);
+                for w in witness.into_iter() {
+                    let num = Num::Constant(w);
+                    let byte = Byte::from_num(cs, num)?;
+                    result.push(byte);
+                }
+
+                result
+            }
+        };
+        
+        Ok(result)
+    }
+
+    fn into_be_bytes<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Vec<Byte<E>>, SynthesisError> {
+        let mut tmp = self.into_le_bytes(cs)?;
+        tmp.reverse();
+
+        Ok(tmp)
+    }
 }
