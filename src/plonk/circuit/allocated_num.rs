@@ -1376,7 +1376,7 @@ impl<E: Engine> AllocatedNum<E> {
         let dummy = Self::zero(cs);
         let range_of_linear_terms = CS::MainGate::range_of_linear_terms();
         let mut gate_term = MainGateTerm::new();
-        let (mut local_vars, mut local_coeffs) = CS::MainGate::format_term(gate_term, dummy.variable)?;
+        let (_, mut local_coeffs) = CS::MainGate::format_term(gate_term, dummy.variable)?;
         for (i, idx) in range_of_linear_terms.enumerate() {
             local_coeffs[idx] = coefs[i].clone();
         }
@@ -1388,7 +1388,7 @@ impl<E: Engine> AllocatedNum<E> {
         local_coeffs[next_row_term_idx] = next_row_coef.clone();
 
         let mg = CS::MainGate::default();
-        local_vars = vec![vars[0].get_variable(), vars[1].get_variable(), vars[2].get_variable(), vars[3].get_variable()];
+        let local_vars = vec![vars[0].get_variable(), vars[1].get_variable(), vars[2].get_variable(), vars[3].get_variable()];
 
         cs.new_single_gate_for_trace_step(
             &mg,
@@ -1549,7 +1549,7 @@ impl<E: Engine> AllocatedNum<E> {
             
             match use_d_next {
                 true => {
-                    AllocatedNum::quartic_lc_eq(cs, &loc_coefs[..], &loc_vars[..], &total);
+                    AllocatedNum::quartic_lc_eq(cs, &loc_coefs[..], &loc_vars[..], &total)?;
                     return Ok(true)
                 },
                 false => {

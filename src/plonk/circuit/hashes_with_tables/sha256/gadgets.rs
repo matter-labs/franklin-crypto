@@ -1706,7 +1706,7 @@ impl<E: Engine> Sha256Gadget<E> {
         // append a single '1' bit
         // append K '0' bits, where K is the minimum number >= 0 such that L + 1 + K + 64 is a multiple of 512
         // append L as a 64-bit big-endian integer, making the total post-processed length a multiple of 512 bits
-        let L = (bytes.len() * 8) as u64;
+        let message_bitlen = (bytes.len() * 8) as u64;
         let last_block_size = bytes.len() % 64;
         let (num_of_zero_bytes, pad_overflowed) = if last_block_size <= (64 - 1 - 8) {
             (64 - 1 - 8 - last_block_size, false)
@@ -1721,8 +1721,8 @@ impl<E: Engine> Sha256Gadget<E> {
         padded.extend(iter::repeat(Byte::from_cnst(cs, E::Fr::zero())).take(num_of_zero_bytes));
 
         // represent L as big integer number:
-        let L_bytes_repr = L.to_be_bytes();
-        padded.extend(L_bytes_repr.into_iter().map(|num| { Byte::from_cnst(cs, u64_to_ff(*num as u64)) }));
+        let repr = message_bitlen.to_be_bytes();
+        padded.extend(repr.iter().map(|num| { Byte::from_cnst(cs, u64_to_ff(*num as u64)) }));
 
         assert_eq!(padded.len() % 64, 0);
 
