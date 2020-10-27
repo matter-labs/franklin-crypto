@@ -44,7 +44,7 @@ pub fn shift_right(value: usize, shift: usize) -> usize
 // --------------------------------
 //
 // so there is a well defined algebraic encoding for ch: t = f(x) from x = e + 2f + 3g \in [0, 6] to t \in [0, 1].
-pub const ch_bit_table : [u64; SHA256_CHOOSE_BASE as usize] = [
+pub const CH_BIT_TABLE : [u64; SHA256_CHOOSE_BASE as usize] = [
     0, // e + 2f + 3g = 0 => e = 0, f = 0, g = 0 => t = 0
     0, // e + 2f + 3g = 1 => e = 1, f = 0, g = 0 => t = 0
     0, // e + 2f + 3g = 2 => e = 0, f = 1, g = 0 => t = 0
@@ -55,7 +55,7 @@ pub const ch_bit_table : [u64; SHA256_CHOOSE_BASE as usize] = [
 ];
 pub fn ch_u64_normalizer(n: u64) -> u64 {
     assert!(n < (SHA256_CHOOSE_BASE as u64));
-    ch_bit_table[n as usize]
+    CH_BIT_TABLE[n as usize]
 }
 
 pub fn ch_ff_normalizer<Fr: PrimeField>(fr: Fr) -> Fr 
@@ -82,7 +82,7 @@ pub fn ch_ff_normalizer<Fr: PrimeField>(fr: Fr) -> Fr
 // | 1 | 1 | 1 | 0 |           3 |
 //
 // this well-formed function f(x): [0; 3] -> [0;1] is called majority
-pub const maj_bit_table : [u64; SHA256_MAJORITY_SHEDULER_BASE as usize] = [
+pub const MAJ_BIT_TABLE : [u64; SHA256_MAJORITY_SHEDULER_BASE as usize] = [
     0, // a + b + c = 0 => (a & b) ^ (a & c) ^ (b & c) = 0
     0, // a + b + c = 1 => (a & b) ^ (a & c) ^ (b & c) = 0
     1, // a + b + c = 2 => (a & b) ^ (a & c) ^ (b & c) = 1
@@ -90,7 +90,7 @@ pub const maj_bit_table : [u64; SHA256_MAJORITY_SHEDULER_BASE as usize] = [
 ];
 pub fn maj_u64_normalizer(n: u64) -> u64 {
     assert!(n < (SHA256_MAJORITY_SHEDULER_BASE as u64));
-    maj_bit_table[n as usize]
+    MAJ_BIT_TABLE[n as usize]
 }
 
 pub fn maj_ff_normalizer<Fr: PrimeField>(fr: Fr) -> Fr 

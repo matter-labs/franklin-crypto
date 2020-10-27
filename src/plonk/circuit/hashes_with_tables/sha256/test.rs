@@ -285,7 +285,7 @@ mod test {
         let mut input_fr_arr : Vec<<Bn256 as ScalarEngine>::Fr> = Vec::with_capacity(NUM_OF_BYTES);
         let mut output_fr_arr = [Fr::zero(); 8];
 
-        input_fr_arr.extend(input.into_iter().map(|byte| u64_to_ff::<<Bn256 as ScalarEngine>::Fr>(*byte as u64)));
+        input_fr_arr.extend(input.iter().map(|byte| u64_to_ff::<<Bn256 as ScalarEngine>::Fr>(*byte as u64)));
         
         for (i, block) in output.chunks(4).enumerate() {
             output_fr_arr[i] = slice_to_ff::<Fr>(block);
