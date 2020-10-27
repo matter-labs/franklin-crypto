@@ -79,6 +79,18 @@ impl<E: Engine> Byte<E> {
             }
         )
     }
+
+    pub fn from_num_unconstrained<CS: ConstraintSystem<E>>(cs: &mut CS, value: Num<E>) -> Self {
+        Self {
+            inner: value
+        }
+    }
+
+    pub fn from_cnst<CS: ConstraintSystem<E>>(_cs: &mut CS, value: E::Fr) -> Self {
+        Self {
+            inner : Num::Constant(value)
+        }
+    }
 }
 
 pub trait IntoBytes<E: Engine>: Send + Sync {

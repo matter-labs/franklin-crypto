@@ -27,12 +27,13 @@ hmac = "0.7.1"
 num-bigint = "0.3"
 num-integer = "0.1"
 num-traits = "0.2"
+itertools = "0.9"
 
-bellman = { package = "bellman_ce", path = "../bellman" }
-# bellman = { package = "bellman_ce", git = "https://github.com/matter-labs/bellman", branch = "dev" }
+#bellman = { package = "bellman_ce", path = "../bellman" }
+bellman = { package = "bellman_ce", git = "https://github.com/matter-labs/bellman", branch = "dev" }
 blake2-rfc_bellman_edition = "0.0.1"
-poseidon_hash = { path = "../poseidon_hash" }
-# poseidon_hash = {git = "https://github.com/shamatar/poseidon_hash.git"}
+#poseidon_hash = { path = "../poseidon_hash" }
+#poseidon_hash = {git = "https://github.com/shamatar/poseidon_hash.git"}
 
 blake2s_simd = { version = "0.5" }
 hex = "0.4"
