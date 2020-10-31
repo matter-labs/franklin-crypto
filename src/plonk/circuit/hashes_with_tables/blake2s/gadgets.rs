@@ -20,7 +20,7 @@ use super::tables::*;
 use super::super::utils::*;
 
 use std::sync::Arc;
-use splitmut::SplitMut;
+use crate::splitmut::SplitMut;
 use std::{ iter, mem };
 use std::collections::HashMap;
 use std::cell::RefCell;
@@ -154,8 +154,8 @@ impl<E: Engine> GateAllocHelper<E> {
             panic!("The variable should be actually allocated.")
         }
         self.vars[idx].is_assigned = true;
-         self.vars[idx].coef = coef;
-                self.vars[idx].val = var;
+        self.vars[idx].coef = coef;
+        self.vars[idx].val = input;
     }
 
     pub fn set_table(&mut self, table: Arc<LookupTableApplication<E>>) {
@@ -171,32 +171,31 @@ impl<E: Engine> GateAllocHelper<E> {
     }
 
     pub fn is_prepared(&self) -> bool {
-        for i in 0..CS_WIDTH {
-            if let VarTracker::NotAssigned = self.vars[i].assigned {
-                return false;
-            }
-        }
-        return true;
+        self.vars.iter().all(|x| x.is_assigned)
     }    
 }
 
 
 // for explanations have a look in main text 
 // let the third column (results of corresponding xors be: q0, q1, q2, q3)
-// returns (z, [q0, q1, q2, q3], Option(w0, w1, w2))
+// returns (z, [q0, q1, q2, q3], Option(w0, w1, w2), Option(q0_shift4, q0_shift7))
 #[derive(Clone)]
 pub struct XorRotOutput<E: Engine> {
     pub z: Reg<E>,
     pub q_arr : Option<[Num<E>; 4]>,
+    pub q0_shifts : Option<(Num<E>, Num<E>)>
     pub w_arr: Option<[Num<E>; 3]>,
     pub shifts: [usize; 4],
 }
 
 
 pub struct Blake2sGadget<E: Engine> {
+    use_additional_tables: bool,
     xor_table: Arc<LookupTableApplication<E>>,
-    xor_rotate4_table: Arc<LookupTableApplication<E>>,
-    xor_rotate7_table: Arc<LookupTableApplication<E>>,
+    
+    xor_rotate4_table: Option<Arc<LookupTableApplication<E>>>,
+    xor_rotate7_table: Option<Arc<LookupTableApplication<E>>>,
+    compound_rot4_7_table: Option<Arc<LookupTableApplication<E>>>,
     
     iv: [u64; 8],
     iv0_twist: u64,
@@ -205,24 +204,19 @@ pub struct Blake2sGadget<E: Engine> {
     declared_cnsts: RefCell<HashMap<E::Fr, AllocatedNum<E>>>,
     allocated_cnsts : RefCell<HashMap<E::Fr, AllocatedNum<E>>>,
 
-    // constants used throughout the ...;
+    // constants heavily used
+    zero: E::Fr,
+    one: E::Fr,
+    minus_one: E::Fr,
 }
 
-impl<E: Engine> OptimizedBlake2sGadget<E> {
-
-    fn u64_to_ff(&self, n: u64) -> E::Fr {
-        let mut repr : <E::Fr as PrimeField>::Repr = E::Fr::zero().into_repr();
-        repr.as_mut()[0] = n;
-        let res = E::Fr::from_repr(repr).expect("should parse");
-        res
-    }
-
+impl<E: Engine> Blake2sGadget<E> {
     fn u64_to_reg(&self, n: u64) -> Reg<E> {
-        let full = Num::Constant(self.u64_to_ff(n));
-        let r0 = Num::Constant(self.u64_to_ff(n & 0xff));
-        let r1 = Num::Constant(self.u64_to_ff((n >> CHUNK_SIZE) & 0xff));
-        let r2 = Num::Constant(self.u64_to_ff((n >> (2 * CHUNK_SIZE)) & 0xff));
-        let r3 = Num::Constant(self.u64_to_ff((n >> (3 * CHUNK_SIZE)) & 0xff));
+        let full = Num::Constant(u64_to_ff(n));
+        let r0 = Num::Constant(u64_to_ff(n & 0xff));
+        let r1 = Num::Constant(u64_to_ff((n >> CHUNK_SIZE) & 0xff));
+        let r2 = Num::Constant(u64_to_ff((n >> (2 * CHUNK_SIZE)) & 0xff));
+        let r3 = Num::Constant(u64_to_ff((n >> (3 * CHUNK_SIZE)) & 0xff));
 
         Reg {
             full, 
@@ -231,25 +225,25 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
     }
 
     fn alloc_num_from_u64<CS: ConstraintSystem<E>>(&self, cs: &mut CS, n: Option<u64>) -> Result<Num<E>> {
-        let val = n.map(|num| { self.u64_to_ff(num) });
+        let val = n.map(|num| { u64_to_ff(num) });
         let new_var = AllocatedNum::alloc(cs, || {val.grab()})?;
         Ok(Num::Variable(new_var))
     }
 
     fn alloc_reg_from_u64<CS: ConstraintSystem<E>>(&self, cs: &mut CS, n: Option<u64>) -> Result<Reg<E>> {
-        let full_val = n.map(|num| { self.u64_to_ff(num) });
+        let full_val = n.map(|num| { u64_to_ff(num) });
         let full = Num::Variable(AllocatedNum::alloc(cs, || {full_val.grab()})?);
         
-        let r0_val = n.map(|num| { self.u64_to_ff(num & 0xff) });
+        let r0_val = n.map(|num| { u64_to_ff(num & 0xff) });
         let r0 = Num::Variable(AllocatedNum::alloc(cs, || {r0_val.grab()})?);
 
-        let r1_val = n.map(|num| { self.u64_to_ff((num >> CHUNK_SIZE) & 0xff) });
+        let r1_val = n.map(|num| { u64_to_ff((num >> CHUNK_SIZE) & 0xff) });
         let r1 = Num::Variable(AllocatedNum::alloc(cs, || {r1_val.grab()})?);
 
-        let r2_val = n.map(|num| { self.u64_to_ff((num >> (2 * CHUNK_SIZE)) & 0xff) });
+        let r2_val = n.map(|num| { u64_to_ff((num >> (2 * CHUNK_SIZE)) & 0xff) });
         let r2 = Num::Variable(AllocatedNum::alloc(cs, || {r2_val.grab()})?);
 
-        let r3_val = n.map(|num| { self.u64_to_ff((num >> (3 * CHUNK_SIZE)) & 0xff) });
+        let r3_val = n.map(|num| { u64_to_ff((num >> (3 * CHUNK_SIZE)) & 0xff) });
         let r3 = Num::Variable(AllocatedNum::alloc(cs, || {r3_val.grab()})?);
 
         let res = Reg {
@@ -266,7 +260,7 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
         }
     }
    
-    pub fn new<CS: ConstraintSystem<E>>(cs: &mut CS) -> Result<Self> {
+    pub fn new<CS: ConstraintSystem<E>>(cs: &mut CS, use_additional_tables: bool) -> Result<Self> {
         let columns3 = vec![
             PolyIdentifier::VariablesPolynomial(0), 
             PolyIdentifier::VariablesPolynomial(1), 
@@ -276,31 +270,58 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
         let name1: &'static str = "xor_table";
         let xor_table = LookupTableApplication::new(
             name1,
-            XorTable::new(CHUNK_SIZE, name1),
+            XorRotateTable::new(CHUNK_SIZE, 0, name1),
             columns3.clone(),
+            None,
             true
         );
-
-        let name2 : &'static str = "xor_rotate4_table";
-        let xor_rotate4_table = LookupTableApplication::new(
-            name2,
-            XorRotateTable::new(CHUNK_SIZE, SHIFT4, name2),
-            columns3.clone(),
-            true
-        );
-
-        let name3 : &'static str = "xor_rotate7_table";
-        let xor_rotate7_table = LookupTableApplication::new(
-            name3,
-            XorRotateTable::new(CHUNK_SIZE, SHIFT7, name3),
-            columns3.clone(),
-            true
-        );
-
         let xor_table = cs.add_table(xor_table)?;
-        let xor_rotate4_table = cs.add_table(xor_rotate4_table)?;
-        let xor_rotate7_table = cs.add_table(xor_rotate7_table)?;
 
+        let xor_rotate4_table = if use_additional_tables {
+            let name2 : &'static str = "xor_rotate4_table";
+            let xor_rotate4_table = LookupTableApplication::new(
+                name2,
+                XorRotateTable::new(CHUNK_SIZE, SHIFT4 as u32, name2),
+                columns3.clone(),
+                None,
+                true
+            );
+            Some(cs.add_table(xor_rotate4_table)?)
+        }
+        else {
+            None
+        };
+
+        let xor_rotate7_table = if use_additional_tables {
+            let name3 : &'static str = "xor_rotate7_table";
+            let xor_rotate7_table = LookupTableApplication::new(
+                name3,
+                XorRotateTable::new(CHUNK_SIZE, SHIFT7 as u32, name3),
+                columns3.clone(),
+                None,
+                true
+            );
+            Some(cs.add_table(xor_rotate7_table)?)
+        }
+        else {
+            None
+        };
+
+        let compound_rot4_7_table = if !use_additional_tables {
+            let name4 : &'static str = "compound_rot4_7_table";
+            let compound_rot4_7_table = LookupTableApplication::new(
+                name4,
+                CompoundRotTable::new(CHUNK_SIZE, SHIFT4, SHIFT7, name4),
+                columns3.clone(),
+                None,
+                true
+            );
+            Some(cs.add_table(compound_rot4_7_table)?)
+        }
+        else {
+            None
+        };
+        
         let iv = [
             0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A,
             0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19,
@@ -323,10 +344,17 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
         let declared_cnsts = RefCell::new(HashMap::new());
         let allocated_cnsts = RefCell::new(HashMap::new());
 
-        Ok(OptimizedBlake2sGadget {
+        let zero = E::Fr::zero();
+        let one = E::Fr::one();
+        let mut minus_one = E::Fr::one();
+        minus_one.negate(); 
+
+        Ok(Blake2sGadget {
+            use_additional_tables,
             xor_table,
             xor_rotate4_table,
             xor_rotate7_table,
+            compound_rot4_7_table,
 
             iv,
             iv0_twist,
@@ -334,6 +362,10 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
 
             declared_cnsts,
             allocated_cnsts,
+
+            zero,
+            one,
+            minus_one,
         })
     }
 
@@ -347,15 +379,24 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
         assert!(gate_alloc_helper.is_prepared());
 
         let range_of_linear_terms = CS::MainGate::range_of_linear_terms();
-        let dummy = AllocatedNum::alloc_zero(cs)?.get_variable();
+        let dummy = AllocatedNum::zero(cs).get_variable();
         let gate_term = MainGateTerm::new();
         let (mut vars, mut coefs) = CS::MainGate::format_term(gate_term, dummy)?;
 
+        let mut cnst = gate_alloc_helper.cnst_sel; 
+
         // plug-in all linear terms
         for (pos, idx) in range_of_linear_terms.zip(0..CS_WIDTH) {
-            if let VarTracker::Variable = gate_alloc_helper.vars[idx].assigned {
-                vars[idx] = gate_alloc_helper.vars[idx].val.get_variable();
-                coefs[pos] = gate_alloc_helper.vars[idx].coef;
+            match gate_alloc_helper.vars[idx].val {
+                Num::Variable(var) => {
+                    vars[idx] = var.get_variable();
+                    coefs[pos] = gate_alloc_helper.vars[idx].coef;
+                },
+                Num::Constant(fr) => {
+                    let mut tmp = fr;
+                    tmp.mul_assign(&gate_alloc_helper.vars[idx].coef);
+                    cnst.add_assign(&tmp);
+                },
             }
         }
 
@@ -400,7 +441,7 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
             let b_int = b_repr.as_ref()[0];
             let a_xor_b = a_int ^ b_int;
             let res = (a_xor_b >> rot) | ((a_xor_b << (REG_WIDTH - rot)) & ((1 << REG_WIDTH) - 1));
-            Ok(self.u64_to_ff(res))
+            Ok(u64_to_ff(res))
         })
     }
 
@@ -408,6 +449,8 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
     {
         self.xor_rot(cs, a, b, 0)
     }
+
+    fn rot<CS: ConstraintSystem<E>>
 
     fn constraint_all_allocated_cnsts<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<()> {
         let mut allocated_cnsts_dict = self.allocated_cnsts.borrow_mut(); 
@@ -431,7 +474,7 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
             Num::Variable(_) => input.clone(),
             Num::Constant(fr) => {
                 if fr.is_zero() {
-                    Num::Variable(AllocatedNum::alloc_zero(cs)?)
+                    Num::Variable(AllocatedNum::zero(cs))
                 }
                 else {
                     let allocated_map = self.allocated_cnsts.borrow();
@@ -452,17 +495,6 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
         };
 
         Ok(res)
-    }
-
-    fn choose_table_by_rot(&self, rot: usize) -> Arc<LookupTableApplication<E>> {
-        let table = match rot {
-            8 | 16 => self.xor_table.clone(),
-            12 => self.xor_rotate4_table.clone(),
-            7 => self.xor_rotate7_table.clone(),
-            _ => unreachable!(),
-        };
-
-        table
     }
 
     // first step of G function is handling equations of the form :
@@ -547,40 +579,39 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
             return Ok(())
         }
 
-        let zero = E::Fr::zero();
-        let one = E::Fr::one();
-        let mut minus_one = one.clone();
-        minus_one.negate();
+        let zero = self.zero.clone();
+        let one = self.one.clone();
+        let mut minus_one = self.minus_one.clone();
 
         // [y0, y1, y2, y3] - decomposed parts of resulted y: y = y0 + 2^8 * y1 + 2^16 * y2 + 2^24 * y3: 
         // [a, b, x, y] - where y = a + b + x - 2^32 * of (using of via d_next selector)
         // [of, t, of ^ t, of] - range check for of and t
 
         let mut first_row = GateAllocHelper::default();
-        first_row.set_var(0, one.clone(), y.decomposed.r0.clone(), true)?;
-        first_row.set_var(1, self.u64_to_ff(1 << CHUNK_SIZE), y.decomposed.r1.clone(), true)?;
-        first_row.set_var(2, self.u64_to_ff(1 << (2 * CHUNK_SIZE)), y.decomposed.r2.clone(), true)?;
-        first_row.set_var(3, self.u64_to_ff(1 << (3 * CHUNK_SIZE)), y.decomposed.r3.clone(), true)?;
+        first_row.set_var(0, one.clone(), y.decomposed.r0.clone(), true);
+        first_row.set_var(1, u64_to_ff(1 << CHUNK_SIZE), y.decomposed.r1.clone(), true);
+        first_row.set_var(2, u64_to_ff(1 << (2 * CHUNK_SIZE)), y.decomposed.r2.clone(), true);
+        first_row.set_var(3, u64_to_ff(1 << (3 * CHUNK_SIZE)), y.decomposed.r3.clone(), true);
         first_row.link_with_next_row(minus_one.clone());
 
         let mut second_row = GateAllocHelper::default();
-        second_row.set_var(0, one.clone(), a.full.clone(), false)?;
-        second_row.set_var(1, one.clone(), b.full.clone(), false)?;
-        second_row.set_var(2, one.clone(), x.clone(), false)?;
-        second_row.set_var(3, minus_one.clone(), y.full.clone(), true)?;
-        let mut coef = self.u64_to_ff(1 << REG_WIDTH);
+        second_row.set_var(0, one.clone(), a.full.clone(), false);
+        second_row.set_var(1, one.clone(), b.full.clone(), false);
+        second_row.set_var(2, one.clone(), x.clone(), false);
+        second_row.set_var(3, minus_one.clone(), y.full.clone(), true);
+        let mut coef : E::Fr = u64_to_ff(1 << REG_WIDTH);
         coef.negate();
         second_row.link_with_next_row(coef);
 
         let mut third_row = GateAllocHelper::default();
-        third_row.set_var(0, zero.clone(), of.clone(), true)?;
+        third_row.set_var(0, zero.clone(), of.clone(), true);
 
         // NB: t is always a variable even when it is actually a constant!
         // in this case t is simply a constant zero: map in into dummy variable instead!
         let (b, c) = match t {
             Num::Constant(fr) => {
                 assert!(fr.is_zero());
-                (Num::Variable(AllocatedNum::alloc_zero(cs)?), of.clone())
+                (Num::Variable(AllocatedNum::zero(cs)), of.clone())
             }
             Num::Variable(_) => {
                 let tmp = self.xor(cs, &of, t)?;
@@ -588,9 +619,9 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
             }
         };
 
-        third_row.set_var(1, zero.clone(), b, true)?;
-        third_row.set_var(2, zero.clone(), c, true)?;
-        third_row.set_var(3, zero.clone(), of.clone(), true)?;
+        third_row.set_var(1, zero.clone(), b, true);
+        third_row.set_var(2, zero.clone(), c, true);
+        third_row.set_var(3, zero.clone(), of.clone(), true);
         third_row.set_table(self.xor_table.clone());
 
         self.allocate_gate(cs, first_row)?;
@@ -652,21 +683,23 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
         // [y, a, b, of], y = a + b - 2^32 * of
         // y + 2^32 * of - a - b = 0;
 
-        let one = E::Fr::one();
-        let mut minus_one = one.clone();
-        minus_one.negate();
+        let one = self.one.clone();
+        let mut minus_one = self.minus_one.clone();
 
         let mut row = GateAllocHelper::default();
-        row.set_var(0, one.clone(), y.full.clone(), true)?;
-        row.set_var(1, minus_one.clone(), a.full.clone(), false)?;
-        row.set_var(2, minus_one.clone(), b.full.clone(), false)?;
-        row.set_var(3, self.u64_to_ff(1 << REG_WIDTH), of.clone(), true)?;
+        row.set_var(0, one.clone(), y.full.clone(), true);
+        row.set_var(1, minus_one.clone(), a.full.clone(), false);
+        row.set_var(2, minus_one.clone(), b.full.clone(), false);
+        row.set_var(3, u64_to_ff(1 << REG_WIDTH), of.clone(), true);
         
         self.allocate_gate(cs, row)?;
         Ok(())
     }  
 
     // rotate step is of the form: z = (x ^ y) >>> R
+    // there are two possibilities: R is multiple of CHUNK_SIZE = 8 or not
+    
+    // if R is multiple of CHUNKS_SIZE
     // we will always have the following 4 rows (in case any of (x, y) is actually a variable)
     // z = /sum z[idx_k] * 8^[idx_k] ([idx_k] is permuted array of [0, 1, 2, 3])
     // x[0], y[0], z[idx_0], z,
@@ -676,13 +709,27 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
     
     // on the first 3 rows we have the link to the next row via d_next
     // on the last row we need only to check that c * 8^[idx_3] = d
-
+    
     // when R is a multiple of CHUNK_LEN = 8 ( R is 8 or 16) z is already decomposed into chunks 
     // (just take [z_idx] in the right order), so no additional decomposition constraints are needed
+    
     // in other case we prepend previous constraints with decomposition of z into z[0], z[1], z[2], z[3]
     // so that the first row will be: 
     // z[0], z[1], z[2], z[3]
     // the boolean flag needs_recomposition is responsible for this
+    
+    // if we don't use any additional tables, then the rows will be the following:
+    // x[0], y[0], q[0], allocated_cnst
+    // q[0], q[0]_shift4, q[0]_shift7, z 
+    // [x[1], y[1], z[idx_1], z - z[idx_0] * 8^[idx_0] = w0
+    // x[2], y[2], z[idx_2], z - z[idx_0] * 8^[idx_0] - z[idx_1] * 8^[idx_1] = w1
+    // x[3], y[3], z[idx_3], z - z[idx_0] * 8^[idx_0] - z[idx_1] * 8^[idx_1] - z[idx_2] * 8^[idx_2] = w2
+
+    // if additional xor_rotate_tables are used, that the rows will be:
+    // x[0], y[0], z[idx_0], z, - here the xor_rot_table is called
+    // [x[1], y[1], z[idx_1], z - z[idx_0] * 8^[idx_0] = w0
+    // x[2], y[2], z[idx_2], z - z[idx_0] * 8^[idx_0] - z[idx_1] * 8^[idx_1] = w1
+    // x[3], y[3], z[idx_3], z - z[idx_0] * 8^[idx_0] - z[idx_1] * 8^[idx_1] - z[idx_2] * 8^[idx_2] = w2
 
     // let the third column (results of corresponding xors be: q0, q1, q2, q3)
     // returns (z, [q0, q1, q2, q3], Option(w0, w1, w2))
@@ -699,15 +746,24 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
                 XorRotOutput {
                     z: self.u64_to_reg(tmp),
                     q_arr: None,
+                    q0_shifts: None,
                     w_arr: None,
                     shifts: [0, 0, 0, 0],
                 }
             },
             (_, _) => {
-                let q0 = Num::Variable(self.xor_rot(cs, &a.decomposed.r0, &b.decomposed.r0, rot)?);
+                let (q0, q0_shifts) = if self.use_additional_tables {
+                    let q0 = Num::Variable(self.xor_rot(cs, &a.decomposed.r0, &b.decomposed.r0, rot)?);
+                    (q0, None)
+                }
+                else {
+                    let q0 = Num::Variable(self.xor(cs, &a.decomposed.r0, &b.decomposed.r0)?);
+                }
+                
                 let q1 = Num::Variable(self.xor(cs, &a.decomposed.r1, &b.decomposed.r1)?);
                 let q2 = Num::Variable(self.xor(cs, &a.decomposed.r2, &b.decomposed.r2)?);
-                let q3 = Num::Variable(self.xor(cs, &a.decomposed.r3, &b.decomposed.r3)?);               
+                let q3 = Num::Variable(self.xor(cs, &a.decomposed.r3, &b.decomposed.r3)?);
+               
 
                 let fr1 = a.get_value();
                 let fr2 = b.get_value();
@@ -841,10 +897,10 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
     where CS: ConstraintSystem<E>
     {
         let mut regs = v.0.get_muts();
-        let a = regs.at(idx_arr[0])?;
-        let b = regs.at(idx_arr[1])?;
-        let c = regs.at(idx_arr[2])?;
-        let d = regs.at(idx_arr[3])?;
+        let a = regs.at(idx_arr[0]).unwrap();
+        let b = regs.at(idx_arr[1]).unwrap();
+        let c = regs.at(idx_arr[2]).unwrap();
+        let d = regs.at(idx_arr[3]).unwrap();
 
         // first half of g function - setup
         let (temp_a, of1) = self.g_ternary_additon_setup(cs, a, b, x)?;
@@ -855,11 +911,8 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
         let temp_b = xor_rot_data2.z.clone(); 
 
         // first half of g function - burn preallocated variables to protoboard
-        println!("1");
         self.g_ternary_addition_process(cs, a, b, x, &temp_a, &of1, &of2)?;
-        println!("2");
         self.g_xor_rot_process(cs, &temp_a, d, xor_rot_data1, 16)?;
-        println!("3");
         self.g_binary_addition_process(cs, c, &temp_d, &temp_c, &of2)?;
         self.g_xor_rot_process(cs, b, &temp_c, xor_rot_data2, 12)?;
         
@@ -909,7 +962,7 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
             let r3 = input.r3.get_value().grab()?.into_repr().as_ref()[0];
 
             let n = (r0 + (r1 << 8) + (r2 << 16) + (r3 << 24)) ^ cnst;
-            Ok(self.u64_to_ff(n))
+            Ok(u64_to_ff(n))
         })?;
         let full = Num::Variable(full_var);
         
@@ -921,19 +974,19 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
             let byte_val = (cnst >> 8 * i) & ((1 << CHUNK_SIZE) - 1);
             if byte_val != 0 {
                 idx_used[i] = true;
-                let a = input.get_var_by_idx(i).clone();
+                let a = input[i].clone();
 
-                let num = Num::Constant(self.u64_to_ff(byte_val));
+                let num = Num::Constant(u64_to_ff(byte_val));
                 let b = self.to_allocated(cs, &num)?;
                 
                 let c = Num::Variable(self.xor(cs, &a, &b)?);
                 res_chunks[i] = c.clone();
 
                 let mut row = GateAllocHelper::default();
-                row.set_var(0, zero.clone(), a, true)?;
-                row.set_var(1, zero.clone(), b, true)?;
-                row.set_var(2, self.u64_to_ff(1u64 << (CHUNK_SIZE * i)), c.clone(), true)?;
-                row.set_var(3, minus_one.clone(), d.clone(), true)?;
+                row.set_var(0, zero.clone(), a, true);
+                row.set_var(1, zero.clone(), b, true);
+                row.set_var(2, u64_to_ff(1u64 << (CHUNK_SIZE * i)), c.clone(), true);
+                row.set_var(3, minus_one.clone(), d.clone(), true);
             
                 if i != 3 || idx_used.iter().any(|flag| !flag)  {
                     row.link_with_next_row(one.clone());
@@ -943,7 +996,7 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
 
                 let w = AllocatedNum::alloc(cs, || {
                     let mut d_val = d.get_value().grab()?;
-                    let coef = self.u64_to_ff(1 << (CHUNK_SIZE * i));
+                    let coef = u64_to_ff(1 << (CHUNK_SIZE * i));
                     let mut c_val = c.get_value().grab()?;
                     c_val.mul_assign(&coef);
                     d_val.sub_assign(&c_val);
@@ -961,20 +1014,20 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
             // for all unused chunks allocate with initial values:
             // equation of the form a * coef_a + b * coef_b + c * coef_d - d = 0;
             let mut pos = 0;
-            let dummy = Num::Variable(AllocatedNum::alloc_zero(cs)?);
+            let dummy = Num::Variable(AllocatedNum::zero(cs));
             let mut row = GateAllocHelper::default();
 
             for i in 0..3 {
                 while pos < 4 && idx_used[pos] { pos += 1};    
                 let var = match pos {
-                    0 | 1 | 2 | 3 => input.get_var_by_idx(pos).clone(),
+                    0 | 1 | 2 | 3 => input[pos].clone(),
                     _ => dummy.clone(),
                 };
-                row.set_var(i, self.u64_to_ff(1 << (i * CHUNK_SIZE)), var, true)?;
+                row.set_var(i, u64_to_ff(1 << (i * CHUNK_SIZE)), var, true);
             }
 
             assert_eq!(pos, 4);
-            row.set_var(3, minus_one, d, true)?;
+            row.set_var(3, minus_one, d, true);
             self.allocate_gate(cs, row)?;
         }
 
@@ -1007,7 +1060,7 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
             let y3 = y.r3.get_value().grab()?.into_repr().as_ref()[0];
             let m = y0 + (y1 << 8) + (y2 << 16) + (y3 << 24);
 
-            Ok(self.u64_to_ff(n ^ m))
+            Ok(u64_to_ff(n ^ m))
         })?;
         
         let full = Num::Variable(full_var);
@@ -1015,16 +1068,16 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
         let mut d = full.clone();
 
         for i in 0..4 {   
-            let a = x.get_var_by_idx(i).clone();
-            let b = y.get_var_by_idx(i).clone();
+            let a = x[i].clone();
+            let b = y[i].clone();
             let c = Num::Variable(self.xor(cs, &a, &b)?);
             res_chunks[i] = c.clone();
 
             let mut row = GateAllocHelper::default();
-            row.set_var(0, zero.clone(), a, true)?;
-            row.set_var(1, zero.clone(), b, true)?;
-            row.set_var(2, self.u64_to_ff(1 << (CHUNK_SIZE * i)), c.clone(), true)?;
-            row.set_var(3, minus_one.clone(), d.clone(), true)?;
+            row.set_var(0, zero.clone(), a, true);
+            row.set_var(1, zero.clone(), b, true);
+            row.set_var(2, u64_to_ff(1 << (CHUNK_SIZE * i)), c.clone(), true);
+            row.set_var(3, minus_one.clone(), d.clone(), true);
         
             if i != 3 {
                 row.link_with_next_row(one.clone());
@@ -1034,7 +1087,7 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
 
             let w = AllocatedNum::alloc(cs, || {
                 let mut d_val = d.get_value().grab()?;
-                let coef = self.u64_to_ff(1 << (CHUNK_SIZE * i));
+                let coef = u64_to_ff(1 << (CHUNK_SIZE * i));
                 let mut c_val = c.get_value().grab()?;
                 c_val.mul_assign(&coef);
                 d_val.sub_assign(&c_val);
@@ -1063,13 +1116,13 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
 
         // calculate temp (in decomposed form) multiplexing the calculation with constant allocation
         for i in 0..4 {
-            let a = x.get_var_by_idx(i).clone();
-            let b = y.get_var_by_idx(i).clone();
+            let a = x[i].clone();
+            let b = y[i].clone();
             let c = Num::Variable(self.xor(cs, &a, &b)?);
             temp_chunks[i] = c.clone();
 
             let (d, cnst_sel) = match self.declared_cnsts.borrow().is_empty() {
-                true => (Num::Variable(AllocatedNum::alloc_zero(cs)?), E::Fr::zero()),
+                true => (Num::Variable(AllocatedNum::zero(cs)), E::Fr::zero()),
                 false => {
                     let mut input_dict = self.declared_cnsts.borrow_mut();
                     let mut output_dict = self.allocated_cnsts.borrow_mut();
@@ -1086,10 +1139,10 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
             };
 
             let mut row = GateAllocHelper::default();
-            row.set_var(0, zero.clone(), a, true)?;
-            row.set_var(1, zero.clone(), b, true)?;
-            row.set_var(2, zero.clone(), c, true)?;
-            row.set_var(3, one.clone(), d, true)?;
+            row.set_var(0, zero.clone(), a, true);
+            row.set_var(1, zero.clone(), b, true);
+            row.set_var(2, zero.clone(), c, true);
+            row.set_var(3, one.clone(), d, true);
             row.set_cnst_sel(cnst_sel);
             row.set_table(self.xor_table.clone());
     
@@ -1178,7 +1231,8 @@ impl<E: Engine> OptimizedBlake2sGadget<E> {
         v.0[12] = self.apply_xor_with_const(cs, &mut v.0[12], total_len & ((1 << REG_WIDTH) - 1))?; // Low word of the offset.
         v.0[13] = self.apply_xor_with_const(cs, &mut v.0[13], total_len >> REG_WIDTH)?; // High word.
         if last_block {
-            // NB: xor with very special constant: x + y = 0xffffffff?
+            // NB: xor with very special constant: y = x ^ 0xffffffff
+            // it is equal to y = 0xffffffff - x
             v.0[14] = self.apply_xor_with_const(cs, &mut v.0[14], 0xffffffff)?; // Invert all bits.
         }
 

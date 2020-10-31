@@ -10,21 +10,21 @@ use super::super::utils::*;
 
 // for columns (a, b, c) this table asserts that c = (a ^ b) >>> shift (cyclic shift of 32 bit values)
 // if shift is zero, than it is simple xor table: c = a ^ b;
-const XOR_ROTATE_REG_BITLEN : usize = 32;
-const XOR_ROTATE_MASK : usize = (1 << XOR_ROTATE_REG_BITLEN) - 1;
+const XOR_ROTATE_REG_BITLEN : u32 = 32;
+const XOR_ROTATE_MASK : u32 = (1 << XOR_ROTATE_REG_BITLEN) - 1;
 
 #[derive(Clone)]
 pub struct XorRotateTable<E: Engine> {
     table_entries: [Vec<E::Fr>; 3],
     table_lookup_map: std::collections::HashMap<(E::Fr, E::Fr), E::Fr>,
     bits: usize,
-    shift: usize,
+    shift: u32,
     name: &'static str,
 }
 
 
 impl<E: Engine> XorRotateTable<E> {
-    pub fn new(bits: usize, shift: usize, name: &'static str) -> Self {
+    pub fn new(bits: usize, shift: u32, name: &'static str) -> Self {
         let mut keys1 = Vec::with_capacity(1 << bits);
         let mut keys2 = Vec::with_capacity(1 << bits);
         let mut values = Vec::with_capacity(1 << (2 * bits));
@@ -40,9 +40,9 @@ impl<E: Engine> XorRotateTable<E> {
                     tmp
                 };
 
-                let x = u64_to_ff(x);
-                let y = u64_to_ff(y);
-                let z = u64_to_ff(z);
+                let x = u64_to_ff(x as u64);
+                let y = u64_to_ff(y as u64);
+                let z = u64_to_ff(z as u64);
 
                 keys1.push(x);
                 keys2.push(y);
@@ -53,7 +53,7 @@ impl<E: Engine> XorRotateTable<E> {
         }
 
         Self {
-            table_entries: [key0, key1, value],
+            table_entries: [keys1, keys2, values],
             table_lookup_map: map,
             bits,
             shift,
@@ -149,51 +149,52 @@ impl<E: Engine> CompoundRotTable<E> {
         assert!(rot2 != 0);
 
         let mut keys = Vec::with_capacity(1 << bits);
-        let mut value1 = Vec::with_capacity(1 << bits);
-        let mut value1 = Vec::with_capacity(1 << bits);
+        let mut values1 = Vec::with_capacity(1 << bits);
+        let mut values2 = Vec::with_capacity(1 << bits);
         
         let mut map = std::collections::HashMap::with_capacity(1 << bits);
-        let mask0 = (1 << (bits - rot1)) - 1;
-        let mask0 = (1 << (bits - rot1)) - 1;
+        let mask1 = (1 << (bits - rot1)) - 1;
+        let mask2 = (1 << (bits - rot2)) - 1;
 
         for x in 0..(1 << bits) {
-            for y in 0..(1 << bits) {
-                let z = ( y >> shift) | ((x & mask) << (bits - shift));
+            let y = (x >> rot1) | ((x & mask1) << (bits - rot1));
+            let z = (x >> rot2) | ((x & mask2) << (bits - rot2));
+            
+            let x = u64_to_ff(x as u64);
+            let y = u64_to_ff(y as u64);
+            let z = u64_to_ff(z as u64);
 
-                let x = E::Fr::from_str(&x.to_string()).unwrap();
-                let y = E::Fr::from_str(&y.to_string()).unwrap();
-                let z = E::Fr::from_str(&z.to_string()).unwrap();
+            keys.push(x);
+            values1.push(y);
+            values2.push(z);
 
-                keys1.push(x);
-                keys2.push(y);
-                values.push(z);
-
-                map.insert((x, y), z);
-            }    
+            map.insert(x, (y, z));    
         }
 
         Self {
-            table_entries: [key0, key1, value],
+            table_entries: [keys, values1, values2],
             table_lookup_map: map,
             bits,
-            shift,
+            rot1,
+            rot2,
             name,
         }
     }
 }
 
 
-impl<E: Engine> std::fmt::Debug for CompoundShiftTable<E> {
+impl<E: Engine> std::fmt::Debug for CompoundRotTable<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CompoundShiftTable")
             .field("bits", &self.bits)
-            .field("shift", &self.shift)
+            .field("rot1", &self.rot1)
+            .field("rot2", &self.rot2)
             .finish()
     }
 }
 
 
-impl<E: Engine> LookupTableInternal<E> for CompoundShiftTable<E> {
+impl<E: Engine> LookupTableInternal<E> for CompoundRotTable<E> {
     fn name(&self) -> &'static str {
         self.name
     }
@@ -230,8 +231,8 @@ impl<E: Engine> LookupTableInternal<E> for CompoundShiftTable<E> {
         assert!(keys.len() == self.num_keys());
         assert!(values.len() == self.num_values());
 
-        if let Some(entry) = self.table_lookup_map.get(&(keys[0], keys[1])) {
-            return entry == &(values[0]);
+        if let Some(entry) = self.table_lookup_map.get(&keys[0]) {
+            return entry == &(values[0], values[1]);
         }
         false
     }
@@ -239,8 +240,8 @@ impl<E: Engine> LookupTableInternal<E> for CompoundShiftTable<E> {
     fn query(&self, keys: &[E::Fr]) -> Result<Vec<E::Fr>, SynthesisError> {
         assert!(keys.len() == self.num_keys());
 
-        if let Some(entry) = self.table_lookup_map.get(&(keys[0], keys[1])) {
-            return Ok(vec![*entry])
+        if let Some(entry) = self.table_lookup_map.get(&keys[0]) {
+            return Ok(vec![entry.0, entry.1])
         }
 
         Err(SynthesisError::Unsatisfiable)

@@ -15,6 +15,7 @@ extern crate num_integer;
 
 extern crate itertools;
 extern crate splitmut;
+extern crate blake2;
 
 #[cfg(test)]
 #[macro_use]

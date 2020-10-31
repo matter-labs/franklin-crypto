@@ -4,7 +4,8 @@ mod test {
     use crate::bellman::pairing::ff::*;
     use crate::bellman::SynthesisError;
     use crate::bellman::Engine;
-    use blake2::{Blake2s, Digest};
+    use crate::bellman::pairing::bn256::{Bn256, Fr};
+    use crate::blake2::{Blake2s, Digest};
     use crate::plonk::circuit::allocated_num::{
         AllocatedNum,
         Num,
@@ -21,7 +22,7 @@ mod test {
     struct TestBlake2sCircuit<E:Engine>{
         input: Vec<E::Fr>,
         output: [E::Fr; 8],
-        _gadget_marker: std::marker::PhantomData<G>,
+        use_additional_tables: bool,
     }
 
     impl<E: Engine> Circuit<E> for TestBlake2sCircuit<E> {
@@ -40,7 +41,7 @@ mod test {
             let mut input_vars = Vec::with_capacity(16);
             for value in self.input.iter() {
                 let new_var = AllocatedNum::alloc(cs, || Ok(value.clone()))?;
-                input_vars.push(Num::Allocated(new_var));
+                input_vars.push(Num::Variable(new_var));
             }
 
             let mut actual_output_vars = Vec::with_capacity(8);
@@ -49,13 +50,13 @@ mod test {
                 actual_output_vars.push(new_var);
             }
 
-            let blake2s_gadget = G::new(cs)?;
+            let blake2s_gadget = Blake2sGadget::new(cs, self.use_additional_tables)?;
 
             let supposed_output_vars = blake2s_gadget.digest(cs, &input_vars[..])?;
 
             for (a, b) in supposed_output_vars.iter().zip(actual_output_vars.into_iter()) {
                 let a = match a {
-                    Num::Allocated(x) => x,
+                    Num::Variable(x) => x,
                     Num::Constant(_) => unreachable!(),
                 };
 
@@ -73,9 +74,11 @@ mod test {
         Fr::from_repr(repr).expect("should parse")
     }
 
-    fn blake2s_gadget_test_impl<G: Blake2sGadget<Bn256>>() 
+    fn blake2s_gadget_test() 
     {
         const NUM_OF_BLOCKS: usize = 1;
+        const USE_ADDITIONAL_TABLES: bool = false;
+
         let seed: &[_] = &[1, 2, 3, 4, 5];
         let mut rng: StdRng = SeedableRng::from_seed(seed);
 
@@ -99,10 +102,10 @@ mod test {
             output_fr_arr[i] = slice_to_ff::<Fr>(block);
         }
         
-        let circuit = TestBlake2sCircuit::<Bn256, G>{
+        let circuit = TestBlake2sCircuit::<Bn256>{
             input: input_fr_arr,
             output: output_fr_arr,
-            _gadget_marker : std::marker::PhantomData::<G>,
+            use_additional_tables: USE_ADDITIONAL_TABLES,
         };
 
         let mut assembly = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
@@ -112,14 +115,4 @@ mod test {
         println!("Total length of all tables: {}", assembly.total_length_of_all_tables);
         assert!(assembly.is_satisfied());
     }
-
-    #[test]
-    fn naive_blake2s_gadget_test() {
-        blake2s_gadget_test_impl::<NaiveBlake2sGadget<Bn256>>()
-    }
-
-    #[test]
-    fn optimized_blake2s_gadget_test() {
-        blake2s_gadget_test_impl::<OptimizedBlake2sGadget<Bn256>>()
-    }  
 }
