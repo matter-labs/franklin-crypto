@@ -11,7 +11,7 @@ use super::super::utils::*;
 // for columns (a, b, c) this table asserts that c = (a ^ b) >>> shift (cyclic shift of 32 bit values)
 // if shift is zero, than it is simple xor table: c = a ^ b;
 const XOR_ROTATE_REG_BITLEN : u32 = 32;
-const XOR_ROTATE_MASK : u32 = (1 << XOR_ROTATE_REG_BITLEN) - 1;
+const XOR_ROTATE_MASK : u64 = (1 << XOR_ROTATE_REG_BITLEN) - 1;
 
 #[derive(Clone)]
 pub struct XorRotateTable<E: Engine> {
@@ -32,9 +32,9 @@ impl<E: Engine> XorRotateTable<E> {
 
         for x in 0..(1 << bits) {
             for y in 0..(1 << bits) {
-                let tmp = x ^ y;
+                let tmp: u32 = x ^ y;
                 let z : u32 = if shift > 0 {
-                    (tmp >> shift) | ((tmp << (XOR_ROTATE_REG_BITLEN - shift)) & XOR_ROTATE_MASK)
+                    tmp.rotate_right(shift)
                 }
                 else {
                     tmp

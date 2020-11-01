@@ -32,7 +32,7 @@ const CHUNK_SIZE : usize = 8;
 const REG_WIDTH : usize = 32;
 const SHIFT4 : usize = 4;
 const SHIFT7 : usize = 7; 
-const BLAKE2s_STATE_WIDTH : usize = 16;
+const BLAKE2S_STATE_WIDTH : usize = 16;
 const CS_WIDTH : usize = 4;
 
 
@@ -183,7 +183,7 @@ impl<E: Engine> GateAllocHelper<E> {
 pub struct XorRotOutput<E: Engine> {
     pub z: Reg<E>,
     pub q_arr : Option<[Num<E>; 4]>,
-    pub q0_shifts : Option<(Num<E>, Num<E>)>
+    pub q0_shifts : Option<(Num<E>, Num<E>)>,
     pub w_arr: Option<[Num<E>; 3]>,
     pub shifts: [usize; 4],
 }
@@ -450,7 +450,12 @@ impl<E: Engine> Blake2sGadget<E> {
         self.xor_rot(cs, a, b, 0)
     }
 
-    fn rot<CS: ConstraintSystem<E>>
+    fn rot<CS: ConstraintSystem<E>>(&self, cs: &mut CS, a: &Num<E>, rot: usize) -> Result<AllocatedNum<E>>
+    where CS: ConstraintSystem<E>
+    {
+        let dummy = Num::Variable(AllocatedNum::zero(cs));
+        self.xor_rot(cs, a, &dummy, rot)
+    }
 
     fn constraint_all_allocated_cnsts<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<()> {
         let mut allocated_cnsts_dict = self.allocated_cnsts.borrow_mut(); 
@@ -495,6 +500,20 @@ impl<E: Engine> Blake2sGadget<E> {
         };
 
         Ok(res)
+    }
+
+    fn choose_table_by_rot(&self, rot: usize) -> Arc<LookupTableApplication<E>> {
+        if !self.use_additional_tables {
+            return self.xor_table.clone();
+        }
+        let table = match rot {
+            8 | 16 => self.xor_table.clone(),
+            12 => self.xor_rotate4_table.as_ref().unwrap().clone(),
+            7 => self.xor_rotate7_table.as_ref().unwrap().clone(),
+            _ => unreachable!(),
+        };
+
+        table
     }
 
     // first step of G function is handling equations of the form :
@@ -719,8 +738,8 @@ impl<E: Engine> Blake2sGadget<E> {
     // the boolean flag needs_recomposition is responsible for this
     
     // if we don't use any additional tables, then the rows will be the following:
-    // x[0], y[0], q[0], allocated_cnst
-    // q[0], q[0]_shift4, q[0]_shift7, z 
+    // x[0], y[0], q[0], z, - place for minor optimization here! (z is not totally necessary in d position)
+    // q[0], q[0]_shift4, q[0]_shift7, z, 
     // [x[1], y[1], z[idx_1], z - z[idx_0] * 8^[idx_0] = w0
     // x[2], y[2], z[idx_2], z - z[idx_0] * 8^[idx_0] - z[idx_1] * 8^[idx_1] = w1
     // x[3], y[3], z[idx_3], z - z[idx_0] * 8^[idx_0] - z[idx_1] * 8^[idx_1] - z[idx_2] * 8^[idx_2] = w2
@@ -758,13 +777,17 @@ impl<E: Engine> Blake2sGadget<E> {
                 }
                 else {
                     let q0 = Num::Variable(self.xor(cs, &a.decomposed.r0, &b.decomposed.r0)?);
-                }
+                    let q0_shifts = (
+                        Num::Variable(self.rot(cs, &q0, SHIFT4)?),
+                        Num::Variable(self.rot(cs, &q0, SHIFT4)?),
+                    );
+                    (q0, Some(q0_shifts))
+                };
                 
                 let q1 = Num::Variable(self.xor(cs, &a.decomposed.r1, &b.decomposed.r1)?);
                 let q2 = Num::Variable(self.xor(cs, &a.decomposed.r2, &b.decomposed.r2)?);
                 let q3 = Num::Variable(self.xor(cs, &a.decomposed.r3, &b.decomposed.r3)?);
                
-
                 let fr1 = a.get_value();
                 let fr2 = b.get_value();
                 let y_val = match (fr1, fr2) {
@@ -801,16 +824,23 @@ impl<E: Engine> Blake2sGadget<E> {
                 };
 
                 let mut w_arr = <[Num<E>; 3]>::default();
-                let q_arr = [q0, q1, q2, q3];
+                let chunks_0 = match (self.use_additional_tables, rot) {
+                    (true, _) => q0.clone(),
+                    (false, SHIFT4) => q0_shifts.unwrap().0.clone(),
+                    (false, SHIFT7) => q0_shifts.unwrap().1.clone(),
+                    _ => unreachable!(),
+                };
+                let chunks_arr = [chunks_0, q1, q2, q3];
                 let mut cur = &y.full;
-                for ((w, q), shift) in w_arr.iter_mut().zip(q_arr.iter()).zip(shifts.iter()) {
-                    // w = cur - (1 << shift) * q
+
+                for ((w, chunk), shift) in w_arr.iter_mut().zip(chunks_arr.iter()).zip(shifts.iter()) {
+                    // w = cur - (1 << shift) * chunk
                     let new_var = AllocatedNum::alloc(cs, || {
                         let mut cur_val = cur.get_value().grab()?;
-                        let coef = self.u64_to_ff(1 << shift);
-                        let mut q_val = q.get_value().grab()?;
-                        q_val.mul_assign(&coef);
-                        cur_val.sub_assign(&q_val);
+                        let coef = u64_to_ff(1 << shift);
+                        let mut tmp_val = chunk.get_value().grab()?;
+                        tmp_val.mul_assign(&coef);
+                        cur_val.sub_assign(&tmp_val);
                         
                         Ok(cur_val)
                     })?;
@@ -818,10 +848,13 @@ impl<E: Engine> Blake2sGadget<E> {
                     *w = Num::Variable(new_var);
                     cur = w;
                 }
-                 
+                
+                let q_arr = [q0, q1, q2, q3];
+
                 XorRotOutput {
                     z: y,
                     q_arr: Some(q_arr),
+                    q0_shifts,
                     w_arr: Some(w_arr),
                     shifts
                 }
@@ -838,10 +871,9 @@ impl<E: Engine> Blake2sGadget<E> {
             return Ok(())
         }
 
-        let zero = E::Fr::zero();
-        let one = E::Fr::one();
-        let mut minus_one = one.clone();
-        minus_one.negate();
+        let zero = self.zero.clone();
+        let one = self.one.clone();
+        let minus_one = self.minus_one.clone();
 
         let z = xor_rot_data.z;
         let q_arr = xor_rot_data.q_arr.unwrap();
@@ -851,16 +883,17 @@ impl<E: Engine> Blake2sGadget<E> {
         if needs_decomposition {
             // [y0, y1, y2, y3]
             let mut row = GateAllocHelper::default();
-            row.set_var(0, one.clone(), z.decomposed.r0, true)?;
-            row.set_var(1, self.u64_to_ff(1 << CHUNK_SIZE), z.decomposed.r1, true)?;
-            row.set_var(2, self.u64_to_ff(1 << (2 * CHUNK_SIZE)), z.decomposed.r2, true)?;
-            row.set_var(3, self.u64_to_ff(1 << (3 * CHUNK_SIZE)), z.decomposed.r3, true)?;
+            row.set_var(0, one.clone(), z.decomposed.r0, true);
+            row.set_var(1, u64_to_ff(1 << CHUNK_SIZE), z.decomposed.r1, true);
+            row.set_var(2, u64_to_ff(1 << (2 * CHUNK_SIZE)), z.decomposed.r2, true);
+            row.set_var(3, u64_to_ff(1 << (3 * CHUNK_SIZE)), z.decomposed.r3, true);
             row.link_with_next_row(minus_one.clone());
 
             self.allocate_gate(cs, row)?;
         }
 
         // x[0], y[0], z[idx_0], z,
+        // OPTIONAL : z[idx_0], z[idx_0]_shift4, z[idx_0]_shift7, z, 
         // [x[1], y[1], z[idx_1], z - z[idx_0] * 8^[idx_0] = w0
         // x[2], y[2], z[idx_2], z - z[idx_0] * 8^[idx_0] - z[idx_1] * 8^[idx_1] = w1
 
@@ -868,23 +901,87 @@ impl<E: Engine> Blake2sGadget<E> {
         // equation of the last row is somehow different : c* coef - d = 0;
         // x[3], y[3], z[idx_3], z - z[idx_0] * 8^[idx_0] - z[idx_1] * 8^[idx_1] - z[idx_2] * 8^[idx_2] = w2
 
-        for i in 0..4 {
-            let a = self.to_allocated(cs, x.decomposed.get_var_by_idx(i))?;
-            let b = self.to_allocated(cs, y.decomposed.get_var_by_idx(i))?;
-            let c = q_arr[i].clone();
-            let d = if i == 0 { z.full.clone() } else { w_arr[i-1].clone() };
-            let coef = self.u64_to_ff(1 << xor_rot_data.shifts[i]);
+        if self.use_additional_tables {
+            let a = self.to_allocated(cs, &x.decomposed[0])?;
+            let b = self.to_allocated(cs, &y.decomposed[0])?;
+            let c = q_arr[0].clone();
+            let d = z.full.clone();
+            let coef = u64_to_ff(1 << xor_rot_data.shifts[0]);
 
             let mut row = GateAllocHelper::default();
-            row.set_var(0, zero.clone(), a, true)?;
-            row.set_var(1, zero.clone(), b, true)?;
-            row.set_var(2, coef, c, true)?;
-            row.set_var(3, minus_one.clone(), d, true)?;
+            row.set_var(0, zero.clone(), a, true);
+            row.set_var(1, zero.clone(), b, true);
+            row.set_var(2, coef, c, true);
+            row.set_var(3, minus_one.clone(), d, true);
+            
+            row.link_with_next_row(one.clone());
+
+            let table = self.choose_table_by_rot(rot);
+            row.set_table(table);
+            self.allocate_gate(cs, row)?;
+        }
+        else {
+            let (q0_rot4, q0_rot7) = xor_rot_data.q0_shifts.unwrap();
+
+            // first gate
+            let a = self.to_allocated(cs, &x.decomposed[0])?;
+            let b = self.to_allocated(cs, &y.decomposed[0])?;
+            let c = q_arr[0].clone();
+            let d = z.full.clone();
+
+            let mut row = GateAllocHelper::default();
+            row.set_var(0, zero.clone(), a, true);
+            row.set_var(1, zero.clone(), b, true);
+            row.set_var(2, zero.clone(), c, true);
+            row.set_var(3, zero.clone(), d, true);
+
+            let table = self.xor_table.clone();
+            row.set_table(table);
+            self.allocate_gate(cs, row)?;
+
+            // second gate
+            let a = self.to_allocated(cs, &q_arr[0].clone())?;
+            let b = self.to_allocated(cs, &q0_rot4)?;
+            let c =  self.to_allocated(cs, &q0_rot7)?;
+            let d = z.full.clone();
+            let coef = u64_to_ff(1 << xor_rot_data.shifts[0]);
+
+            let mut row = GateAllocHelper::default();
+            row.set_var(0, zero.clone(), a, true);
+            if rot == SHIFT4 {
+                row.set_var(1, coef, b, true);
+                row.set_var(2, zero.clone(), c, true);
+            }
+            else {
+                row.set_var(1, zero.clone(), b, true);
+                row.set_var(2, coef, c, true);
+            }
+            row.set_var(3, minus_one.clone(), d, true);
+            
+            row.link_with_next_row(one.clone());
+
+            let table = self.compound_rot4_7_table.as_ref().unwrap().clone();
+            row.set_table(table);
+            self.allocate_gate(cs, row)?;
+        }
+
+        for i in 1..4 {
+            let a = self.to_allocated(cs, &x.decomposed[i])?;
+            let b = self.to_allocated(cs, &y.decomposed[i])?;
+            let c = q_arr[i].clone();
+            let d = w_arr[i-1].clone();
+            let coef = u64_to_ff(1 << xor_rot_data.shifts[i]);
+
+            let mut row = GateAllocHelper::default();
+            row.set_var(0, zero.clone(), a, true);
+            row.set_var(1, zero.clone(), b, true);
+            row.set_var(2, coef, c, true);
+            row.set_var(3, minus_one.clone(), d, true);
             
             if i != 3 {
                 row.link_with_next_row(one.clone());
             }
-            let table = if i == 0 { self.choose_table_by_rot(rot) } else { self.xor_table.clone() };
+            let table = self.xor_table.clone();
             row.set_table(table);
 
             self.allocate_gate(cs, row)?;
@@ -893,7 +990,7 @@ impl<E: Engine> Blake2sGadget<E> {
         Ok(())
     }
 
-    fn G<CS>(&self, cs: &mut CS, v: &mut HashState<E>, idx_arr: [usize; 4], x: &Num<E>, y: &Num<E>) -> Result<()>
+    fn g<CS>(&self, cs: &mut CS, v: &mut HashState<E>, idx_arr: [usize; 4], x: &Num<E>, y: &Num<E>) -> Result<()>
     where CS: ConstraintSystem<E>
     {
         let mut regs = v.0.get_muts();
@@ -1213,17 +1310,17 @@ impl<E: Engine> Blake2sGadget<E> {
         self.var_xor_const(cs, &reg.decomposed, cnst)
     }
 
-    fn F<CS>(&self, cs: &mut CS, hash_state: HashState<E>, m: &[Num<E>], total_len: u64, last_block: bool) -> Result<HashState<E>>
+    fn f<CS>(&self, cs: &mut CS, hash_state: HashState<E>, m: &[Num<E>], total_len: u64, last_block: bool) -> Result<HashState<E>>
     where CS: ConstraintSystem<E>
     {
         // Initialize local work vector v[0..15]
-        let mut v = HashState(Vec::with_capacity(BLAKE2s_STATE_WIDTH));
+        let mut v = HashState(Vec::with_capacity(BLAKE2S_STATE_WIDTH));
         // First half from state.
-        for i in 0..(BLAKE2s_STATE_WIDTH / 2) {
+        for i in 0..(BLAKE2S_STATE_WIDTH / 2) {
             v.0.push(hash_state.0[i].clone());
         }
         // Second half from IV.
-        for i in 0..(BLAKE2s_STATE_WIDTH / 2) {
+        for i in 0..(BLAKE2S_STATE_WIDTH / 2) {
             let reg = self.u64_to_reg(self.iv[i]);
             v.0.push(reg);
         }
@@ -1241,21 +1338,21 @@ impl<E: Engine> Blake2sGadget<E> {
             // Message word selection permutation for this round.
             let s = &self.sigmas[i];
 
-            self.G(cs, &mut v, [0, 4, 8, 12], &m[s[0]], &m[s[1]])?;
-            self.G(cs, &mut v, [1, 5, 9, 13], &m[s[2]], &m[s[3]])?;
-            self.G(cs, &mut v, [2, 6, 10, 14], &m[s[4]], &m[s[5]])?;
-            self.G(cs, &mut v, [3, 7, 11, 15], &m[s[6]], &m[s[7]])?;
-            self.G(cs, &mut v, [0, 5, 10, 15], &m[s[8]], &m[s[9]])?;
-            self.G(cs, &mut v, [1, 6, 11, 12], &m[s[10]], &m[s[11]])?;
-            self.G(cs, &mut v, [2, 7, 8, 13], &m[s[12]], &m[s[13]])?;
-            self.G(cs, &mut v, [3, 4, 9, 14], &m[s[14]], &m[s[15]])?;
+            self.g(cs, &mut v, [0, 4, 8, 12], &m[s[0]], &m[s[1]])?;
+            self.g(cs, &mut v, [1, 5, 9, 13], &m[s[2]], &m[s[3]])?;
+            self.g(cs, &mut v, [2, 6, 10, 14], &m[s[4]], &m[s[5]])?;
+            self.g(cs, &mut v, [3, 7, 11, 15], &m[s[6]], &m[s[7]])?;
+            self.g(cs, &mut v, [0, 5, 10, 15], &m[s[8]], &m[s[9]])?;
+            self.g(cs, &mut v, [1, 6, 11, 12], &m[s[10]], &m[s[11]])?;
+            self.g(cs, &mut v, [2, 7, 8, 13], &m[s[12]], &m[s[13]])?;
+            self.g(cs, &mut v, [3, 4, 9, 14], &m[s[14]], &m[s[15]])?;
         }
 
         // XOR the two halves.
-        let mut res = HashState(Vec::with_capacity(BLAKE2s_STATE_WIDTH / 2));
-        for i in 0..(BLAKE2s_STATE_WIDTH / 2) {
+        let mut res = HashState(Vec::with_capacity(BLAKE2S_STATE_WIDTH / 2));
+        for i in 0..(BLAKE2S_STATE_WIDTH / 2) {
             // h[i] := h[i] ^ v[i] ^ v[i + 8]
-            let t = self.apply_ternary_xor(cs, &hash_state.0[i], &v.0[i], &v.0[i + (BLAKE2s_STATE_WIDTH / 2)])?;
+            let t = self.apply_ternary_xor(cs, &hash_state.0[i], &v.0[i], &v.0[i + (BLAKE2S_STATE_WIDTH / 2)])?;
             res.0.push(t);
         }
         Ok(res)
@@ -1265,8 +1362,8 @@ impl<E: Engine> Blake2sGadget<E> {
     {
         // h[0..7] := IV[0..7] // Initialization Vector.
         let mut total_len : u64 = 0;
-        let mut hash_state = HashState(Vec::with_capacity(BLAKE2s_STATE_WIDTH / 2));
-        for i in 0..(BLAKE2s_STATE_WIDTH / 2) {
+        let mut hash_state = HashState(Vec::with_capacity(BLAKE2S_STATE_WIDTH / 2));
+        for i in 0..(BLAKE2S_STATE_WIDTH / 2) {
             let num = if i == 0 { self.iv0_twist } else { self.iv[i] };
             let reg = self.u64_to_reg(num);
             hash_state.0.push(reg);
@@ -1276,14 +1373,14 @@ impl<E: Engine> Blake2sGadget<E> {
         {
             assert_eq!(block.len(), 16);
             total_len += 64;
-            hash_state = self.F(cs, hash_state, &block[..], total_len, is_last)?;
+            hash_state = self.f(cs, hash_state, &block[..], total_len, is_last)?;
         }
 
         // allocate all remaining consts
         self.constraint_all_allocated_cnsts(cs)?;
 
-        let mut res = Vec::with_capacity(BLAKE2s_STATE_WIDTH / 2);
-        for elem in hash_state.0.drain(0..(BLAKE2s_STATE_WIDTH / 2)) {
+        let mut res = Vec::with_capacity(BLAKE2S_STATE_WIDTH / 2);
+        for elem in hash_state.0.drain(0..(BLAKE2S_STATE_WIDTH / 2)) {
             res.push(elem.full);
         }
         Ok(res)
