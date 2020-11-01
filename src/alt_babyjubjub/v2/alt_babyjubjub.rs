@@ -7,7 +7,7 @@ use bellman::{Engine, Field, PrimeField, PrimeFieldRepr, ScalarEngine, SqrtField
 use rand::{Rand, Rng};
 use std::marker::PhantomData;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AltJubjub {
     curve_params: TwisterEdwardsCurveParams<Bn256>,
 }
@@ -41,10 +41,19 @@ impl TwistedEdwardsCurve<Bn256> for AltJubjub {
         let mut d = p.z;
         d.mul_assign(&q.z);
 
-        // H = B - aA
-        //   = B + A
-        let mut h = b;
-        h.add_assign(&a);
+        let h = if self.curve_params.is_param_a_equals_minus_one {
+            // H = B + A
+            let mut h = b;
+            h.add_assign(&a);
+            h
+        } else {
+            // H = B - aA
+            let mut h = a.clone();
+            h.mul_assign(&self.curve_params.param_a);
+            h.negate();
+            h.add_assign(&b);
+            h
+        };
 
         // E = (x1 + y1) * (x2 + y2) - A - B
         //   = (x1 + y1) * (x2 + y2) - H
@@ -163,7 +172,7 @@ impl TwistedEdwardsCurve<Bn256> for AltJubjub {
     ) -> TwistedEdwardsPoint<Bn256> {
         // Standard double-and-add scalar multiplication
 
-        let mut res = TwistedEdwardsPoint::zero();
+        let mut res = TwistedEdwardsPoint::identity();
 
         for b in BitIterator::new(scalar.into()) {
             res = self.double(&res);
@@ -176,12 +185,49 @@ impl TwistedEdwardsCurve<Bn256> for AltJubjub {
         res
     }
 
+    fn ct_mul(
+        &self,
+        p: &TwistedEdwardsPoint<Bn256>,
+        scalar: Self::Fs,
+    ) -> TwistedEdwardsPoint<Bn256> {
+        // construct table from point
+        let table = LookupTable::from_point(&p, self);
+
+        // change scalar to radix16
+        let scalar_in_base_16 = super::util::scalar_to_radix_16::<_, Self>(&scalar);
+
+        // iterate and select from table
+        let mut q = TwistedEdwardsPoint::identity();
+
+        for i in (0..64).rev(){            
+            let s_i = scalar_in_base_16[i];
+            let t = table.select(s_i, self);
+
+            for i in 0..4{
+                q = self.double(&q);
+            }
+
+            q  = self.add(&q, &t)
+        }
+
+        q
+    }
+
+
+    // The negative of (X:Y:T:Z) is (-X:Y:-T:Z)
     fn negate(&self, p: &TwistedEdwardsPoint<Bn256>) -> TwistedEdwardsPoint<Bn256> {
         let mut q = p.clone();
         q.x.negate();
         q.t.negate();
 
         q
+    }
+
+    fn mul_by_generator<S: Into<<Self::Fs as PrimeField>::Repr>>(
+        &self,
+        scalar: S,
+    ) -> TwistedEdwardsPoint<Bn256> {
+        self.mul(&self.curve_params.generator, scalar)
     }
 }
 
@@ -193,8 +239,30 @@ impl AltJubjub {
         )
         .expect("field element d");
 
+        let mut a = <Bn256 as ScalarEngine>::Fr::one();
+        a.negate();
+
+        let generator_x = <Bn256 as ScalarEngine>::Fr::from_str(
+            "21237458262955047976410108958495203094252581401952870797780751629344472264183",
+        )
+        .expect("field element");
+
+        let generator_y = <Bn256 as ScalarEngine>::Fr::from_str(
+            "2544379904535866821506503524998632645451772693132171985463128613946158519479",
+        )
+        .expect("field element");
+
+        let mut generator_t = generator_x.clone();
+        generator_t.mul_assign(&generator_y);
+
+        let generator = TwistedEdwardsPoint {
+            x: generator_x,
+            y: generator_y,
+            t: generator_t,
+            z: <Bn256 as ScalarEngine>::Fr::one(),
+        };
         Self {
-            curve_params: TwisterEdwardsCurveParams::new(d),
+            curve_params: TwisterEdwardsCurveParams::new(d, a, generator),
         }
     }
 
@@ -259,6 +327,49 @@ impl AltJubjub {
     }
 }
 
+// [P, 2P, 3P .. 8P]
+struct LookupTable<E: Engine>(Vec<TwistedEdwardsPoint<E>>);
+
+impl<E: Engine> LookupTable<E> {
+    // precomputation
+    fn from_point<C: TwistedEdwardsCurve<E>>(p: &TwistedEdwardsPoint<E>, curve: &C) -> Self {
+        let mut table = vec![p.clone(); 8];
+
+        for i in 0..7 {
+            table[i + 1] = curve.add(&p, &table[i]);
+        }
+
+        Self(table)
+    }
+
+    // -8 <= x <= 8
+    fn select<C: TwistedEdwardsCurve<E>>(&self, x: i8, curve: &C) -> TwistedEdwardsPoint<E> {
+        if x == 0 {
+            return TwistedEdwardsPoint::identity();
+        }
+
+        let xmask = x >> 7;
+        let abs = (xmask + x) ^ xmask;
+
+        let mut p = TwistedEdwardsPoint::identity();
+
+        for i in 1..9 {
+            p = TwistedEdwardsPoint::conditional_select(
+                (i == abs) as u8, // TODO: constant time eq
+                &self.0[(i - 1) as usize].clone(),
+                &p,
+            );
+        }
+
+        // conditionally assign if x is neg
+        let x_is_neg = (xmask & 1) as u8;
+        let p_neg = curve.negate(&p);
+        let result = TwistedEdwardsPoint::conditional_select(x_is_neg, &p_neg, &p);
+
+        result
+    }
+}
+
 impl<E: Engine> PartialEq for TwistedEdwardsPoint<E> {
     fn eq(&self, other: &TwistedEdwardsPoint<E>) -> bool {
         // p1 = (x1/z1, y1/z1)
@@ -280,5 +391,63 @@ impl<E: Engine> PartialEq for TwistedEdwardsPoint<E> {
         y2.mul_assign(&self.z);
 
         x1 == x2 && y1 == y2
+    }
+}
+
+#[cfg(test)]
+mod tests{
+    use super::*;
+    use crate::alt_babyjubjub::fs::Fs;
+    use rand::{XorShiftRng, SeedableRng};
+    use std::time::Instant;    
+
+    #[test]
+    fn test_conditonal_select_for_point(){
+        let jubjub = AltJubjub::new();
+        
+        let p = TwistedEdwardsPoint::<Bn256>::identity();
+        let q = jubjub.double(&p);
+
+        let r1 = TwistedEdwardsPoint::conditional_select(0, &p, &q);
+        assert_eq!(r1, q);
+        let r1 = TwistedEdwardsPoint::conditional_select(1, &p, &q);
+        assert_eq!(r1, p);
+    }
+
+    #[test]
+    fn test_constant_time_mul(){
+        let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        let jubjub = AltJubjub::new();
+
+        for _ in 0..100{
+            let p = jubjub.rand(rng);
+            let scalar = Fs::rand(rng);
+    
+            let expected = jubjub.mul(&p, scalar);
+    
+            let actual = jubjub.ct_mul(&p, scalar);
+            assert_ne!(actual, TwistedEdwardsPoint::<Bn256>::identity());
+            assert_eq!(expected, actual);
+        }
+    }
+
+    #[test]
+    fn test_constant_time_mul_running_time(){
+        let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        let jubjub = AltJubjub::new();
+
+        for _ in 0..10{
+            let p = jubjub.rand(rng);
+            let scalar = Fs::rand(rng);
+            
+            let expected = jubjub.mul(&p, scalar);
+            let now = Instant::now();            
+            let actual = jubjub.ct_mul(&p, scalar);
+            println!("elapsed {}", now.elapsed().as_nanos());
+            assert_ne!(actual, TwistedEdwardsPoint::<Bn256>::identity());
+            assert_eq!(expected, actual);
+        }
     }
 }

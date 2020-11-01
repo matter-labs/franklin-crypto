@@ -134,10 +134,7 @@ mod test {
 
                 (expected_x, expected_y)
             };
-
-            // let (actual_x, actual_y) = jubjub.add(&p, &p_negate).into_xy();
-            // let (expected_x, expected_y) = TwistedEdwardsPoint::<Bn256>::zero().into_xy();
-
+            
             assert_eq!(actual_x, expected_x);
             assert_eq!(actual_y, expected_y);
         }
