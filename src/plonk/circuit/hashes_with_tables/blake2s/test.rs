@@ -53,7 +53,7 @@ mod test {
             let blake2s_gadget = Blake2sGadget::new(cs, self.use_additional_tables)?;
 
             let supposed_output_vars = blake2s_gadget.digest(cs, &input_vars[..])?;
-
+            println!("eq gates count: {}", cs.get_current_aux_gate_number());
             for (a, b) in supposed_output_vars.iter().zip(actual_output_vars.into_iter()) {
                 let a = match a {
                     Num::Variable(x) => x,
@@ -74,6 +74,7 @@ mod test {
         Fr::from_repr(repr).expect("should parse")
     }
 
+    #[test]
     fn blake2s_gadget_test() 
     {
         const NUM_OF_BLOCKS: usize = 1;

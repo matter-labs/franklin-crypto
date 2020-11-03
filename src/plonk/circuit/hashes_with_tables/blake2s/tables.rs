@@ -150,15 +150,12 @@ impl<E: Engine> CompoundRotTable<E> {
 
         let mut keys = Vec::with_capacity(1 << bits);
         let mut values1 = Vec::with_capacity(1 << bits);
-        let mut values2 = Vec::with_capacity(1 << bits);
-        
+        let mut values2 = Vec::with_capacity(1 << bits);  
         let mut map = std::collections::HashMap::with_capacity(1 << bits);
-        let mask1 = (1 << (bits - rot1)) - 1;
-        let mask2 = (1 << (bits - rot2)) - 1;
 
         for x in 0..(1 << bits) {
-            let y = (x >> rot1) | ((x & mask1) << (bits - rot1));
-            let z = (x >> rot2) | ((x & mask2) << (bits - rot2));
+            let y = (x as u32).rotate_right(rot1 as u32);
+            let z = (x as u32).rotate_right(rot2 as u32);
             
             let x = u64_to_ff(x as u64);
             let y = u64_to_ff(y as u64);
@@ -199,13 +196,13 @@ impl<E: Engine> LookupTableInternal<E> for CompoundRotTable<E> {
         self.name
     }
     fn table_size(&self) -> usize {
-        1 << (2 * self.bits)
+        1 << self.bits
     }
     fn num_keys(&self) -> usize {
-        2
+        1
     }
     fn num_values(&self) -> usize {
-        1
+        2
     }
     fn allows_combining(&self) -> bool {
         true
