@@ -23,6 +23,8 @@ mod test {
         input: Vec<E::Fr>,
         output: [E::Fr; 8],
         use_additional_tables: bool,
+        is_const_test: bool,
+        is_byte_test: bool,
     }
 
     impl<E: Engine> Circuit<E> for TestBlake2sCircuit<E> {
@@ -52,8 +54,38 @@ mod test {
 
             let blake2s_gadget = Blake2sGadget::new(cs, self.use_additional_tables)?;
 
-            let supposed_output_vars = blake2s_gadget.digest(cs, &input_vars[..])?;
-            println!("eq gates count: {}", cs.get_current_aux_gate_number());
+            let supposed_output_vars = if !self.is_byte_test {    
+                let mut input_vars = Vec::with_capacity(self.input.len());
+                for value in self.input.iter() {
+                    if !self.is_const_test {
+                        let new_var = AllocatedNum::alloc(cs, || Ok(value.clone()))?;
+                        input_vars.push(Num::Variable(new_var));
+                    }
+                    else {
+                        input_vars.push(Num::Constant(value.clone()));
+                    }
+                }
+                sha256_gadget.sha256(cs, &input_vars[..])?
+            }
+            else {
+                let mut input_vars = Vec::with_capacity(self.input.len());
+                for value in self.input.iter() {
+                    if !self.is_const_test {
+                        let new_var = AllocatedNum::alloc(cs, || Ok(value.clone()))?;
+                        let byte = Byte::from_num_unconstrained(cs, Num::Variable(new_var));
+                        input_vars.push(byte);
+                    }
+                    else {
+                        let byte = Byte::from_cnst(cs, value.clone());
+                        input_vars.push(byte);
+                    }
+                }
+                sha256_gadget.sha256_from_bytes(cs, &input_vars[..])?
+            };
+
+
+
+
             for (a, b) in supposed_output_vars.iter().zip(actual_output_vars.into_iter()) {
                 let a = match a {
                     Num::Variable(x) => x,
@@ -107,6 +139,52 @@ mod test {
             input: input_fr_arr,
             output: output_fr_arr,
             use_additional_tables: USE_ADDITIONAL_TABLES,
+        };
+
+        let mut assembly = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+
+        circuit.synthesize(&mut assembly).expect("must work");
+        println!("Assembly contains {} gates", assembly.n());
+        println!("Total length of all tables: {}", assembly.total_length_of_all_tables);
+        assert!(assembly.is_satisfied());
+    }
+
+    #[test]
+    fn polished_sha256_gadget_bytes_test() 
+    {
+        const NUM_OF_BYTES: usize = 341;
+        const IS_CONST_TEST: bool = false;
+
+        let mut rng = rand::thread_rng();
+
+        let mut input = [0u8; NUM_OF_BYTES];
+        for i in 0..NUM_OF_BYTES {
+            input[i] = rng.gen();
+        }
+    
+        // create a Sha256 object
+        let mut hasher = Sha256::new();
+        // write input message
+        hasher.input(&input[..]);
+        // read hash digest and consume hasher
+        let output = hasher.result();
+
+        let mut input_fr_arr : Vec<<Bn256 as ScalarEngine>::Fr> = Vec::with_capacity(NUM_OF_BYTES);
+        let mut output_fr_arr = [Fr::zero(); 8];
+
+        input_fr_arr.extend(input.iter().map(|byte| u64_to_ff::<<Bn256 as ScalarEngine>::Fr>(*byte as u64)));
+        
+        for (i, block) in output.chunks(4).enumerate() {
+            output_fr_arr[i] = slice_to_ff::<Fr>(block);
+        }
+        
+        let circuit = TestSha256Circuit::<Bn256>{
+            input: input_fr_arr,
+            output: output_fr_arr,
+            ch_base_num_of_chunks: None,
+            maj_sheduler_base_num_of_chunks: None,
+            is_const_test: IS_CONST_TEST,
+            is_byte_test: true,
         };
 
         let mut assembly = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
