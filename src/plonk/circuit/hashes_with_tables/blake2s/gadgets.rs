@@ -826,7 +826,7 @@ impl<E: Engine> Blake2sGadget<E> {
     {
         let mut start_idx = if rot == 7 {0} else {1};
         let (q_i0, q_ch_rots) = if self.use_additional_tables {
-            let q_i0 = Num::Variable(self.xor_rot(cs, &a.decomposed[start_idx], &b.decomposed[start_idx], rot)?);
+            let q_i0 = Num::Variable(self.xor_rot(cs, &a.decomposed[start_idx], &b.decomposed[start_idx], rot % CHUNK_SIZE)?);
             (q_i0, None)
         }
         else {

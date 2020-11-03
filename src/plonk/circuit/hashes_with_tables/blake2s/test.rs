@@ -77,8 +77,8 @@ mod test {
     #[test]
     fn blake2s_gadget_test() 
     {
-        const NUM_OF_BLOCKS: usize = 1;
-        const USE_ADDITIONAL_TABLES: bool = false;
+        const NUM_OF_BLOCKS: usize = 3;
+        const USE_ADDITIONAL_TABLES: bool = true;
 
         let seed: &[_] = &[1, 2, 3, 4, 5];
         let mut rng: StdRng = SeedableRng::from_seed(seed);
