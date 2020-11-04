@@ -324,14 +324,10 @@ impl<E: Engine> LinearCombination<E> {
         Ok(Num::Variable(allocated))
     }
 
-    #[track_caller]
     pub fn enforce_zero<CS: ConstraintSystem<E>>(
         self,
         cs: &mut CS
     ) -> Result<(), SynthesisError> {
-        if let Some(val) = self.get_value() {
-            assert!(val.is_zero(), "linear combination is not equal to zero");
-        }
         use crate::bellman::plonk::better_better_cs::cs::PlonkConstraintSystemParams;
 
         if CS::Params::CAN_ACCESS_NEXT_TRACE_STEP {
