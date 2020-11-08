@@ -643,7 +643,6 @@ impl<E: Engine> Blake2sGadget<E> {
         third_row.set_table(self.xor_table.clone());
 
         self.allocate_gate(cs, first_row)?;
-        println!("add cur constraint: {}", cs.get_current_aux_gate_number());
         self.allocate_gate(cs, second_row)?;
         self.allocate_gate(cs, third_row)?;
 
@@ -1046,16 +1045,13 @@ impl<E: Engine> Blake2sGadget<E> {
             row.set_var(3, minus_one.clone(), d, true);
             
             row.link_with_next_row(one.clone());
-            println!("ololo");
             let table = self.choose_table_by_rot(rot);
-            println!("trololo");
             row.set_table(table);
             self.allocate_gate(cs, row)?;
         }
         start_idx = (start_idx + 1) % 4;
 
         for i in 1..4 {
-             println!("trololo2");
             let a = self.to_allocated(cs, &x.decomposed[start_idx])?;
             let b = self.to_allocated(cs, &y.decomposed[start_idx])?;
             let c = qs[i].clone();
@@ -1101,10 +1097,7 @@ impl<E: Engine> Blake2sGadget<E> {
         // first half of g function - burn preallocated variables to protoboard
         self.g_ternary_addition_process(cs, a, b, x, &temp_a, &of1, &of2)?;
         self.g_xor_rot_process(cs, &temp_a, d, xor_rot_data1, 16)?;
-        println!("xor gates count: {}", cs.get_current_aux_gate_number());
         self.g_binary_addition_process(cs, c, &temp_d, &temp_c, &of2)?;
-        //9
-        println!("xor gates count2: {}", cs.get_current_aux_gate_number());
         self.g_xor_rot_process(cs, b, &temp_c, xor_rot_data2, 12)?;
         
         // second half of g function - setup
@@ -1120,7 +1113,6 @@ impl<E: Engine> Blake2sGadget<E> {
         self.g_xor_rot_process(cs, &new_a, &temp_d, xor_rot_data1, 8)?;
         self.g_binary_addition_process(cs, &temp_c, &new_d, &new_c, &of2)?;
         self.g_xor_rot_process(cs, &temp_b, &new_c, xor_rot_data2, 7)?;
-        println!("xor gates count3: {}", cs.get_current_aux_gate_number());
         
         *a = new_a;
         *b = new_b;
@@ -1397,7 +1389,6 @@ impl<E: Engine> Blake2sGadget<E> {
 
     fn apply_xor_with_const<CS: ConstraintSystem<E>>(&self, cs: &mut CS, reg: &Reg<E>, cnst: u64) -> Result<Reg<E>>
     {
-        println!("cur constraint: {}", cs.get_current_aux_gate_number());
         if reg.is_const() {
             let temp = reg.full.get_value().unwrap();
             let f_repr = temp.into_repr();
@@ -1422,7 +1413,6 @@ impl<E: Engine> Blake2sGadget<E> {
             v.0.push(reg);
         }
 
-        println!("here");
         v.0[12] = self.apply_xor_with_const(cs, &mut v.0[12], total_len & ((1 << REG_WIDTH) - 1))?; // Low word of the offset.
         v.0[13] = self.apply_xor_with_const(cs, &mut v.0[13], total_len >> REG_WIDTH)?; // High word.
         if last_block {
@@ -1431,8 +1421,6 @@ impl<E: Engine> Blake2sGadget<E> {
             v.0[14] = self.apply_xor_with_const(cs, &mut v.0[14], 0xffffffff)?; // Invert all bits.
         }
 
-        println!("there");
-        println!("cur num gates: {}", cs.get_current_aux_gate_number());
         // Cryptographic mixing: ten rounds
         for i in 0..10 {
             // Message word selection permutation for this round.
