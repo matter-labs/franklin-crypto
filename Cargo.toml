@@ -28,6 +28,8 @@ num-bigint = "0.3"
 num-integer = "0.1"
 num-traits = "0.2"
 itertools = "0.9"
+splitmut = "0.2"
+blake2 = "0.9"
 
 #bellman = { package = "bellman_ce", path = "../bellman" }
 bellman = { package = "bellman_ce", git = "https://github.com/matter-labs/bellman", branch = "dev" }

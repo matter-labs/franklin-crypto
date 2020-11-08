@@ -1,4 +1,5 @@
 use crate::bellman::pairing::ff::*;
+use crate::bellman::SynthesisError;
 use crate::num_bigint::BigUint;
 use crate::num_traits::cast::ToPrimitive;
 use crate::num_traits::{ Zero, One };

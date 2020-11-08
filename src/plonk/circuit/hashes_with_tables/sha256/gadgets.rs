@@ -1662,7 +1662,7 @@ impl<E: Engine> Sha256Gadget<E> {
     /// expects well formed and padded input, outputs 32 bit words
     /// Can be used when we perform something like sha256(truncate(sha256(a)), truncate(sha256(b)))
     // to fit hashing of truncated outputs into the single round
-    fn sha256<CS: ConstraintSystem<E>>(&self, cs: &mut CS, message: &[Num<E>]) -> Result<[Num<E>; 8]>
+    pub fn sha256<CS: ConstraintSystem<E>>(&self, cs: &mut CS, message: &[Num<E>]) -> Result<[Num<E>; 8]>
     {    
         // we assume that input is already well-padded
         assert!(message.len() % 16 == 0);
