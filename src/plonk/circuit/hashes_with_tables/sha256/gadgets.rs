@@ -1659,11 +1659,10 @@ impl<E: Engine> Sha256Gadget<E> {
         Ok(regs)
     }
 
-    // ---------------------------------------------------------------------------------------------------------------------------
-    // public interface: exported functions
-    // ---------------------------------------------------------------------------------------------------------------------------
-                    
-    pub fn sha256<CS: ConstraintSystem<E>>(&self, cs: &mut CS, message: &[Num<E>]) -> Result<[Num<E>; 8]>
+    /// expects well formed and padded input, outputs 32 bit words
+    /// Can be used when we perform something like sha256(truncate(sha256(a)), truncate(sha256(b)))
+    // to fit hashing of truncated outputs into the single round
+    fn sha256<CS: ConstraintSystem<E>>(&self, cs: &mut CS, message: &[Num<E>]) -> Result<[Num<E>; 8]>
     {    
         // we assume that input is already well-padded
         assert!(message.len() % 16 == 0);
@@ -1699,6 +1698,11 @@ impl<E: Engine> Sha256Gadget<E> {
         Ok(res)
     }
 
+    // ---------------------------------------------------------------------------------------------------------------------------
+    // public interface: exported functions
+    // ---------------------------------------------------------------------------------------------------------------------------
+    
+    /// take bytes as input and return Num<E> as output, where each Num<E> is 32 bit integer
     pub fn sha256_from_bytes<CS: ConstraintSystem<E>>(&self, cs: &mut CS, bytes: &[Byte<E>]) -> Result<[Num<E>; 8]>
     {
         // first apply the right padding:
@@ -1739,5 +1743,22 @@ impl<E: Engine> Sha256Gadget<E> {
         }
 
         self.sha256(cs, &words32[..])           
+    }
+
+    /// take bytes as input and return bytes as output
+    pub fn sha256_from_bytes_to_bytes<CS: ConstraintSystem<E>>(&self, cs: &mut CS, bytes: &[Byte<E>]) -> Result<[Byte<E>; 32]>
+    {
+        use plonk::circuit::byte::IntoBytes;
+
+        let as_nums = self.sha256_from_bytes(cs, bytes)?;
+        let mut gadget_output = [Byte::empty(); 32];
+        for (bytes, num) in gadget_output.chunks_exact_mut(4).zip(as_nums.iter()) {
+            let as_vec = num.into_be_bytes(cs)?;
+            let len = as_vec.len();
+            // we are ok here cause it's initially uint32 extraction
+            bytes.copy_from_slice(&as_vec[(len - 4)..]);
+        }
+
+        Ok(gadget_output)
     }
 }

@@ -120,7 +120,9 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
     ) -> Result<Boolean, SynthesisError>
     {
-        self.point.equals(cs, &other.point)
+        let (eq, _) = AffinePoint::equals(cs, self.point.clone(), other.point.clone())?;
+        
+        Ok(eq)
     }
 
     fn add<CS: ConstraintSystem<E>>(
@@ -206,9 +208,9 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         let b = FieldElement::new_constant(aux_data.get_b(), params);
         rhs = rhs.add(cs, b)?.0;
 
-        let on_curve = lhs.equals(cs, &rhs);
+        let (on_curve, _) = FieldElement::equals(cs, lhs, rhs)?;
 
-        on_curve
+        Ok(on_curve)
     }
 
     fn subgroup_check<CS: ConstraintSystem<E>, AD: aux_data::AuxData<E>>(
