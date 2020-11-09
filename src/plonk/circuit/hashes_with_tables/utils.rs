@@ -6,6 +6,23 @@ use crate::num_traits::{ Zero, One };
 use std::{ iter, mem };
 
 
+// for given x=(x_0, x_1, ..., x_n) extract the k lower bits: y = (x_0, x_1, ..., x_{k-1}, 0, ..., 0)
+// and then rotate
+// NOTE: by rotate we always mean right rotate of 32-bit numbers!
+pub fn rotate_extract(value: usize, rotation: usize, extraction: usize) -> usize
+{
+    let temp = if extraction > 0 {value & ((1 << extraction) - 1)} else {value}; 
+    let res = if rotation > 0 {(temp >> rotation) + ((temp << (32 - rotation)) & 0xffffffff) } else {temp};
+
+    res
+}
+
+pub fn shift_right(value: usize, shift: usize) -> usize
+{
+    if shift > 0 {value >> shift} else {value}
+}
+
+
 pub fn pow(base: usize, exp: usize) -> usize {
 
     let mut res = 1;

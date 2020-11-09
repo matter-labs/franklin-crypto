@@ -19,6 +19,7 @@ use crate::plonk::circuit::assignment::{
 use super::tables::*;
 use super::utils::*;
 use super::super::utils::*;
+use super::super::tables::*;
 
 use std::sync::Arc;
 use std::ops::Add;
