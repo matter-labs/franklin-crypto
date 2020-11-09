@@ -94,11 +94,10 @@ pub struct KeccakGadget<E: Engine> {
     of_first_to_second_base_converter_table: Arc<LookupTableApplication<E>>,
     // table used to convert elements from second base: either to binary form or back to first sparse base
     from_second_base_converter_table: Arc<LookupTableApplication<E>>,
+    range_table: Arc<LookupTableApplication<E>>,
     
     binary_base_num_of_chunks: usize,
     first_base_num_of_chunks: usize,
-    range_table_lower_bound: usize,
-    range_table_upper_bound : usize,
     second_base_num_of_chunks: usize,
 
     offsets : [[usize; KECCAK_STATE_WIDTH]; KECCAK_STATE_WIDTH],
@@ -135,56 +134,66 @@ impl<E: Engine> KeccakGadget<E> {
                 binary_base_num_of_chunks, BINARY_BASE, KECCAK_FIRST_SPARSE_BASE, KECCAK_SECOND_SPARSE_BASE, |x| {x}, |x| {x}, name1,
             ),
             columns3.clone(),
+            None,
             true
         );
 
         let name2 : &'static str = "first_to_second_base_converter_table";
         let f = |x| { keccak_u64_first_conveter(x)};
+        
+        // we have 25 shifted rows so there are at most 25 overflows
+        // let g(0) = 0, g(1) = 0, g(2) = 1
+        // g(3) should be than at least 26
+        // g(4) than should be g(3) * 25 + 1 = 651
+        let g = |x| { 
+            let res =match x {
+                0 | 1 => 0,
+                2 => 1,
+                3 => 26,
+                4 => 651,
+                _ => unreachable!(),
+            };
+            res
+        };
+
         let first_to_second_base_converter_table = LookupTableApplication::new(
             name2,
-            ExtendedBaseConverterTable::new(first_base_num_of_chunks, KECCAK_FIRST_SPARSE_BASE, KECCAK_SECOND_SPARSE_BASE, f, name2),
+            ExtendedBaseConverterTable::new(
+                first_base_num_of_chunks, KECCAK_FIRST_SPARSE_BASE, KECCAK_SECOND_SPARSE_BASE, f, g, name2
+            ),
             columns3.clone(),
+            None,
             true
         );
-
-        println!("third table");
 
         let name3 : &'static str = "of_first_to_second_base_converter_table";
         let f = |x| { keccak_u64_first_conveter(x)};
         let of_first_to_second_base_converter_table = LookupTableApplication::new(
             name3,
-            OverflowFriendlyBaseConverterTable::new(
-                first_base_num_of_chunks, KECCAK_FIRST_SPARSE_BASE, KECCAK_SECOND_SPARSE_BASE, KECCAK_LANE_WIDTH as u64, f, name3
+            OverflowCognizantConverterTable::new(
+                of_first_base_num_of_chunks, KECCAK_FIRST_SPARSE_BASE, KECCAK_SECOND_SPARSE_BASE, KECCAK_LANE_WIDTH as u64, 
+                f, name3,
             ),
             columns3.clone(),
+            None,
             true
         );
 
-        println!("fourth table");
-
-        let name4 : &'static str = "ternary_range_table";
+        let name4 : &'static str = "from_second_base_converter_table";
         let f = |x| { keccak_u64_second_converter(x)};
-        let ternary_range_table = LookupTableApplication::new(
-            name4,
-            TinyRangeTable::new(range_table_lower_bound, range_table_upper_bound, name4),
-            columns3.clone(),
-            true
-        );
-        
-        let name5 : &'static str = "from_second_base_converter_table";
         let from_second_base_converter_table = LookupTableApplication::new(
-            name5,
-            MultiBaseConverterTable::new(
-                second_base_num_of_chunks, KECCAK_SECOND_SPARSE_BASE, KECCAK_FIRST_SPARSE_BASE, BINARY_BASE, f, name5
+            name4,
+            MultiBaseNormalizationTable::new(
+                second_base_num_of_chunks, KECCAK_SECOND_SPARSE_BASE, KECCAK_FIRST_SPARSE_BASE, BINARY_BASE, f, f, name4
             ),
             columns3.clone(),
+            None,
             true
         );
 
         let from_binary_converter_table = cs.add_table(from_binary_converter_table)?;
         let first_to_second_base_converter_table = cs.add_table(first_to_second_base_converter_table)?;
         let of_first_to_second_base_converter_table = cs.add_table(of_first_to_second_base_converter_table)?;
-        let ternary_range_table = cs.add_table(ternary_range_table)?;
         let from_second_base_converter_table = cs.add_table(from_second_base_converter_table)?;
 
         let offsets = [
@@ -230,32 +239,28 @@ impl<E: Engine> KeccakGadget<E> {
             f(0x8000000080008081, r), f(0x8000000000008080, r), f(0x0000000080000001, r), f(0x8000000080008008, r),
         ];
 
-        let allocated_one = AllocatedNum::alloc_cnst(cs, E::Fr::one())?;
-
-        println!("here");
-
         Ok(KeccakGadget {
             from_binary_converter_table,
             first_to_second_base_converter_table,
             of_first_to_second_base_converter_table,
-            ternary_range_table,
             from_second_base_converter_table,
     
             binary_base_num_of_chunks,
             first_base_num_of_chunks,
-            of_first_base_num_of_chunks,
-            range_table_lower_bound,
-            range_table_upper_bound,
             second_base_num_of_chunks,
 
             offsets,
             round_cnsts_in_first_base,
             round_cnsts_in_second_base,
             digest_size,
-
-            allocated_one,
         })
     }
+
+    // -----------------------------------------------------------------------------------------------------------------------
+    // -----------------------------------------------------------------------------------------------------------------------
+    // helper functions
+    // ------------------------------------------------------------------------------------------------------------------------
+    // ------------------------------------------------------------------------------------------------------------------------
 
     // for row of the form [x, f(x), g(x), acc] do:
     // table query x => f(x), g(x)
@@ -290,8 +295,8 @@ impl<E: Engine> KeccakGadget<E> {
                 let mut res = prev_acc.get_value().grab()?;
                 let mut tmp = key.get_value().grab()?;
                 tmp.mul_assign(coef);
-                res.sub_assign(&(f_key.get_value().grab())?);
-                Ok(tmp)
+                res.sub_assign(&tmp);
+                Ok(res)
             })?
         }
         else {
@@ -339,7 +344,7 @@ impl<E: Engine> KeccakGadget<E> {
         Ok((f_key, g_key, new_acc))
     }
 
-    fn rotate_and_convert(&self, fr: &E::Fr, rot: usize) -> E::Fr
+    fn cnst_rotate_and_convert(&self, fr: &E::Fr, rot: usize) -> E::Fr
     {
         let mut input = BigUint::default();
         let fr_repr = fr.into_repr();
@@ -378,258 +383,20 @@ impl<E: Engine> KeccakGadget<E> {
         res
     }
 
-    fn theta<CS: ConstraintSystem<E>>(&self, cs: &mut CS, state: KeccakState<E>) -> Result<KeccakState<E>> {
-        let mut C = Vec::with_capacity(KECCAK_LANE_WIDTH);
-        // calculate C[x] for each column:
-        for i in 0..KECCAK_LANE_WIDTH {
-            C.push(Num::sum(cs, &state.0[i])?);
-        }
-
-        // recalculate state
-        let coeffs = [E::Fr::one(), E::Fr::one(), u64_to_ff(KECCAK_FIRST_SPARSE_BASE)];
-        let mut new_state = KeccakState::default();
-        for (i, j) in (0..KECCAK_LANE_WIDTH).cartesian_product(0..KECCAK_LANE_WIDTH) {
-            let inputs = [state[(i, j)].clone(), C[(i-1) % KECCAK_LANE_WIDTH].clone(), C[(i+1) % KECCAK_LANE_WIDTH].clone()];
-            new_state[(i, j)] = Num::lc(cs, &coeffs, &inputs[..])?;
-        }
-        Ok(new_state)   
-    }
-
-    fn pi<CS: ConstraintSystem<E>>(&self, _cs: &mut CS, state: KeccakState<E>) -> Result<KeccakState<E>> {
-        let mut new_state = KeccakState::default();
-        for (i, j) in (0..KECCAK_LANE_WIDTH).cartesian_product(0..KECCAK_LANE_WIDTH) {
-            new_state[(i, j)] = state[((i + 3*j) % KECCAK_LANE_WIDTH, i)].clone();
-        }
-        Ok(new_state)
-    }
-
-    fn xi_i<CS: ConstraintSystem<E>>(
-        &self, cs: &mut CS, state: KeccakState<E>, round: usize, 
-        elems_to_squeeze: usize, elems_to_mix: Option<&[Num<E>]>, is_final: bool,
-    ) -> Result<(KeccakState<E>, Vec<Num<E>>)> 
-    {
-        // we cant's squeeze and mix simultantously:
-        if elems_to_squeeze > 0 && elems_to_mix.is_some() {
-            unreachable!();
-        }
-        // check, that elems to mix contains the righit number of elements
-        if let Some(input_to_mix) = elems_to_mix {
-            assert_eq!(input_to_mix.len(), KECCAK_RATE_WORDS_SIZE);
-        }
-        
-        let mut new_state = KeccakState::default();
-        let mut iter_count = 0;
-        let coeffs = [u64_to_ff(2), E::Fr::one(), u64_to_ff(3), E::Fr::one()];
-        let mut squeezed = Vec::with_capacity(elems_to_squeeze);
-        
-        let num_of_chunks = self.second_base_num_of_chunks;
-        let num_slices = round_up(KECCAK_LANE_WIDTH, num_of_chunks);
-                    
-        let input_slice_modulus = pow(KECCAK_SECOND_SPARSE_BASE as usize, num_of_chunks);
-        let output1_slice_modulus = pow(KECCAK_FIRST_SPARSE_BASE as usize, num_of_chunks);
-        let output2_slice_modulus = pow(BINARY_BASE as usize, num_of_chunks);
-
-        let input_slice_modulus_fr = u64_exp_to_ff(KECCAK_SECOND_SPARSE_BASE, num_of_chunks as u64);
-        let output1_slice_modulus_fr = u64_exp_to_ff(KECCAK_FIRST_SPARSE_BASE, num_of_chunks as u64);
-        let output2_slice_modulus_fr = u64_exp_to_ff(KECCAK_SECOND_SPARSE_BASE, num_of_chunks as u64);
-
-        let dummy = AllocatedNum::zero(cs);
-        let next_row_coef_idx = CS::MainGate::range_of_next_step_linear_terms().last().unwrap();
-        let mut minus_one = E::Fr::one();
-        minus_one.negate();
-
-        for (j, i) in (0..KECCAK_LANE_WIDTH).cartesian_product(0..KECCAK_LANE_WIDTH) {
-            // A′[x, y,z] = A[x, y,z] ⊕ ((A[(x+1) mod 5, y, z] ⊕ 1) ⋅ A[(x+2) mod 5, y, z]).
-            // the corresponding algebraic transform is y = 2a + b + 3c +2d
-            // if we are squeezing:
-            // d is always constant and nonzero only for lane[0][0]
-            // if we are mixing:
-            // d is the next mixed input for the first KECCAK_RATE_WORDS_SIZE lanes (and zero for the rest)
-            // there are 4-summands so always push result in d-next if not constant
-            let d = match elems_to_mix {
-                None => if i == 0  && j == 0 {Num::Constant(self.round_cnsts_in_second_base[round].clone())} else { Num::default() },
-                Some(input_to_mix) => {
-                    let idx = j * KECCAK_LANE_WIDTH + i; 
-                    if idx < KECCAK_RATE_WORDS_SIZE { input_to_mix[idx].clone() } else { Num::default() }
-                },
-            }; 
-            let b = state[((i+1 % KECCAK_STATE_WIDTH), j)].clone();
-            let c = state[((i+2 % KECCAK_STATE_WIDTH), j)].clone();
-            let inputs = [state[(i, j)].clone(), b, c, d];
-
-            let lc = if inputs.iter().all(| x | x.is_constant()) {
-                let value = inputs.iter().zip(coeffs.iter()).fold(E::Fr::zero(), |acc, (x, coef)| {
-                    let mut temp = x.get_value().unwrap();
-                    temp.mul_assign(&coef);
-                    temp.add_assign(&acc);
-                    temp
-                });
-                
-                Num::Constant(value)
-            }
-            else {
-                let lc = AllocatedNum::alloc(cs, || {
-                    let mut acc = inputs[0].get_value().grab()?;
-                    acc.mul_assign(&coeffs[0]);
-
-                    let mut tmp = inputs[1].get_value().grab()?;
-                    tmp.mul_assign(&coeffs[1]);
-                    acc.add_assign(&tmp);
-
-                    tmp = inputs[2].get_value().grab()?;
-                    tmp.mul_assign(&coeffs[2]);
-                    acc.add_assign(&tmp);
-
-                    tmp = inputs[3].get_value().grab()?;
-                    tmp.mul_assign(&coeffs[3]);
-                    acc.add_assign(&tmp);
-
-                    Ok(acc)
-                })?;
-
-                let mut gate = MainGateTerm::new();
-                let mut cnst = E::Fr::zero();
-     
-                for (x, coef) in inputs.iter().zip(coeffs.iter()) {
-                    match x {
-                        Num::Constant(x) => {
-                            let mut temp = x.clone();
-                            temp.mul_assign(&coef);
-                            cnst.add_assign(&temp);
-                        },
-                        Num::Variable(x) => {
-                            let mut term = ArithmeticTerm::from_variable(x.get_variable());
-                            term.scale(coef);
-                            gate.add_assign(term);
-                        }
-                    }
-                };
-
-                let const_term = ArithmeticTerm::constant(cnst);
-                gate.add_assign(const_term);
-
-                let (mut gate_vars, mut gate_coefs) = CS::MainGate::format_term(gate, dummy.get_variable())?;
-                gate_coefs[next_row_coef_idx] = minus_one.clone();
-        
-                let mg = CS::MainGate::default();
-                cs.new_single_gate_for_trace_step(
-                    &mg,
-                    &gate_coefs,
-                    &gate_vars,
-                    &[]
-                )?;
-
-                Num::Variable(lc)
-            };
-                      
-            match lc {
-                Num::Constant(fr) => {
-                    new_state[(i, j)] = Num::Constant(keccak_ff_second_converter(fr, KECCAK_FIRST_SPARSE_BASE));
-                    if iter_count < elems_to_squeeze {
-                        squeezed.push(Num::Constant(keccak_ff_second_converter(fr, BINARY_BASE)));
-                    }
-                }
-                Num::Variable(var) => {
-                    let mut input_slices : Vec<AllocatedNum<E>> = Vec::with_capacity(num_slices);
-                    let mut output1_slices : Vec<AllocatedNum<E>> = Vec::with_capacity(num_slices);
-                    let mut output2_slices : Vec<AllocatedNum<E>> = Vec::with_capacity(num_slices);
-
-                    match var.get_value() {
-                        None => {
-                            for _ in 0..num_slices {
-                                let tmp = AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?;
-                                input_slices.push(tmp);
-                            }
-                        },
-                        Some(f) => {
-                            // here we have to operate on row biguint number
-                            let mut big_f = BigUint::default();
-                            let f_repr = f.into_repr();
-                            for n in f_repr.as_ref().iter().rev() {
-                                big_f <<= 64;
-                                big_f += *n;
-                            } 
-
-                            for _ in 0..num_slices {
-                                let remainder = (big_f.clone() % BigUint::from(input_slice_modulus)).to_u64().unwrap();
-                                let new_val = u64_to_ff(remainder);
-                                big_f /= input_slice_modulus;
-                                let tmp = AllocatedNum::alloc(cs, || Ok(new_val))?;
-                                input_slices.push(tmp);
-                            }
-
-                            assert!(big_f.is_zero());
-                        }
-                    }
-
-                    let mut coef = E::Fr::one();
-                    let mut acc = var.clone();
-                    for (_is_first, is_last, input_chunk) in input_slices.iter().identify_first_last() {
-                        let (output1, output2, new_acc) = self.query_table_accumulate(
-                            cs, &self.from_second_base_converter_table, input_chunk, &acc, &coef, is_last
-                        )?; 
-
-                        coef.mul_assign(&input_slice_modulus_fr);
-                        acc = new_acc;
-
-                        output1_slices.push(output1);
-                        output1_slices.push(output2);
-                    }
-
-                    if !is_final {
-                        let mut output1_total = AllocatedNum::alloc(cs, || {
-                            let fr = var.get_value().grab()?;
-                            Ok(keccak_ff_second_converter(fr, KECCAK_FIRST_SPARSE_BASE))
-                        })?;
-
-                        AllocatedNum::long_weighted_sum_eq(cs, &output1_slices[..], &output1_slice_modulus_fr, &output1_total, false)?;
-                        new_state[(i, j)] = Num::Variable(output1_total);
-                    }
-
-                    if iter_count < elems_to_squeeze {
-                        let mut output2_total = AllocatedNum::alloc(cs, || {
-                            let fr = var.get_value().grab()?;
-                            Ok(keccak_ff_second_converter(fr, BINARY_BASE))
-                        })?;
-
-                        AllocatedNum::long_weighted_sum_eq(cs, &output2_slices[..], &output2_slice_modulus_fr, &output2_total, false)?;
-                        squeezed.push(Num::Variable(output2_total));
-                    }
-                }
-            }
-        }
-
-        Ok((new_state, squeezed))
-    }
-
     // helper functions for rho subroutine
     // returns expected num_of_chunks (if less than maximum possible value contained in a table)
-    // and boolean flag indicating if chunk is last
-    fn check_offset_helper(&self, cur_offset: usize, max_offset: usize, is_first_iter: bool) -> (Option<usize>, bool) {
-        let is_last = cur_offset + self.first_base_num_of_chunks >= KECCAK_LANE_WIDTH;
-
-        if is_first_iter && (cur_offset < max_offset) && (cur_offset + self.of_first_base_num_of_chunks > max_offset) {
-            return (Some(max_offset - cur_offset), true);
-        }
-        if !is_first_iter && (cur_offset < max_offset) && (cur_offset + self.first_base_num_of_chunks > max_offset) {
-            return (Some(max_offset - cur_offset), true);
+    fn check_offset_helper(&self, cur_offset: usize, max_offset: usize) -> usize 
+    {
+        if (cur_offset < max_offset) && (cur_offset + self.first_base_num_of_chunks > max_offset) {
+            return max_offset - cur_offset;
         }
         if (cur_offset < KECCAK_LANE_WIDTH) && (cur_offset + self.first_base_num_of_chunks > KECCAK_LANE_WIDTH) {
-            return (Some(max_offset - cur_offset), true);
+            return KECCAK_LANE_WIDTH - cur_offset;
         }
-        return (None, is_last);
+        return self.first_base_num_of_chunks;
     }
 
-    fn get_divider_helper(&self, chunk_count_bound: &Option<usize>, is_first_iter: bool) -> u64 {
-        let exp = match chunk_count_bound {
-            None => if is_first_iter { self.of_first_base_num_of_chunks - 1} else { self.first_base_num_of_chunks },
-            Some(n) => *n,
-        };
-
-        pow(KECCAK_FIRST_SPARSE_BASE as usize, exp) as u64
-    }
-
-    fn handle_one_bit_of_arr<CS>(&self, cs: &mut CS, input: &[AllocatedNum<E>]) -> Result<Option<AllocatedNum<E>>> 
+    fn handle_of_arr<CS>(&self, cs: &mut CS, input: &[AllocatedNum<E>], total: u64) -> Result<Option<AllocatedNum<E>>> 
     where CS: ConstraintSystem<E>
     {
         let mut cnst : E::Fr = u64_to_ff(input.len() as u64);
@@ -674,281 +441,6 @@ impl<E: Engine> KeccakGadget<E> {
         }
 
         Ok(res)
-    }
-
-    fn handle_max_of_arr<CS>(&self, cs: &mut CS, input: &[AllocatedNum<E>], d_var: &Option<AllocatedNum<E>>) -> Result<()>
-    where CS: ConstraintSystem<E>
-    {
-        let dummy = &self.allocated_one;
-        let d = d_var.clone().unwrap_or(dummy.clone());
-        let table = &self.ternary_range_table;
-
-        let mut iter = input.chunks_exact(3);
-        let remainder = iter.remainder(); 
-        for block in iter {
-            let vars = [block[0].get_variable(), block[1].get_variable(), block[2].get_variable(), d.get_variable()];
-            
-            cs.begin_gates_batch_for_step()?; 
-            cs.allocate_variables_without_gate(
-                &vars[..],
-                &[]
-            )?;
-            cs.apply_single_lookup_gate(&vars[..table.width()], table.clone())?;
-            cs.end_gates_batch_for_step()?;
-        }
-
-        if !remainder.is_empty() {
-            let mut vars = [dummy.get_variable(), dummy.get_variable(), dummy.get_variable(), d.get_variable()];
-            for (in_arr, out_arr) in remainder.iter().zip(vars.iter_mut()) {
-                *out_arr = in_arr.get_variable(); 
-            }
-
-            cs.begin_gates_batch_for_step()?; 
-            cs.allocate_variables_without_gate(
-                &vars,
-                &[]
-            )?;
-            cs.apply_single_lookup_gate(&vars[..table.width()], table.clone())?;
-            cs.end_gates_batch_for_step()?;
-        }
-
-        Ok(())
-    }
-
-    fn handle_general_of<CS: ConstraintSystem<E>>(
-        &self, cs: &mut CS, 
-        elem: &AllocatedNum<E>, offset: u64, max_of_arr: &mut Vec<AllocatedNum<E>>, d_var: &Option<AllocatedNum<E>>,
-    ) -> Result<()>
-    {
-        let dummy_one = &self.allocated_one;
-        let dummy_zero = AllocatedNum::alloc_zero(cs)?;
-
-        let zero = E::Fr::zero();
-        let one = E::Fr::one();
-        let mut minus_one = E::Fr::one();
-        minus_one.negate();
-
-        let a = AllocatedNum::alloc(cs, || {
-            let mut tmp = elem.get_value().grab()?;
-            let cnst : E::Fr = u64_to_ff(offset);
-            tmp.add_assign(&cnst);
-
-            Ok(tmp)
-        })?;
-        let b = max_of_arr.pop().unwrap_or(dummy_one.clone());
-
-        let (c, d) = match d_var {
-            None => {
-                // [elem + offset, max_of_or_dummy, max_of_or_dummy, elem]
-                // constraint: a = d + offset;
-                (max_of_arr.pop().unwrap_or(dummy_one.clone()), elem.clone())
-            },
-            Some(var) => {
-                // [elem + offset, max_of_dummy, elem, d]
-                // constraint: a = c + offset;
-                (elem.clone(), var.clone())
-            },
-        };
-        
-        let vars = [a.get_variable(), b.get_variable(), c.get_variable(), d.get_variable()];
-        let range_of_linear_terms = CS::MainGate::range_of_linear_terms();
-        let range_of_linear_terms_start = range_of_linear_terms.start;
-        let table = &self.ternary_range_table;
-        
-        cs.begin_gates_batch_for_step()?;
-
-        cs.apply_single_lookup_gate(&vars[..table.width()], table.clone())?;
-    
-        let mut gate_term = MainGateTerm::new();
-        let (_, mut gate_coefs) = CS::MainGate::format_term(gate_term, dummy_zero.get_variable())?;
-
-        gate_coefs[range_of_linear_terms_start] = minus_one;
-        gate_coefs[range_of_linear_terms_start + 1] = zero.clone();  
-        match d_var {
-            None => {
-                // [elem + offset, max_of_or_dummy, max_of_or_dummy, elem]
-                // constraint: a = d + offset;
-                gate_coefs[range_of_linear_terms_start + 2] = zero;
-                gate_coefs[range_of_linear_terms_start + 3] = one;  
-            },
-            Some(var) => {
-                // [elem + offset, max_of_dummy, elem, d]
-                // constraint: a = c + offset;
-                gate_coefs[range_of_linear_terms_start + 2] = one;
-                gate_coefs[range_of_linear_terms_start + 3] = zero;  
-            },
-        };
-
-        let cnst_index = CS::MainGate::index_for_constant_term();
-        gate_coefs[cnst_index] = u64_to_ff(offset);
-
-        let mg = CS::MainGate::default();
-        cs.new_gate_in_batch(
-            &mg,
-            &gate_coefs,
-            &vars,
-            &[]
-        )?;
-
-        cs.end_gates_batch_for_step()?;
-
-        Ok(())
-    }
-
-    // we unite /rho (rotate) and conversion (FIRST_SPARSE_BASE -> SECOND_SPARSE_BASE) in one function
-    fn rho<CS: ConstraintSystem<E>>(&self, cs: &mut CS, state: KeccakState<E>) -> Result<KeccakState<E>> {
-        let mut new_state = KeccakState::default();
-        let mut of_map : std::collections::HashMap<usize, Vec<AllocatedNum<E>>> = HashMap::new();
-        let num_slices = Self::round_up(KECCAK_LANE_WIDTH - self.of_first_base_num_of_chunks -1, self.first_base_num_of_chunks) + 3;  
-        
-        let input_chunks_step = u64_exp_to_ff(KECCAK_FIRST_SPARSE_BASE, self.first_base_num_of_chunks as u64);
-        let output_chunks_step = u64_exp_to_ff(KECCAK_SECOND_SPARSE_BASE, self.second_base_num_of_chunks as u64);
-        
-        let input_chunks_of_step = u64_exp_to_ff(KECCAK_FIRST_SPARSE_BASE, (self.of_first_base_num_of_chunks - 1) as u64);
-        let output_chunks_of_step = u64_exp_to_ff(KECCAK_SECOND_SPARSE_BASE, (self.of_first_base_num_of_chunks - 1) as u64);
-
-        for (i, j) in (0..KECCAK_LANE_WIDTH).cartesian_product(0..KECCAK_LANE_WIDTH) {
-            let offset = self.offsets[i][j];
-
-            let transformed = match &state[(i, j)] {
-                Num::Constant(fr) => {
-                    Num::Constant(self.rotate_and_convert(fr, offset))
-                },
-                Num::Allocated(var) => {
-                    let mut output_slices : Vec<AllocatedNum<E>> = Vec::with_capacity(num_slices);
-                    let mut output_coefs : Vec<E::Fr> = Vec::with_capacity(num_slices);
-                    let mut big_f = BigUint::default();
-                    let mut var_has_value = false; 
-                    let mut cur_offset = 0;
-
-                    let mut cur_input_coef = E::Fr::one();
-                    let mut cur_output_coef : E::Fr = u64_exp_to_ff(KECCAK_SECOND_SPARSE_BASE, (KECCAK_LANE_WIDTH - offset) as u64);
-                    let mut acc = var;
-                    let mut is_first_iter = true;
-
-                    let output_total = match var.get_value() {
-                        None => AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?,
-                        Some(fr) => {
-                            let fr_repr = fr.into_repr();
-                            for n in fr_repr.as_ref().iter().rev() {
-                                big_f <<= 64;
-                                big_f += *n;
-                            }
-                            var_has_value = true; 
-                            AllocatedNum::alloc(cs, || Ok(self.rotate_and_convert(&fr, offset)))?
-                        },
-                    };
-
-                    while cur_offset < KECCAK_LANE_WIDTH {
-                        let (chunk_count_bound, is_last) = self.check_offset_helper(cur_offset, offset, is_first_iter);
-                        let input_slice = if var_has_value {
-                            let divider = self.get_divider_helper(&chunk_count_bound, is_first_iter);
-                            let remainder = (big_f.clone() % BigUint::from(divider)).to_u64().unwrap();
-                            let new_val = u64_to_ff(remainder);
-                            big_f /= divider;
-                            AllocatedNum::alloc(cs, || Ok(new_val))?
-                        }
-                        else {
-                            AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?
-                        };
-
-                        let table = if is_first_iter {
-                            &self.of_first_to_second_base_converter_table
-                        }
-                        else {
-                            &self.first_to_second_base_converter_table
-                        };
-                        let (chunk_count, output_slice, new_acc) = self.query_table_accumulate(
-                            cs, table, &input_slice, &acc, &cur_input_coef, is_last
-                        )?; 
-
-                        output_coefs.push(cur_output_coef.clone());
-                        output_slices.push(output_slice);
-
-                        match chunk_count_bound {
-                            None => {
-                                if is_first_iter {
-                                    cur_input_coef.mul_assign(&input_chunks_of_step);
-                                    cur_output_coef.mul_assign(&output_chunks_of_step);
-                                    cur_offset += self.of_first_base_num_of_chunks - 1;
-                                }
-                                else {
-                                    cur_input_coef.mul_assign(&input_chunks_step);
-                                    cur_output_coef.mul_assign(&output_chunks_step);
-                                    cur_offset += self.first_base_num_of_chunks;
-                                }
-                            }
-                            Some(n) => {
-                                cur_input_coef.mul_assign(&u64_exp_to_ff(KECCAK_FIRST_SPARSE_BASE, n as u64));
-                                cur_output_coef = E::Fr::one();
-                                cur_offset += n;
-                                
-                                let entry = of_map.entry(n).or_insert(vec![]);
-                                entry.push(chunk_count);
-                            }
-                        };
-
-                        is_first_iter = false; 
-                    }
-
-                    //AllocatedNum::lc_eq(cs, &output_slices[..], &output_coefs[..], &output_total)?;
-                    Num::Allocated(output_total)
-                },
-            };
-                    
-            new_state[(i, j)] = transformed;
-        }
-
-        // handle offsets
-        // NB: all of this stuff may be optimized further
-        let mut next_row_var = match of_map.get(&1usize) {
-            None => None,
-            Some(arr) => self.handle_one_bit_of_arr(cs, arr)?,
-        };
-        
-        let mut max_of_arr = of_map.get(&(self.first_base_num_of_chunks - 1)).cloned().unwrap_or(vec![]);
-        for of in 2..(self.first_base_num_of_chunks - 1) {
-            let cur_of_arr = of_map.get(&of).cloned().unwrap_or(vec![]);
-            for elem in cur_of_arr {
-                self.handle_general_of(cs, &elem, (self.first_base_num_of_chunks - 1 - of) as u64, &mut max_of_arr, &next_row_var)?;
-                next_row_var = None;
-            }
-        }
-        
-        if !max_of_arr.is_empty() {
-            self.handle_max_of_arr(cs, &max_of_arr, &next_row_var)?;
-            next_row_var = None;
-        }
-
-        assert!(next_row_var.is_none());
-
-        Ok(new_state) 
-    }
-
-    fn keccak_f<CS: ConstraintSystem<E>>(
-        &self, cs: &mut CS, input_state: KeccakState<E>, elems_to_squeeze: usize, elems_to_mix: Option<&[Num<E>]>, is_final: bool,
-    ) -> Result<(KeccakState<E>, Option<Vec<Num<E>>>)>
-    {
-        let mut state = input_state;
-
-        for round in 0..(KECCAK_NUM_ROUNDS-1) {
-            state = self.theta(cs, state)?;
-            state = self.pi(cs, state)?;
-            state = self.rho(cs, state)?;
-            let (new_state, _) = self.xi_i(cs, state, round, 0, None, false)?;
-            state = new_state; 
-        }
-
-        state = self.theta(cs, state)?;
-        state = self.pi(cs, state)?;
-        state = self.rho(cs, state)?;
-        let (mut new_state, out) = self.xi_i(cs, state, KECCAK_NUM_ROUNDS-1, elems_to_squeeze, elems_to_mix, is_final)?;
-        if elems_to_mix.is_some() {
-            new_state[(0, 0)] = new_state[(0, 0)].add(cs, &Num::Constant(self.round_cnsts_in_first_base[KECCAK_NUM_ROUNDS-1]))?;
-        }
-
-        let squeezed = if elems_to_squeeze > 0 { Some(out) } else { None };
-        Ok((new_state, squeezed))
     }
 
     fn convert_binary_to_sparse_repr<CS>(&self, cs: &mut CS, input: &Num<E>, sparse_base: KECCAK_BASE) -> Result<Num<E>> 
@@ -1035,6 +527,354 @@ impl<E: Engine> KeccakGadget<E> {
 
         Ok(res)
     }
+
+    // --------------------------------------------------------------------------------------------------------------------------
+    // --------------------------------------------------------------------------------------------------------------------------
+    // block transformation components - theta, pi, etc...
+    // ---------------------------------------------------------------------------------------------------------------------------
+    // ---------------------------------------------------------------------------------------------------------------------------
+
+    fn theta<CS: ConstraintSystem<E>>(&self, cs: &mut CS, state: KeccakState<E>) -> Result<KeccakState<E>> {
+        let mut C = Vec::with_capacity(KECCAK_LANE_WIDTH);
+        // calculate C[x] for each column:
+        for i in 0..KECCAK_LANE_WIDTH {
+            C.push(Num::sum(cs, &state.0[i])?);
+        }
+
+        // recalculate state
+        let coeffs = [E::Fr::one(), E::Fr::one(), u64_to_ff(KECCAK_FIRST_SPARSE_BASE)];
+        let mut new_state = KeccakState::default();
+        for (i, j) in (0..KECCAK_LANE_WIDTH).cartesian_product(0..KECCAK_LANE_WIDTH) {
+            let inputs = [state[(i, j)].clone(), C[(i-1) % KECCAK_LANE_WIDTH].clone(), C[(i+1) % KECCAK_LANE_WIDTH].clone()];
+            new_state[(i, j)] = Num::lc(cs, &coeffs, &inputs[..])?;
+        }
+        Ok(new_state)   
+    }
+
+    fn pi<CS: ConstraintSystem<E>>(&self, _cs: &mut CS, state: KeccakState<E>) -> Result<KeccakState<E>> {
+        let mut new_state = KeccakState::default();
+        for (i, j) in (0..KECCAK_LANE_WIDTH).cartesian_product(0..KECCAK_LANE_WIDTH) {
+            new_state[(i, j)] = state[((i + 3*j) % KECCAK_LANE_WIDTH, i)].clone();
+        }
+        Ok(new_state)
+    }
+
+    // we unite /rho (rotate) and conversion (FIRST_SPARSE_BASE -> SECOND_SPARSE_BASE) in one function
+    fn rho<CS: ConstraintSystem<E>>(&self, cs: &mut CS, state: KeccakState<E>) -> Result<KeccakState<E>> {
+        let mut new_state = KeccakState::default();
+        let mut of_map : std::collections::HashMap<usize, Vec<AllocatedNum<E>>> = HashMap::new();
+        let num_slices = round_up(KECCAK_LANE_WIDTH -1, self.first_base_num_of_chunks) + 3;  
+        
+        let input_chunks_step = u64_exp_to_ff(KECCAK_FIRST_SPARSE_BASE, self.first_base_num_of_chunks as u64);
+        let output_chunks_step = u64_exp_to_ff(KECCAK_SECOND_SPARSE_BASE, self.first_base_num_of_chunks as u64);
+        
+        for (i, j) in (0..KECCAK_LANE_WIDTH).cartesian_product(0..KECCAK_LANE_WIDTH) {
+            let offset = self.offsets[i][j];
+
+            if state[(i, j)].is_constant() {
+                let fr = state[(i, j)].get_value().unwrap();
+                new_state([i, j]) = self.cnst_rotate_and_convert(fr, offset);
+                continue;
+            }
+
+            let var = state[(i, j)].get_variable().unwrap();
+
+            let mut output_slices : Vec<Num<E>> = Vec::with_capacity(num_slices);
+            let mut output_coefs : Vec<E::Fr> = Vec::with_capacity(num_slices);
+            
+            let mut cur_offset = 0;
+            let mut cur_input_coef = E::Fr::one();
+            let mut cur_output_coef : E::Fr = u64_exp_to_ff(KECCAK_SECOND_SPARSE_BASE, (KECCAK_LANE_WIDTH - offset) as u64);
+            let mut acc = var;
+
+            let mut has_value = false;
+            let mut raw_value = BigUint::default();
+            let output_total = match var.get_value() {
+                None => AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?,
+                Some(fr) => {
+                    let fr_repr = fr.into_repr();
+                    for n in fr_repr.as_ref().iter().rev() {
+                        raw_value <<= 64;
+                        raw_value += *n;
+                    }
+                    has_value = true;
+                    AllocatedNum::alloc(cs, || Ok(self.rotate_and_convert(&fr, offset)))?
+                },
+            };
+
+            // first iteration is somehow special and distinct from all other
+            let input_slice = if has_value {
+                let divider = KECCAK_FIRST_SPARSE_BASE;
+                let remainder = (raw_value.clone() % BigUint::from(divider)).to_u64().unwrap();
+                let new_val = u64_to_ff(remainder);
+                raw_value /= divider;
+                AllocatedNum::alloc(cs, || Ok(new_val))?
+            }
+            else {
+                AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?
+            };
+
+            let (_chunk_count, output_slice, new_acc) = self.query_table_accumulate(
+                cs, &self.of_first_to_second_base_converter_table, &input_slice, &acc, &cur_input_coef, false,
+            )?; 
+
+            output_coefs.push(cur_output_coef.clone());
+            output_slices.push(output_slice);
+
+            cur_input_coef.mul_assign(&u64_to_ff(FIRST_KECCAK_BASE));
+            if offset == 1 {
+                cur_output_coef = E::Fr::one();
+            }
+            else {
+                cur_output_coef.mul_assign(&output_chunks_step);
+            }
+            cur_offset += 1;
+
+            // iteration starting from the second are all handled in the same manner
+
+            while cur_offset < KECCAK_LANE_WIDTH {
+                let chunk_count_bound = self.check_offset_helper(cur_offset, offset);
+                let input_slice = if has_value {
+                    let divider = pow(KECCAK_FIRST_SPARSE_BASE, chunk_count_bound)
+                    let remainder = (raw_value.clone() % BigUint::from(divider)).to_u64().unwrap();
+                    let new_val = u64_to_ff(remainder);
+                    raw_value /= divider;
+                    AllocatedNum::alloc(cs, || Ok(new_val))?
+                }
+                else {
+                    AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?    
+                }
+
+                let (g_chunk, output_slice, new_acc) = self.query_table_accumulate(
+                    cs, table, &input_slice, &acc, &cur_input_coef, is_last
+                )?; 
+
+                output_coefs.push(cur_output_coef.clone());
+                output_slices.push(output_slice);
+                         
+                if chunk_count_bound == self.first_base_num_of_chunks {          
+                    cur_input_coef.mul_assign(&input_chunks_step);
+                    cur_output_coef.mul_assign(&output_chunks_step);
+                    cur_offset += self.first_base_num_of_chunks;
+                }
+                    Some(n) => {
+                        cur_input_coef.mul_assign(&u64_exp_to_ff(KECCAK_FIRST_SPARSE_BASE, n as u64));
+                        cur_output_coef = E::Fr::one();
+                        cur_offset += n;
+                        
+                        let entry = of_map.entry(n).or_insert(vec![]);
+                        entry.push(chunk_count);
+                    }
+                };
+
+                is_first_iter = false; 
+            }
+
+                    //AllocatedNum::lc_eq(cs, &output_slices[..], &output_coefs[..], &output_total)?;
+                    Num::Allocated(output_total)
+                },
+            };
+                    
+            new_state[(i, j)] = transformed;
+        }
+
+        // handle offsets
+        // NB: all of this stuff may be optimized further
+        let mut next_row_var = match of_map.get(&1usize) {
+            None => None,
+            Some(arr) => self.handle_one_bit_of_arr(cs, arr)?,
+        };
+        
+        let mut max_of_arr = of_map.get(&(self.first_base_num_of_chunks - 1)).cloned().unwrap_or(vec![]);
+        for of in 2..(self.first_base_num_of_chunks - 1) {
+            let cur_of_arr = of_map.get(&of).cloned().unwrap_or(vec![]);
+            for elem in cur_of_arr {
+                self.handle_general_of(cs, &elem, (self.first_base_num_of_chunks - 1 - of) as u64, &mut max_of_arr, &next_row_var)?;
+                next_row_var = None;
+            }
+        }
+        
+        if !max_of_arr.is_empty() {
+            self.handle_max_of_arr(cs, &max_of_arr, &next_row_var)?;
+            next_row_var = None;
+        }
+
+        assert!(next_row_var.is_none());
+
+        Ok(new_state) 
+    }
+
+    fn xi_i<CS: ConstraintSystem<E>>(
+        &self, cs: &mut CS, state: KeccakState<E>, round: usize, 
+        elems_to_squeeze: usize, elems_to_mix: Option<&[Num<E>]>, is_final: bool,
+    ) -> Result<(KeccakState<E>, Vec<Num<E>>)> 
+    {
+        // we cant's squeeze and mix simultantously:
+        if elems_to_squeeze > 0 && elems_to_mix.is_some() {
+            unreachable!();
+        }
+        // check, that elems to mix contains the righit number of elements
+        if let Some(input_to_mix) = elems_to_mix {
+            assert_eq!(input_to_mix.len(), KECCAK_RATE_WORDS_SIZE);
+        }
+        
+        let mut new_state = KeccakState::default();
+        let mut iter_count = 0;
+        let coeffs = [u64_to_ff(2), E::Fr::one(), u64_to_ff(3), E::Fr::one()];
+        let mut squeezed = Vec::with_capacity(elems_to_squeeze);
+        
+        let num_of_chunks = self.second_base_num_of_chunks;
+        let num_slices = round_up(KECCAK_LANE_WIDTH, num_of_chunks);
+                    
+        let input_slice_modulus = pow(KECCAK_SECOND_SPARSE_BASE as usize, num_of_chunks);
+        let output1_slice_modulus = pow(KECCAK_FIRST_SPARSE_BASE as usize, num_of_chunks);
+        let output2_slice_modulus = pow(BINARY_BASE as usize, num_of_chunks);
+
+        let input_slice_modulus_fr = u64_exp_to_ff(KECCAK_SECOND_SPARSE_BASE, num_of_chunks as u64);
+        let output1_slice_modulus_fr = u64_exp_to_ff(KECCAK_FIRST_SPARSE_BASE, num_of_chunks as u64);
+        let output2_slice_modulus_fr = u64_exp_to_ff(BINARY_BASE, num_of_chunks as u64);
+
+        let dummy = AllocatedNum::zero(cs);
+        let next_row_coef_idx = CS::MainGate::range_of_next_step_linear_terms().last().unwrap();
+        let mut minus_one = E::Fr::one();
+        minus_one.negate();
+
+        for (j, i) in (0..KECCAK_LANE_WIDTH).cartesian_product(0..KECCAK_LANE_WIDTH) {
+            // A′[x, y,z] = (A[x, y,z] ⊕ ((A[(x+1) mod 5, y, z] ⊕ 1) ⋅ A[(x+2) mod 5, y, z])) ⊕ D.
+            // the corresponding algebraic transform is y = 2a + b + 3c +2d
+            // if we are squeezing:
+            // D is always constant and nonzero only for lane[0][0]
+            // if we are mixing:
+            // D is the next mixed input for the first KECCAK_RATE_WORDS_SIZE lanes (and zero for the rest)
+            // there are 4-summands so always push result in d-next if not constant
+            let d = match elems_to_mix {
+                None => if i == 0  && j == 0 {Num::Constant(self.round_cnsts_in_second_base[round].clone())} else { Num::default() },
+                Some(input_to_mix) => {
+                    let idx = j * KECCAK_LANE_WIDTH + i; 
+                    if idx < KECCAK_RATE_WORDS_SIZE { input_to_mix[idx].clone() } else { Num::default() }
+                },
+            }; 
+            let b = state[((i+1 % KECCAK_STATE_WIDTH), j)].clone();
+            let c = state[((i+2 % KECCAK_STATE_WIDTH), j)].clone();
+            let inputs = [state[(i, j)].clone(), b, c, d];
+            let lc = ...;
+
+            if lc.is_constant() {
+                let fr = lc.get_value().unwrap();
+                new_state[(i, j)] = Num::Constant(keccak_ff_second_converter(fr, KECCAK_FIRST_SPARSE_BASE));
+                if iter_count < elems_to_squeeze {
+                    squeezed.push(Num::Constant(keccak_ff_second_converter(fr, BINARY_BASE)));
+                }
+                continue;
+            }
+
+            let var = lc.get_variable().unwrap();
+                
+            let mut input_slices : Vec<AllocatedNum<E>> = Vec::with_capacity(num_slices);
+            let mut output1_slices : Vec<AllocatedNum<E>> = Vec::with_capacity(num_slices);
+            let mut output2_slices : Vec<AllocatedNum<E>> = Vec::with_capacity(num_slices);
+
+            match var.get_value() {
+                None => {
+                    for _ in 0..num_slices {
+                        let tmp = AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?;
+                        input_slices.push(tmp);
+                    }
+                },
+                Some(f) => {
+                    // here we have to operate on row biguint number
+                    let mut big_f = BigUint::default();
+                    let f_repr = f.into_repr();
+                    for n in f_repr.as_ref().iter().rev() {
+                        big_f <<= 64;
+                        big_f += *n;
+                    } 
+
+                    for _ in 0..num_slices {
+                        let remainder = (big_f.clone() % BigUint::from(input_slice_modulus)).to_u64().unwrap();
+                        let new_val = u64_to_ff(remainder);
+                        big_f /= input_slice_modulus;
+                        let tmp = AllocatedNum::alloc(cs, || Ok(new_val))?;
+                        input_slices.push(tmp);
+                    }
+
+                    assert!(big_f.is_zero());
+                }
+            }
+
+                    let mut coef = E::Fr::one();
+                    let mut acc = var.clone();
+                    for (_is_first, is_last, input_chunk) in input_slices.iter().identify_first_last() {
+                        let (output1, output2, new_acc) = self.query_table_accumulate(
+                            cs, &self.from_second_base_converter_table, input_chunk, &acc, &coef, is_last
+                        )?; 
+
+                        coef.mul_assign(&input_slice_modulus_fr);
+                        acc = new_acc;
+
+                        output1_slices.push(output1);
+                        output1_slices.push(output2);
+                    }
+
+                    if !is_final {
+                        let mut output1_total = AllocatedNum::alloc(cs, || {
+                            let fr = var.get_value().grab()?;
+                            Ok(keccak_ff_second_converter(fr, KECCAK_FIRST_SPARSE_BASE))
+                        })?;
+
+                        AllocatedNum::long_weighted_sum_eq(cs, &output1_slices[..], &output1_slice_modulus_fr, &output1_total, false)?;
+                        new_state[(i, j)] = Num::Variable(output1_total);
+                    }
+
+                    if iter_count < elems_to_squeeze {
+                        let mut output2_total = AllocatedNum::alloc(cs, || {
+                            let fr = var.get_value().grab()?;
+                            Ok(keccak_ff_second_converter(fr, BINARY_BASE))
+                        })?;
+
+                        AllocatedNum::long_weighted_sum_eq(cs, &output2_slices[..], &output2_slice_modulus_fr, &output2_total, false)?;
+                        squeezed.push(Num::Variable(output2_total));
+                    }
+                }
+            }
+        }
+
+        Ok((new_state, squeezed))
+    }
+
+    // -------------------------------------------------------------------------------------------------------------------------
+    // Keccak single sponge evaluation 
+    // -------------------------------------------------------------------------------------------------------------------------
+
+    fn keccak_f<CS: ConstraintSystem<E>>(
+        &self, cs: &mut CS, input_state: KeccakState<E>, elems_to_squeeze: usize, elems_to_mix: Option<&[Num<E>]>, is_final: bool,
+    ) -> Result<(KeccakState<E>, Option<Vec<Num<E>>>)>
+    {
+        let mut state = input_state;
+
+        for round in 0..(KECCAK_NUM_ROUNDS-1) {
+            state = self.theta(cs, state)?;
+            state = self.pi(cs, state)?;
+            state = self.rho(cs, state)?;
+            let (new_state, _) = self.xi_i(cs, state, round, 0, None, false)?;
+            state = new_state; 
+        }
+
+        state = self.theta(cs, state)?;
+        state = self.pi(cs, state)?;
+        state = self.rho(cs, state)?;
+        let (mut new_state, out) = self.xi_i(cs, state, KECCAK_NUM_ROUNDS-1, elems_to_squeeze, elems_to_mix, is_final)?;
+        if elems_to_mix.is_some() {
+            new_state[(0, 0)] = new_state[(0, 0)].add(cs, &Num::Constant(self.round_cnsts_in_first_base[KECCAK_NUM_ROUNDS-1]))?;
+        }
+
+        let squeezed = if elems_to_squeeze > 0 { Some(out) } else { None };
+        Ok((new_state, squeezed))
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------------------
+    // public interface: exported functions
+    // ---------------------------------------------------------------------------------------------------------------------------
 
     // we assume that data is split into 64-bit words
     pub fn digest<CS: ConstraintSystem<E>>(&self, cs: &mut CS, data: &[Num<E>]) -> Result<Vec<Num<E>>> {
