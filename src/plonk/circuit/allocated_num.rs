@@ -474,7 +474,8 @@ impl<E: Engine> Num<E> {
         }
     }
 
-    pub fn lc<CS: ConstraintSystem<E>>(cs: &mut CS, input_coeffs: &[E::Fr], inputs: &[Num<E>]) -> Result<Self, SynthesisError>
+    fn lc_impl<CS>(cs: &mut CS, input_coeffs: &[E::Fr], inputs: &[Num<E>], use_d_next: bool) -> Result<Self, SynthesisError>
+    where CS: ConstraintSystem<E>
     {
         assert_eq!(input_coeffs.len(), inputs.len());
 
@@ -489,6 +490,16 @@ impl<E: Engine> Num<E> {
 
             return Ok(Num::Constant(value));
         }
+
+        let res_var = AllocatedNum::alloc(cs, || {
+            let mut cur = E::Fr::zero();
+            for (elem, coef) in inputs.iter().zip(input_coeffs.iter()) {
+                let mut tmp = elem.get_value().grab()?;
+                tmp.mul_assign(coef);
+                cur.add_assign(&tmp);
+            }
+            Ok(cur)
+        })?;
 
         // okay, from now one we may be sure that we have at least one allocated term
         let mut constant_term = E::Fr::zero();
@@ -530,11 +541,19 @@ impl<E: Engine> Num<E> {
         if vars.len() == STATE_WIDTH {
             coeffs.reverse();
             vars.reverse();
-            let tmp = AllocatedNum::quartic_lc_with_cnst(cs, &coeffs[..], &vars[..], &constant_term)?;
 
-            constant_term = E::Fr::zero();
-            vars = vec![tmp];
-            coeffs = vec![E::Fr::one()];
+            match use_d_next {
+                true => {
+                    AllocatedNum::quartic_lc_eq_with_cnst(cs, &coeffs[..], &vars[..], &res_var, &constant_term)?;
+                    return Ok(Num::Variable(res_var))
+                },
+                false => {
+                    let temp = AllocatedNum::quartic_lc_with_cnst(cs, &coeffs[..], &vars[..], &constant_term)?;
+                    constant_term = E::Fr::zero();
+                    vars = vec![temp];
+                    coeffs = vec![E::Fr::one()];
+                }
+            }
         }
 
         // pad with dummy variables
@@ -542,16 +561,6 @@ impl<E: Engine> Num<E> {
             vars.push(AllocatedNum::zero(cs));
             coeffs.push(E::Fr::zero());
         }
-
-        let res_var = AllocatedNum::alloc(cs, || {
-            let mut cur = E::Fr::zero();
-            for (elem, coef) in inputs.iter().zip(input_coeffs.iter()) {
-                let mut tmp = elem.get_value().grab()?;
-                tmp.mul_assign(coef);
-                cur.add_assign(&tmp);
-            }
-            Ok(cur)
-        })?;
 
         vars.push(res_var.clone());
         coeffs.push(minus_one);
@@ -562,11 +571,28 @@ impl<E: Engine> Num<E> {
         Ok(Num::Variable(res_var))
     }
 
+    pub fn lc<CS: ConstraintSystem<E>>(cs: &mut CS, input_coeffs: &[E::Fr], inputs: &[Num<E>]) -> Result<Self, SynthesisError>
+    {
+        Self::lc_impl(cs, input_coeffs, inputs, false)
+    }
+
+    pub fn lc_with_d_next<CS>(cs: &mut CS, input_coeffs: &[E::Fr], inputs: &[Num<E>]) -> Result<Self, SynthesisError>
+    where CS: ConstraintSystem<E>
+    {
+        Self::lc_impl(cs, input_coeffs, inputs, true)
+    }
+
     // same as lc but with all the coefficients set to be 1
     pub fn sum<CS: ConstraintSystem<E>>(cs: &mut CS, nums: &[Num<E>]) -> Result<Self, SynthesisError>
     {
         let coeffs = vec![E::Fr::one(); nums.len()];
         Self::lc(cs, &coeffs[..], &nums[..])
+    }
+
+    pub fn sum_with_d_next<CS: ConstraintSystem<E>>(cs: &mut CS, nums: &[Num<E>]) -> Result<Self, SynthesisError>
+    {
+        let coeffs = vec![E::Fr::one(); nums.len()];
+        Self::lc_with_d_next(cs, &coeffs[..], &nums[..])
     }
 
     // for given array of slices : [x0, x1, x2, ..., xn] of arbitrary length, base n and total accumulated x
@@ -1445,6 +1471,19 @@ impl<E: Engine> AllocatedNum<E> {
         let mut minus_one = E::Fr::one();
         minus_one.negate();
         AllocatedNum::general_lc_gate(cs, coefs, vars, &E::Fr::zero(), &minus_one, &total)
+    }
+
+    pub fn quartic_lc_eq_with_cnst<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        coefs: &[E::Fr],
+        vars: &[Self],
+        total: &Self,
+        cnst: &E::Fr,
+    ) -> Result<(), SynthesisError>
+    {
+        let mut minus_one = E::Fr::one();
+        minus_one.negate();
+        AllocatedNum::general_lc_gate(cs, coefs, vars, cnst, &minus_one, &total)
     }
 
     pub fn ternary_lc_eq<CS: ConstraintSystem<E>>(

@@ -150,6 +150,30 @@ pub fn general_normalizer<Fr: PrimeField>(fr : Fr, bit_table: &[u64], base: u64)
     res
 }
 
+pub fn func_normalizer<Fr: PrimeField, T: Fn(u64) -> u64>(fr : Fr, input_base: u64, output_base: u64, transform_f: T) -> Fr
+{
+    let mut input = BigUint::default();
+    let fr_repr = fr.into_repr();
+    for n in fr_repr.as_ref().iter().rev() {
+        input <<= 64;
+        input += *n;
+    }
+
+    let mut acc = BigUint::default(); 
+    let mut base = BigUint::one();
+ 
+    while !input.is_zero() {
+        let remainder = (input.clone() % BigUint::from(input_base)).to_u64().unwrap();
+        let output_chunk = transform_f(remainder);
+        acc += output_chunk * base.clone();
+        input /= input_base;
+        base *= output_base;
+    }
+
+    let res = Fr::from_str(&acc.to_str_radix(10)).expect("should parse");
+    res
+}
+
 
 // returns closets upper integer to a / b
 pub fn round_up(a: usize, b : usize) -> usize {
