@@ -28,6 +28,8 @@ use crate::circuit::{
     Assignment
 };
 
+use std::iter;
+
 pub const STATE_WIDTH : usize = 4;
 
 
@@ -731,6 +733,16 @@ impl<E: Engine> AllocatedNum<E> {
         };
 
         Self::alloc(cs, || new_value.grab())
+    }
+
+    pub fn alloc_sum<CS: ConstraintSystem<E>>(
+        cs: &mut CS, 
+        vars: &[Self],
+    ) -> Result<Self, SynthesisError> 
+    {
+        let mut coefs = Vec::with_capacity(vars.len());
+        coefs.extend(iter::repeat(E::Fr::one()).take(vars.len()));
+        Self::alloc_from_lc(cs, &coefs[..], vars, &E::Fr::zero())
     }
 
     pub fn inputize<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<(), SynthesisError> {
