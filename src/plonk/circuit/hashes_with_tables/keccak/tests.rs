@@ -1,18 +1,23 @@
 #[cfg(test)]
 mod test {
-    use crate::plonk::better_better_cs::cs::*;
-    use crate::pairing::ff::*;
-    use crate::SynthesisError;
-    use crate::Engine;
+    use crate::bellman::plonk::better_better_cs::cs::*;
+    use crate::bellman::pairing::ff::*;
+    use crate::bellman::SynthesisError;
+    use crate::bellman::Engine;
     use crate::tiny_keccak::Keccak;
-    use crate::plonk::better_better_cs::gadgets::num::{
+     use crate::plonk::circuit::allocated_num::{
         AllocatedNum,
         Num,
     };
-    use crate::pairing::bn256::{Bn256, Fr};
+    use crate::plonk::circuit::byte::{
+        Byte,
+    };
+
+    use crate::bellman::pairing::bn256::{Bn256, Fr};
 
     use super::super::gadgets::*;
     use super::super::utils::*;
+    use super::super::super::utils::*;
     
     use rand::{Rng, SeedableRng, StdRng};
     use std::convert::TryInto;
@@ -39,7 +44,7 @@ mod test {
             let mut input_vars = Vec::with_capacity(self.input.len());
             for value in self.input.iter() {
                 let new_var = AllocatedNum::alloc(cs, || Ok(value.clone()))?;
-                input_vars.push(Num::Allocated(new_var));
+                input_vars.push(Num::Variable(new_var));
             }
 
             let mut actual_output_vars = Vec::with_capacity(DEFAULT_KECCAK_DIGEST_WORDS_SIZE);
@@ -48,12 +53,12 @@ mod test {
                 actual_output_vars.push(new_var);
             }
 
-            let keccak_gadget = KeccakGadget::new(cs, None, None, None, None, None)?; 
+            let keccak_gadget = KeccakGadget::new(cs, None, None, None, None, false, "")?; 
             let supposed_output_vars = keccak_gadget.digest(cs, &input_vars[..])?;
 
             for (a, b) in supposed_output_vars.iter().zip(actual_output_vars.into_iter()) {
                 let a = match a {
-                    Num::Allocated(x) => x,
+                    Num::Variable(x) => x,
                     Num::Constant(_) => unreachable!(),
                 };
 

@@ -1555,19 +1555,14 @@ impl<E: Engine> AllocatedNum<E> {
         Ok(res)
     }
 
-    // for given array of slices : [x0, x1, x2, ..., xn] of arbitrary length, base n and total accumulated x
-    // validates that x = x0 + x1 * base + x2 * base^2 + ... + xn * base^n
-    // use_d_next flag allows to place total on the next row, without expicitely constraiting it and leaving
-    // is as a job for the next gate allocation.
-    pub fn long_weighted_sum_eq<CS: ConstraintSystem<E>>(
+    pub fn long_lc_eq<CS: ConstraintSystem<E>>(
         cs: &mut CS, 
         vars: &[Self], 
-        base: &E::Fr, 
+        coefs: &[E::Fr], 
         total: &Self, 
         use_d_next: bool
     ) -> Result<bool, SynthesisError>
     {
-        let mut acc_fr = E::Fr::one();
         let mut loc_coefs = Vec::with_capacity(STATE_WIDTH);
         let mut loc_vars = Vec::with_capacity(STATE_WIDTH);
         
@@ -1575,10 +1570,9 @@ impl<E: Engine> AllocatedNum<E> {
         minus_one.negate();
         let dummy = AllocatedNum::zero(cs);
 
-        for var in vars.iter() {
+        for (var, coef) in vars.iter().zip(coefs.iter()) {
             if loc_vars.len() < STATE_WIDTH {
-                loc_coefs.push(acc_fr.clone());
-                acc_fr.mul_assign(&base);
+                loc_coefs.push(coef.clone());
                 loc_vars.push(var.clone());
             }
             else {
@@ -1587,10 +1581,8 @@ impl<E: Engine> AllocatedNum<E> {
                 loc_vars.reverse();
 
                 let temp = AllocatedNum::quartic_lc(cs, &loc_coefs[..], &loc_vars[..])?;
-                loc_coefs = vec![E::Fr::one(), acc_fr.clone()];
+                loc_coefs = vec![E::Fr::one(), coef.clone()];
                 loc_vars = vec![temp, var.clone()];
-                
-                acc_fr.mul_assign(&base);
             }
         }
 
@@ -1626,6 +1618,29 @@ impl<E: Engine> AllocatedNum<E> {
 
         AllocatedNum::general_lc_gate(cs, &loc_coefs[..], &loc_vars[..], &E::Fr::zero(), &E::Fr::zero(), &dummy)?;
         Ok(false)
+    }
+
+    // for given array of slices : [x0, x1, x2, ..., xn] of arbitrary length, base n and total accumulated x
+    // validates that x = x0 + x1 * base + x2 * base^2 + ... + xn * base^n
+    // use_d_next flag allows to place total on the next row, without expicitely constraiting it and leaving
+    // is as a job for the next gate allocation.
+    pub fn long_weighted_sum_eq<CS: ConstraintSystem<E>>(
+        cs: &mut CS, 
+        vars: &[Self], 
+        base: &E::Fr, 
+        total: &Self, 
+        use_d_next: bool
+    ) -> Result<bool, SynthesisError>
+    {
+        let mut coeffs = Vec::with_capacity(vars.len());
+        let mut acc = E::Fr::one();
+
+        for _ in 0..vars.len() {
+            coeffs.push(acc.clone());
+            acc.mul_assign(&base);
+        }
+
+        Self::long_lc_eq(cs, vars, &coeffs[..], total, use_d_next)
     }
 }
 

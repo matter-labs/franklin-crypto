@@ -3,7 +3,7 @@ use super::super::utils::*;
 
 
 pub const KECCAK_FIRST_SPARSE_BASE : u64 = 13;
-pub fn keccak_u64_first_conveter(n: u64) -> u64 
+pub fn keccak_u64_first_converter(n: u64) -> u64 
 {
     assert!(n < KECCAK_FIRST_SPARSE_BASE);
     // simple xor
