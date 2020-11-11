@@ -344,7 +344,7 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
     //     }
     // }
 
-    fn rescue_mimc_over_lcs<CS: ConstraintSystem<E>>(
+    pub fn rescue_mimc_over_lcs<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         state: &[LinearCombination<E>],
         params: &E::Params
