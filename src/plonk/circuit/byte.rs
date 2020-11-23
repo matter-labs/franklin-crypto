@@ -5,6 +5,7 @@ use crate::plonk::circuit::bigint::{split_into_slices, split_some_into_slices};
 use crate::plonk::circuit::bigint::constraint_num_bits;
 use super::allocated_num::*;
 use super::linear_combination::*;
+use super::boolean::Boolean;
 use super::utils::*;
 use crate::circuit::Assignment;
 
@@ -94,6 +95,20 @@ impl<E: Engine> Byte<E> {
         Self {
             inner : Num::Constant(value)
         }
+    }
+
+    pub fn conditionally_select<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        flag: &Boolean,
+        a: &Self,
+        b: &Self
+    ) -> Result<Self, SynthesisError> {
+        let mut new_inner = Num::conditionally_select(cs, flag, &a.inner, &b.inner)?;
+        let new = Self {
+            inner : new_inner
+        };
+
+        Ok(new)
     }
 }
 

@@ -898,12 +898,6 @@ impl Boolean {
         tmp_lc.add_assign_boolean_with_coeff(&c, minus_one);
         let tmp = tmp_lc.into_allocated_num(cs)?;
 
-        // let mut tmp_lc = b.lc(E::Fr::one());
-        // tmp_lc.add_assign(&c.lc(minus_one));
-
-        // TODO: move tmp into one of the match arms below
-        // only when it's needed
-
         // here we have to branch over `a` due wrapping
         match (a, c) {
             (Boolean::Is(ref a), Boolean::Is(ref c)) => {

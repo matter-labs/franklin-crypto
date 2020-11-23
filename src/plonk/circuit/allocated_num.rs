@@ -135,18 +135,18 @@ impl<E: Engine> Num<E> {
         }
     }
 
-    pub fn eq<CS: ConstraintSystem<E>>(&self, cs: &mut CS, other: &Self) -> Result<(), SynthesisError>
-    {
-        match (self, other) {
-            (Num::Variable(x), Num::Variable(y)) => x.eq(cs, y.clone())?,
-            (Num::Variable(x), Num::Constant(fr)) | (Num::Constant(fr), Num::Variable(x)) => todo!(),
-            (Num::Constant(fr1), Num::Constant(fr2)) => {
-                println!("left: {}, right: {}", fr1, fr2);
-                assert_eq!(*fr1, *fr2);
-            },
-        }
-        Ok(())
-    }
+    // pub fn eq<CS: ConstraintSystem<E>>(&self, cs: &mut CS, other: &Self) -> Result<(), SynthesisError>
+    // {
+    //     match (self, other) {
+    //         (Num::Variable(x), Num::Variable(y)) => x.eq(cs, y.clone())?,
+    //         (Num::Variable(x), Num::Constant(fr)) | (Num::Constant(fr), Num::Variable(x)) => todo!(),
+    //         (Num::Constant(fr1), Num::Constant(fr2)) => {
+    //             println!("left: {}, right: {}", fr1, fr2);
+    //             assert_eq!(*fr1, *fr2);
+    //         },
+    //     }
+    //     Ok(())
+    // }
 
     pub fn equals<CS: ConstraintSystem<E>>(
         cs: &mut CS,
@@ -845,7 +845,6 @@ impl<E: Engine> AllocatedNum<E> {
     {
 
         let flag_value = self.get_value().map(|x| x.is_zero());
-        // let flag = AllocatedBit::alloc_unchecked(cs, flag_value)?;
         let flag = AllocatedBit::alloc(cs, flag_value)?;
 
         let inv_value = if let Some(value) = self.get_value() {
@@ -900,18 +899,18 @@ impl<E: Engine> AllocatedNum<E> {
         Ok(flag.into())
     }
 
-    pub fn eq<CS: ConstraintSystem<E>>(&self, cs: &mut CS, other: Self) -> Result<(), SynthesisError>
-    {
-        let self_term = ArithmeticTerm::from_variable(self.variable);
-        let other_term = ArithmeticTerm::from_variable(other.variable);
-        let mut term = MainGateTerm::new();
-        term.add_assign(self_term);
-        term.sub_assign(other_term);
+    // pub fn eq<CS: ConstraintSystem<E>>(&self, cs: &mut CS, other: Self) -> Result<(), SynthesisError>
+    // {
+    //     let self_term = ArithmeticTerm::from_variable(self.variable);
+    //     let other_term = ArithmeticTerm::from_variable(other.variable);
+    //     let mut term = MainGateTerm::new();
+    //     term.add_assign(self_term);
+    //     term.sub_assign(other_term);
 
-        cs.allocate_main_gate(term)?;
+    //     cs.allocate_main_gate(term)?;
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     // returns a==b
     pub fn equals<CS: ConstraintSystem<E>>(
@@ -1037,6 +1036,36 @@ impl<E: Engine> AllocatedNum<E> {
         c.negate();
 
         self.add_constant(cs, c)
+    }
+
+    pub fn fma<CS: ConstraintSystem<E>>(&self, cs: &mut CS, b: Self, c: Self) -> Result<Self, SynthesisError>
+    {     
+        let mut value = None;
+
+        let result = cs.alloc(|| {
+            let mut tmp = *self.value.get()?;
+            let tmp2 = b.value.get()?;
+            let tmp3 = c.value.get()?;
+            tmp.mul_assign(&tmp2);
+            tmp.add_assign(&tmp3);
+            value = Some(tmp);
+            Ok(tmp)
+        })?;
+
+        let self_term = ArithmeticTerm::from_variable(self.get_variable()).mul_by_variable(b.get_variable());
+        let other_term = ArithmeticTerm::from_variable(c.variable);
+        let result_term = ArithmeticTerm::from_variable(result);
+        let mut term = MainGateTerm::new();
+        term.add_assign(self_term);
+        term.add_assign(other_term);
+        term.sub_assign(result_term);
+
+        cs.allocate_main_gate(term)?;
+
+        Ok(AllocatedNum {
+            value: value,
+            variable: result
+        })
     }
 
     pub fn add_two<CS: ConstraintSystem<E>>(&self, cs: &mut CS, x: Self, y: Self) -> Result<Self, SynthesisError>

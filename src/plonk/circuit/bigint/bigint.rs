@@ -323,10 +323,11 @@ pub fn split_into_fixed_width_limbs(mut fe: BigUint, bits_per_limb: usize) -> Ve
     limbs
 }
 
-
+#[track_caller]
 pub fn split_some_into_fixed_number_of_limbs(fe: Option<BigUint>, bits_per_limb: usize, num_limbs: usize) -> Vec<Option<BigUint>> {
     if let Some(fe) = fe {
         let mut fe = fe;
+        assert!(fe.bits() as usize <= bits_per_limb * num_limbs);
         let mut limbs = Vec::with_capacity(num_limbs);
 
         let modulus = BigUint::from(1u64) << bits_per_limb;
@@ -343,6 +344,7 @@ pub fn split_some_into_fixed_number_of_limbs(fe: Option<BigUint>, bits_per_limb:
     }
 }
 
+#[track_caller]
 pub fn split_into_fixed_number_of_limbs(mut fe: BigUint, bits_per_limb: usize, num_limbs: usize) -> Vec<BigUint> {
     let mut limbs = Vec::with_capacity(num_limbs);
 
@@ -355,6 +357,27 @@ pub fn split_into_fixed_number_of_limbs(mut fe: BigUint, bits_per_limb: usize, n
     }
 
     limbs
+}
+
+#[track_caller]
+pub fn split_some_into_limbs_of_variable_width(fe: Option<BigUint>, bits_per_limb: &[usize]) -> Vec<Option<BigUint>> {
+    if let Some(fe) = fe {
+        let mut fe = fe;
+        let full_width = bits_per_limb.iter().sum();
+        assert!(fe.bits() as usize <= full_width, "can fit {} bits maximum, but got {}", full_width, fe.bits());
+        let mut limbs = Vec::with_capacity(bits_per_limb.len());
+
+        for &width in bits_per_limb.iter() {
+            let modulus = BigUint::from(1u64) << width;
+            let limb = fe.clone() % &modulus;
+            limbs.push(Some(limb));
+            fe >>= width;
+        }
+
+        limbs
+    } else {
+        vec![None; bits_per_limb.len()]
+    }
 }
 
 pub fn slice_into_limbs_of_max_size(value: Option<BigUint>, max_width: usize, limb_width: usize) -> (Vec<Option<BigUint>>, Vec<usize>) {
