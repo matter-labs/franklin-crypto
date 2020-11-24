@@ -67,7 +67,6 @@ impl<'a, E: Engine, CS: ConstraintSystem<E> + 'a> MultiEq<'a, E, CS> {
 
     fn accumulate(&mut self)
     {
-        let ops = self.ops;
         let mut lhs = self.lhs.clone();
         let mut rhs = self.rhs.clone();
         let mut minus_one = E::Fr::one();

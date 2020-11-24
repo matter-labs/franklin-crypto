@@ -55,10 +55,10 @@ pub fn fe_to_le_bits<F: PrimeField>(value: F, limit: Option<usize>) -> Vec<bool>
 struct ZeroPaddingBuffer<'a>(&'a [u8]);
 
 impl<'a> std::io::Read for ZeroPaddingBuffer<'a> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> { unimplemented!() }
-    fn read_vectored(&mut self, bufs: &mut [std::io::IoSliceMut<'_>]) -> std::io::Result<usize> { unimplemented!( )}
-    fn read_to_end(&mut self, buf: &mut Vec<u8>) -> std::io::Result<usize> { unimplemented!() }
-    fn read_to_string(&mut self, buf: &mut String) -> std::io::Result<usize> { unimplemented!() }
+    fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> { unimplemented!() }
+    fn read_vectored(&mut self, _bufs: &mut [std::io::IoSliceMut<'_>]) -> std::io::Result<usize> { unimplemented!( )}
+    fn read_to_end(&mut self, _buf: &mut Vec<u8>) -> std::io::Result<usize> { unimplemented!() }
+    fn read_to_string(&mut self, _buf: &mut String) -> std::io::Result<usize> { unimplemented!() }
     fn read_exact(&mut self, buf: &mut [u8]) -> std::io::Result<()> {
         let bytes_available = self.0.len();
         let len = buf.len();
@@ -78,18 +78,18 @@ impl<'a> std::io::Read for ZeroPaddingBuffer<'a> {
     }
     fn by_ref(&mut self) -> &mut Self where Self: Sized, { self }
     fn bytes(self) -> std::io::Bytes<Self> where Self: Sized { unimplemented!() }
-    fn chain<R: std::io::Read>(self, next: R) -> std::io::Chain<Self, R> where Self: Sized { unimplemented!() }
-    fn take(self, limit: u64) -> std::io::Take<Self> where Self: Sized { unimplemented!() }
+    fn chain<R: std::io::Read>(self, _next: R) -> std::io::Chain<Self, R> where Self: Sized { unimplemented!() }
+    fn take(self, _limit: u64) -> std::io::Take<Self> where Self: Sized { unimplemented!() }
 }
 
 #[derive(Clone, Copy)]
 struct ZeroPrePaddingBuffer<'a>(&'a [u8], usize);
 
 impl<'a> std::io::Read for ZeroPrePaddingBuffer<'a> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> { unimplemented!() }
-    fn read_vectored(&mut self, bufs: &mut [std::io::IoSliceMut<'_>]) -> std::io::Result<usize> { unimplemented!( )}
-    fn read_to_end(&mut self, buf: &mut Vec<u8>) -> std::io::Result<usize> { unimplemented!() }
-    fn read_to_string(&mut self, buf: &mut String) -> std::io::Result<usize> { unimplemented!() }
+    fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> { unimplemented!() }
+    fn read_vectored(&mut self, _bufs: &mut [std::io::IoSliceMut<'_>]) -> std::io::Result<usize> { unimplemented!( )}
+    fn read_to_end(&mut self, _buf: &mut Vec<u8>) -> std::io::Result<usize> { unimplemented!() }
+    fn read_to_string(&mut self, _buf: &mut String) -> std::io::Result<usize> { unimplemented!() }
     fn read_exact(&mut self, buf: &mut [u8]) -> std::io::Result<()> {
         let bytes_available = self.0.len();
         let padding_available = self.1;
@@ -124,8 +124,8 @@ impl<'a> std::io::Read for ZeroPrePaddingBuffer<'a> {
     }
     fn by_ref(&mut self) -> &mut Self where Self: Sized, { self }
     fn bytes(self) -> std::io::Bytes<Self> where Self: Sized { unimplemented!() }
-    fn chain<R: std::io::Read>(self, next: R) -> std::io::Chain<Self, R> where Self: Sized { unimplemented!() }
-    fn take(self, limit: u64) -> std::io::Take<Self> where Self: Sized { unimplemented!() }
+    fn chain<R: std::io::Read>(self, _next: R) -> std::io::Chain<Self, R> where Self: Sized { unimplemented!() }
+    fn take(self, _limit: u64) -> std::io::Take<Self> where Self: Sized { unimplemented!() }
 }
 
 #[track_caller]

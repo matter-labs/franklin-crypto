@@ -1712,7 +1712,7 @@ impl<E: Engine> Sha256Gadget<E> {
         // append L as a 64-bit big-endian integer, making the total post-processed length a multiple of 512 bits
         let message_bitlen = (bytes.len() * 8) as u64;
         let last_block_size = bytes.len() % 64;
-        let (num_of_zero_bytes, pad_overflowed) = if last_block_size <= (64 - 1 - 8) {
+        let (num_of_zero_bytes, _pad_overflowed) = if last_block_size <= (64 - 1 - 8) {
             (64 - 1 - 8 - last_block_size, false)
         }
         else {

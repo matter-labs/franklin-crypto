@@ -585,8 +585,8 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
 
     pub fn mul_by_fixed_scalar<CS: ConstraintSystem<E>>(
         self,
-        cs: &mut CS,
-        scalar: &G::Scalar
+        _cs: &mut CS,
+        _scalar: &G::Scalar
     ) -> Result<(Self, Self), SynthesisError> {
         unimplemented!()
     }
@@ -907,7 +907,6 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
         endo_parameters: &super::endomorphism::EndomorphismParameters<E>,
     ) -> Result<Self, SynthesisError> {
         assert_eq!(scalars.len(), points.len());
-        let bit_limit = endo_parameters.target_scalar_width;
 
         let params = points[0].x.representation_params;
 

@@ -152,7 +152,7 @@ impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> ProofGadget<'a, E, WP> {
         let grand_product_commitment = WrappedAffinePoint::alloc(cs, wit, params, aux_data)?;
 
         let mut quotient_poly_commitments = vec![];
-        for idx in 0..state_width {
+        for idx in 0..num_quotient_commitments {
             let wit = proof.as_ref().and_then(|el| Some(&el.quotient_poly_commitments)).and_then(|el| Some(el[idx]));
             let allocated = WrappedAffinePoint::alloc(cs, wit, params, aux_data)?;
 
@@ -340,7 +340,7 @@ pub trait IntoLimbedWitness<E: Engine> {
         unimplemented!()
     }
     fn witness_size_for_params(params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base >) -> usize;
-    fn into_witness_for_params(&self, params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base >) -> Result<Vec<E::Fr>, SynthesisError> {
+    fn into_witness_for_params(&self, _params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base >) -> Result<Vec<E::Fr>, SynthesisError> {
         unimplemented!()
     }
 }
@@ -386,7 +386,7 @@ impl<E: Engine, P: OldCSParams<E>> IntoLimbedWitness<E> for VerificationKey<E, P
 
 
 impl<E: Engine, P: OldCSParams<E>> IntoLimbedWitness<E> for Proof<E, P> {
-    fn witness_size_for_params(params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base >) -> usize {
+    fn witness_size_for_params(_params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base >) -> usize {
         unimplemented!();
         // let mut base = 2;
 
@@ -426,7 +426,7 @@ impl<E: Engine, P: OldCSParams<E>> IntoLimbedWitness<E> for Proof<E, P> {
 }
 
 pub trait IntoLimbedCircuitWitness<E: Engine> {
-    fn into_witness<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Vec<Num<E>>, SynthesisError> {
+    fn into_witness<CS: ConstraintSystem<E>>(&self, _cs: &mut CS) -> Result<Vec<Num<E>>, SynthesisError> {
         unimplemented!()
     }
     // fn into_witness_for_params<F: PrimeField, CS: ConstraintSystem<E>>(&self, cs: &mut CS, params: &RnsParameters<E, F>) -> Result<Vec<AllocatedNum<E>>, SynthesisError> {
@@ -435,7 +435,7 @@ pub trait IntoLimbedCircuitWitness<E: Engine> {
 }
 
 impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> IntoLimbedCircuitWitness<E> for ProofGadget<'a, E, WP> {
-    fn into_witness<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Vec<Num<E>>, SynthesisError> {
+    fn into_witness<CS: ConstraintSystem<E>>(&self, _cs: &mut CS) -> Result<Vec<Num<E>>, SynthesisError> {
         let mut result = vec![];
 
         add_scalar_field_elements(&self.input_values, &mut result);
@@ -460,7 +460,7 @@ impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> IntoLimbedCircuitWitness<E> f
 
 
 impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> IntoLimbedCircuitWitness<E> for VerificationKeyGagdet<'a, E, WP> {
-    fn into_witness<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Vec<Num<E>>, SynthesisError> {
+    fn into_witness<CS: ConstraintSystem<E>>(&self, _cs: &mut CS) -> Result<Vec<Num<E>>, SynthesisError> {
         assert!(self.domain_size_as_allocated_num.is_some(), "can only be called on a gadget with variable parameters");
         assert!(self.omega_as_allocated_num.is_some(), "can only be called on a gadget with variable parameters");
 

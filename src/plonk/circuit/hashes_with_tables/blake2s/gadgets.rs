@@ -743,7 +743,6 @@ impl<E: Engine> Blake2sGadget<E> {
             (Some(fr1), Some(fr2)) => {
                 let n = fr1.into_repr().as_ref()[0];
                 let m = fr2.into_repr().as_ref()[0];
-                let n_xor_m = n ^ m;
                 let n_xor_m = (n ^ m) as u32;
                 let tmp = n_xor_m.rotate_right(rot as u32);
                 Some(tmp as u64)
@@ -851,7 +850,6 @@ impl<E: Engine> Blake2sGadget<E> {
             (Some(fr1), Some(fr2)) => {
                 let n = fr1.into_repr().as_ref()[0];
                 let m = fr2.into_repr().as_ref()[0];
-                let n_xor_m = n ^ m;
                 let n_xor_m = (n ^ m) as u32;
                 let tmp = n_xor_m.rotate_right(rot as u32);
                 Some(tmp as u64)

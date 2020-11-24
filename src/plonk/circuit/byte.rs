@@ -81,7 +81,7 @@ impl<E: Engine> Byte<E> {
         )
     }
 
-    pub fn from_num_unconstrained<CS: ConstraintSystem<E>>(cs: &mut CS, value: Num<E>) -> Self {
+    pub fn from_num_unconstrained<CS: ConstraintSystem<E>>(_cs: &mut CS, value: Num<E>) -> Self {
         Self {
             inner: value
         }
@@ -187,7 +187,6 @@ pub fn uniquely_encode_be_bytes_to_field_elements<F: PrimeField>(
     bytes: &[u8],
 ) -> Vec<F> {
     let max_chunk = (F::CAPACITY / 8) as usize;
-    let mut coeff = F::one();
     let shift = F::from_str("256").unwrap();
 
     let mut results = vec![];

@@ -488,7 +488,7 @@ pub fn u64_into_boolean_vec_le<E: Engine, CS: ConstraintSystem<E>>(
         }
     };
 
-    let bits = values.into_iter().enumerate().map(|(i, b)| {
+    let bits = values.into_iter().enumerate().map(|(_i, b)| {
         Ok(Boolean::from(AllocatedBit::alloc(
             cs,
             b

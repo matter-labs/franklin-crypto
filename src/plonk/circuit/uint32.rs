@@ -103,7 +103,7 @@ impl UInt32 {
 
         let bits = values.into_iter()
                          .enumerate()
-                         .map(|(i, v)| {
+                         .map(|(_i, v)| {
                             Ok(Boolean::from(AllocatedBit::alloc(
                                 cs,
                                 v
@@ -291,7 +291,7 @@ impl UInt32 {
               CS: ConstraintSystem<E>
     {
         Self::triop(cs, a, b, c, |a, b, c| (a & b) ^ ((!a) & c),
-            |cs, i, a, b, c| {
+            |cs, _i, a, b, c| {
                 Boolean::sha256_ch(
                     cs,
                     a,
@@ -319,7 +319,7 @@ impl UInt32 {
         let bits = self.bits.iter()
                             .zip(other.bits.iter())
                             .enumerate()
-                            .map(|(i, (a, b))| {
+                            .map(|(_i, (a, b))| {
                                 Boolean::xor(
                                     cs,
                                     a,

@@ -608,7 +608,8 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
                     into.resize(rate, Num::Constant(E::Fr::one()));
                 };
             },
-            RescueOpMode::SqueezedInto(ref mut into) => {
+            RescueOpMode::SqueezedInto(..) => {
+                panic!("Can not call padding on a squeezed sponge");
             }
         }
 

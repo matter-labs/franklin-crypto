@@ -149,7 +149,7 @@ impl<'a, E: Engine, F: PrimeField> RnsParameters<E, F>{
                 tmp >>= limb_size;
                 if tmp.is_zero() {
                     // this is a last limb
-                    let remainder = current_bits % minimal_multiple;
+                    let _remainder = current_bits % minimal_multiple;
                     // if remainder != 0 {
                     //     current_bits += minimal_multiple - remainder;
                     // }
@@ -292,8 +292,6 @@ pub fn split_into_limbs<E: Engine, F: PrimeField>(
     value: F,
     params: &RnsParameters<E, F>
 ) -> (Vec<E::Fr>, E::Fr) {
-    let num_limbs = params.num_binary_limbs;
-
     let value_as_bigint = fe_to_biguint(&value);
     let binary_limb_values = split_into_fixed_number_of_limbs(
         value_as_bigint, 
@@ -869,13 +867,13 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                         continue;
                     }
 
-                    let (expected_low_width, expected_low_max_value) = if top_limb_may_overflow {
+                    let (expected_low_width, _expected_low_max_value) = if top_limb_may_overflow {
                         (params.binary_limbs_params.limb_size_bits, params.binary_limbs_params.limb_max_value.clone())
                     } else {
                         (params.binary_limbs_bit_widths[low_idx], params.binary_limbs_max_values[low_idx].clone())
                     };
 
-                    let (expected_high_width, expected_high_max_value) = if top_limb_may_overflow {
+                    let (expected_high_width, _expected_high_max_value) = if top_limb_may_overflow {
                         (params.binary_limbs_params.limb_size_bits, params.binary_limbs_params.limb_max_value.clone())
                     } else {
                         (params.binary_limbs_bit_widths[high_idx], params.binary_limbs_max_values[high_idx].clone())
@@ -896,7 +894,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                     }
                 },
                 Num::Variable(var) => {
-                    let limb_values = if let Some(v) = var.get_value() {
+                    let _limb_values = if let Some(v) = var.get_value() {
                         let v = fe_to_biguint(&v);
                         this_value += v.clone() << (witness_idx*2*params.binary_limbs_params.limb_size_bits);
 
@@ -2012,7 +2010,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             return Ok((new, (this, den)));
         }
 
-        let (inv, result, q, rem) = match (this.get_value(), den.get_value()) {
+        let (_inv, result, q, _rem) = match (this.get_value(), den.get_value()) {
             (Some(this), Some(den)) => {
                 let inv = mod_inverse(&den, &params.represented_field_modulus);
                 let result = (this.clone() * &inv) % &params.represented_field_modulus;
@@ -2108,7 +2106,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             Some(num_value)
         };
 
-        let (result, q, rem) = match (num_value, den.get_value(), inv.clone()) {
+        let (result, q, _rem) = match (num_value, den.get_value(), inv.clone()) {
             (Some(num_value), Some(den), Some(inv)) => {
                 let mut lhs = num_value.clone();
 
