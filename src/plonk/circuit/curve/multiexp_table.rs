@@ -154,9 +154,9 @@ impl<'a, E: Engine, G: CurveAffine> MultiexpTable<'a, E, G> where G::Base: Prime
 
         // combination between pairs
         let (tmp_0, (original_1, original_0)) = chunk[1].clone().add_unequal(cs, chunk[0].clone())?;
-        let (tmp_1, (original_1, original_0)) = original_1.sub_unequal(cs, original_0)?;
+        let (tmp_1, _) = original_1.sub_unequal(cs, original_0)?;
         let (tmp_2, (original_3, original_2)) = chunk[3].clone().add_unequal(cs, chunk[2].clone())?;
-        let (tmp_3, (original_3, original_2)) = original_3.sub_unequal(cs, original_2)?;
+        let (tmp_3, _) = original_3.sub_unequal(cs, original_2)?;
 
         // combinations of combinations of pairs
 
@@ -164,13 +164,13 @@ impl<'a, E: Engine, G: CurveAffine> MultiexpTable<'a, E, G> where G::Base: Prime
         let (entry_1, (tmp_2, tmp_1)) = tmp_2.add_unequal(cs, tmp_1)?;
 
         let (entry_2, (tmp_2, tmp_1)) = tmp_2.sub_unequal(cs, tmp_1)?;
-        let (entry_3, (tmp_2, tmp_0)) = tmp_2.sub_unequal(cs, tmp_0)?;
+        let (entry_3, (_, tmp_0)) = tmp_2.sub_unequal(cs, tmp_0)?;
 
         let (entry_4, (tmp_3, tmp_0)) = tmp_3.add_unequal(cs, tmp_0)?;
         let (entry_5, (tmp_3, tmp_1)) = tmp_3.add_unequal(cs, tmp_1)?;
 
-        let (entry_6, (tmp_3, tmp_1)) = tmp_3.sub_unequal(cs, tmp_1)?;
-        let (entry_7, (tmp_3, tmp_0)) = tmp_3.sub_unequal(cs, tmp_0)?;
+        let (entry_6, (tmp_3, _)) = tmp_3.sub_unequal(cs, tmp_1)?;
+        let (entry_7, _) = tmp_3.sub_unequal(cs, tmp_0)?;
 
         let params = entry_0.x.representation_params;
 
@@ -212,7 +212,7 @@ impl<'a, E: Engine, G: CurveAffine> MultiexpTable<'a, E, G> where G::Base: Prime
 
         // combination between pairs
         let (tmp_0, (original_1, original_0)) = chunk[1].clone().add_unequal(cs, chunk[0].clone())?;
-        let (tmp_1, (original_1, original_0)) = original_1.sub_unequal(cs, original_0)?;
+        let (tmp_1, _) = original_1.sub_unequal(cs, original_0)?;
 
         let original_2 = chunk[2].clone();
 
@@ -222,7 +222,7 @@ impl<'a, E: Engine, G: CurveAffine> MultiexpTable<'a, E, G> where G::Base: Prime
         let (entry_1, (original_2, tmp_1)) = original_2.add_unequal(cs, tmp_1)?;
 
         let (entry_2, (original_2, _)) = original_2.sub_unequal(cs, tmp_1)?;
-        let (entry_3, (original_2, _)) = original_2.sub_unequal(cs, tmp_0)?;
+        let (entry_3, _) = original_2.sub_unequal(cs, tmp_0)?;
 
         let params = entry_0.x.representation_params;
 
@@ -264,7 +264,7 @@ impl<'a, E: Engine, G: CurveAffine> MultiexpTable<'a, E, G> where G::Base: Prime
 
         // combination between pairs
         let (entry_0, (original_1, original_0)) = chunk[1].clone().add_unequal(cs, chunk[0].clone())?;
-        let (entry_1, (original_1, original_0)) = original_1.sub_unequal(cs, original_0)?;
+        let (entry_1, _) = original_1.sub_unequal(cs, original_0)?;
 
         let params = entry_0.x.representation_params;
 

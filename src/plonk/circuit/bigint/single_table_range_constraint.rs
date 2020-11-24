@@ -153,7 +153,7 @@ pub fn enforce_using_single_column_table<E: Engine, CS: ConstraintSystem<E>>(
 
     let table = cs.get_table(RANGE_CHECK_SINGLE_APPLICATION_TABLE_NAME)?;
 
-    for full_gate_idx in 0..num_gates_for_coarse_constraint {
+    for _full_gate_idx in 0..num_gates_for_coarse_constraint {
         if next_step_value.is_none() {
             next_step_value = Some(E::Fr::zero());
         }
@@ -252,7 +252,6 @@ fn enforce_shorter_range_into_single_gate<E: Engine, CS: ConstraintSystem<E>>(
     assert!(strategies[0].strategy == RangeConstraintStrategy::SingleTableInvocation);
 
     let width_per_gate = strategies[0].optimal_multiple;
-    let minimal_per_gate = strategies[0].minimal_multiple;
     let linear_terms_used = strategies[0].linear_terms_used;
 
     assert_eq!(linear_terms_used, 3);
@@ -321,7 +320,6 @@ fn enforce_range_into_single_gate<E: Engine, CS: ConstraintSystem<E>>(
     assert!(strategies[0].strategy == RangeConstraintStrategy::SingleTableInvocation);
 
     let width_per_gate = strategies[0].optimal_multiple;
-    let minimal_per_gate = strategies[0].minimal_multiple;
     let linear_terms_used = strategies[0].linear_terms_used;
 
     assert_eq!(linear_terms_used, 3);
@@ -369,7 +367,6 @@ pub fn adaptively_constraint_multiple_with_single_table<E: Engine, CS: Constrain
     assert!(strategies.len() > 0);
     assert!(strategies[0].strategy == RangeConstraintStrategy::SingleTableInvocation);
 
-    let width_per_gate = strategies[0].optimal_multiple;
     let minimal_per_gate = strategies[0].minimal_multiple;
     let linear_terms_used = strategies[0].linear_terms_used;
 

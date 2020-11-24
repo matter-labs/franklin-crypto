@@ -35,8 +35,6 @@ pub fn parse_with_exponent_le<E: Engine, CS: ConstraintSystem<E>>(
         || Ok(exponent_base_value)
     )?;
 
-    let exponent_value = exponent_base_value;
-
     for i in 0..exponent_length {
         let thisbit = &bits[i];
 

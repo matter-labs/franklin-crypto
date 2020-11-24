@@ -225,8 +225,8 @@ impl<'a, E: Engine, G: CurveAffine> PointProjective<'a, E, G> where <G as CurveA
 
     pub fn equals<CS: ConstraintSystem<E>>(
         &self,
-        cs: &mut CS,
-        other: &Self,
+        _cs: &mut CS,
+        _other: &Self,
     ) -> Result<Boolean, SynthesisError> 
     {
         Ok(Boolean::constant(false))
@@ -271,6 +271,7 @@ impl<'a, E: Engine, G: CurveAffine> PointProjective<'a, E, G> where <G as CurveA
         Ok((new, this))
     }
 
+    #[allow(unused_variables)]
     #[track_caller]
     pub fn add<CS: ConstraintSystem<E>>(
         self,
@@ -486,6 +487,7 @@ impl<'a, E: Engine, G: CurveAffine> PointProjective<'a, E, G> where <G as CurveA
     //     Ok((new, (this, other)))
     // }
 
+    #[allow(unused_variables)]
     #[track_caller]
     pub fn double<CS: ConstraintSystem<E>>(
         self,
@@ -568,8 +570,8 @@ impl<'a, E: Engine, G: CurveAffine> PointProjective<'a, E, G> where <G as CurveA
 
     pub fn mul_by_fixed_scalar<CS: ConstraintSystem<E>>(
         self,
-        cs: &mut CS,
-        scalar: &G::Scalar
+        _cs: &mut CS,
+        _scalar: &G::Scalar
     ) -> Result<(Self, Self), SynthesisError> {
         unimplemented!()
     }
@@ -654,12 +656,13 @@ impl<'a, E: Engine, G: CurveAffine> PointProjective<'a, E, G> where <G as CurveA
 }
 
 impl<'a, E: Engine> PointProjective<'a, E, E::G1Affine> {
+    #[allow(unused_variables)]
     #[track_caller]
     pub fn mul<CS: ConstraintSystem<E>>(
         self,
         cs: &mut CS,
         scalar: &Num::<E>,
-        bit_limit: Option<usize>
+        _bit_limit: Option<usize>
     ) -> Result<(Self, Self), SynthesisError> {
         if let Some(value) = scalar.get_value() {
             assert!(!value.is_zero(), "can not multiply by zero in the current approach");
@@ -812,6 +815,7 @@ impl<'a, E: Engine> PointProjective<'a, E, E::G1Affine> {
     // }
 }
 
+#[allow(unused_variables)]
 #[cfg(test)]
 mod test {
     use super::*;

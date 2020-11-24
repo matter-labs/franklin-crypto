@@ -7,13 +7,18 @@ pub mod uint32;
 pub mod multieq;
 pub mod sha256;
 pub mod blake2s;
-pub mod poseidon;
+//pub mod poseidon;
 pub mod bigint;
 pub mod simple_term;
 pub mod curve;
 pub mod verifier_circuit;
 pub mod tables;
 pub mod counter;
+pub mod byte;
+pub mod utils;
+
+pub mod assignment;
+pub mod hashes_with_tables;
 
 use crate::bellman::pairing::Engine;
 use crate::bellman::plonk::better_better_cs::cs::PlonkConstraintSystemParams;

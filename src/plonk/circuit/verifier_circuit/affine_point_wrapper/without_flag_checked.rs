@@ -54,7 +54,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperChecked<'a, E> {
         Ok(res)
     }
 
-    fn zero(params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>) -> Self 
+    fn zero(_params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>) -> Self 
     {
         unimplemented!();
     }
@@ -77,17 +77,19 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperChecked<'a, E> {
         _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
     ) -> Result<Boolean, SynthesisError>
     {
-        self.point.equals(cs, &other.point)
+        let (eq, _) = AffinePoint::equals(cs, self.point.clone(), other.point.clone())?;
+
+        Ok(eq)
     }
 
     fn add<CS: ConstraintSystem<E>>(
         &mut self,
         cs: &mut CS,
         other: &mut Self,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
     ) -> Result<Self, SynthesisError>
     {
-        let check = self.point.x.equals(cs, &other.point.x)?;
+        let (check, _) = FieldElement::equals(cs, self.point.x.clone(), other.point.x.clone())?;
         Boolean::enforce_equal(cs, &check, &Boolean::constant(false))?;
         
         let res = WrapperChecked { 
@@ -100,12 +102,11 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperChecked<'a, E> {
         &mut self,
         cs: &mut CS,
         other: &mut Self,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
     ) -> Result<Self, SynthesisError>
     {
-        let check = self.point.x.equals(cs, &other.point.x)?;
+        let (check, _) = FieldElement::equals(cs, self.point.x.clone(), other.point.x.clone())?;
         Boolean::enforce_equal(cs, &check, &Boolean::constant(false))?;
-        
         
         let res = WrapperChecked { 
             point: self.point.clone().sub_unequal(cs, other.point.clone())?.0,
@@ -169,15 +170,17 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperChecked<'a, E> {
         
         let b = FieldElement::new_constant(aux_data.get_b(), params);
         rhs = rhs.add(cs, b)?.0;
+
+        let (check, _) = FieldElement::equals(cs, lhs, rhs)?;
    
-        lhs.equals(cs, &rhs)
+        Ok(check)
     }
 
     fn subgroup_check<CS: ConstraintSystem<E>, AD: aux_data::AuxData<E>>(
         &self,
-        cs: &mut CS,
-        params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
-        aux_data: &AD,
+        _cs: &mut CS,
+        _params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        _aux_data: &AD,
     ) -> Result<Boolean, SynthesisError>
     {
         // we check that (n-1)x = -x
@@ -197,8 +200,8 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperChecked<'a, E> {
         cs: &mut CS,
         scalar: &AllocatedNum::<E>,
         bit_limit: Option<usize>,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
-        aux_data: &AD,
+        _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        _aux_data: &AD,
     ) -> Result<Self, SynthesisError>
     {
         let d = Num::Variable(scalar.clone());
@@ -215,8 +218,8 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperChecked<'a, E> {
         scalars: &[AllocatedNum::<E>],
         points: &[Self],
         bit_limit: Option<usize>,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
-        aux_data: &AD,
+        _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        _aux_data: &AD,
     ) -> Result<Self, SynthesisError>
     {
         let d_arr : Vec<Num<E>> = scalars.iter().map(|x| Num::Variable(x.clone())).collect();

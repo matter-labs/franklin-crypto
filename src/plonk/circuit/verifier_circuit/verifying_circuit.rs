@@ -103,6 +103,10 @@ pub fn aggregate_proof<'a, E, CS, T, P, OldP, AD, WP>(
         channel.consume(inp.clone(), cs)?;
     }
 
+    for (inp, inp_from_proof) in public_inputs.iter().zip(proof.input_values.iter()) {
+        inp.enforce_equal(cs, inp_from_proof)?;
+    }
+
     // Commit wire values
     for w in proof.wire_commitments.iter() {
         channel.consume_point(cs, w.clone())?;
@@ -181,8 +185,6 @@ pub fn aggregate_proof<'a, E, CS, T, P, OldP, AD, WP>(
 
         l_0_at_z
     } else {
-        let omega_inv = omega_inv_variable.as_ref();
-
         let l_0_at_z = evaluate_lagrange_poly_for_variable_domain_size(
             cs,
             0,
@@ -215,8 +217,6 @@ pub fn aggregate_proof<'a, E, CS, T, P, OldP, AD, WP>(
 
                         tmp
                     } else {
-                        let omega_inv = omega_inv_variable.as_ref();
-
                         let tmp = evaluate_lagrange_poly_for_variable_domain_size(
                             cs,
                             idx,
@@ -318,13 +318,10 @@ pub fn aggregate_proof<'a, E, CS, T, P, OldP, AD, WP>(
             let mut scalar: Option<AllocatedNum<E>> = None;
 
             // permutation part
-            for (i, (wire, non_res)) in proof.wire_values_at_z.iter()
+            for (_i, (wire, non_res)) in proof.wire_values_at_z.iter()
                             .zip(Some(E::Fr::one()).iter().chain(&vk.non_residues)).enumerate() 
             {
                 // tmp = non_res * z * beta + wire
-                let zero = E::Fr::zero();
-                let one = E::Fr::one();
-
                 use crate::circuit::Assignment;
 
                 let mut tmp = AllocatedNum::alloc(
@@ -397,13 +394,10 @@ pub fn aggregate_proof<'a, E, CS, T, P, OldP, AD, WP>(
             let mut scalar: Option<AllocatedNum<E>> = None;
 
             // permutation part
-            for (i, (wire, perm_at_z)) in proof.wire_values_at_z.iter()
+            for (_i, (wire, perm_at_z)) in proof.wire_values_at_z.iter()
                             .zip(&proof.permutation_polynomials_at_z).enumerate() 
             {
                 // tmp = perm_at_z * beta + wire
-                let zero = E::Fr::zero();
-                let one = E::Fr::one();
-
                 use crate::circuit::Assignment;
 
                 let mut tmp = AllocatedNum::alloc(
@@ -588,7 +582,7 @@ pub fn aggregate_proof<'a, E, CS, T, P, OldP, AD, WP>(
     points.push(proof.opening_at_z_proof.clone());
     scalars.push(z.clone());
 
-    let z_omega_term = if let Some(required_domain_size) = required_domain_size { 
+    let z_omega_term = if let Some(_required_domain_size) = required_domain_size { 
         let omega = omega_const.unwrap();
         
         let mut z_omega_term = Term::<E>::from_allocated_num(z.clone());

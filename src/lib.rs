@@ -1,4 +1,4 @@
-#![ allow( dead_code, unused_imports, unused_mut, unused_variables, unused_macros ) ]
+#![ allow( dead_code, unused_imports, unused_mut, unused_macros ) ]
 
 pub extern crate bellman;
 extern crate blake2_rfc_bellman_edition as blake2_rfc;
@@ -8,10 +8,14 @@ extern crate byteorder;
 extern crate tiny_keccak;
 extern crate sha2;
 extern crate hmac;
-extern crate poseidon_hash;
+//extern crate poseidon_hash;
 extern crate num_bigint;
 extern crate num_traits;
 extern crate num_integer;
+
+extern crate itertools;
+extern crate splitmut;
+extern crate blake2;
 
 #[cfg(test)]
 #[macro_use]

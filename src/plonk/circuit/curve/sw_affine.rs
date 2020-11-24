@@ -35,6 +35,8 @@ use crate::bellman::plonk::better_better_cs::cs::{
     PlonkCsWidth4WithNextStepParams,
 };
 
+use crate::circuit::Assignment;
+
 use super::super::allocated_num::{AllocatedNum, Num};
 use super::super::linear_combination::LinearCombination;
 use super::super::simple_term::Term;
@@ -79,17 +81,29 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
             }
         };
 
-        let x = FieldElement::new_allocated(
+        let x = FieldElement::new_allocated_in_field(
             cs, 
             x, 
             params
         )?;
 
-        let y = FieldElement::new_allocated(
+        let y = FieldElement::new_allocated_in_field(
             cs, 
             y, 
             params
         )?;
+
+        // let x = FieldElement::new_allocated(
+        //     cs, 
+        //     x, 
+        //     params
+        // )?;
+
+        // let y = FieldElement::new_allocated(
+        //     cs, 
+        //     y, 
+        //     params
+        // )?;
 
         let new = Self {
             x,
@@ -232,6 +246,12 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         cs: &mut CS,
         other: Self
     ) -> Result<(Self, (Self, Self)), SynthesisError> {
+        match (self.get_value(), other.get_value()) {
+            (Some(first), Some(second)) => {
+                assert!(first != second, "points are actualyl equal");
+            },
+            _ => {}
+        }
         // since we are in a circuit we don't use projective coodinates cause inversions are
         // "cheap" in terms of constraints 
 
@@ -251,19 +271,16 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let other_x = other.x;
         let other_y = other.y;
 
+        // don't divide by 0
+        // let (this_x, other_x) = FieldElement::special_case_enforce_not_equal(cs, this_x, other_x)?;
+        let (this_x, other_x) = FieldElement::enforce_not_equal(cs, this_x, other_x)?;
+
         let (this_y_negated, this_y) = this_y.negated(cs)?;
         let (this_x_negated, this_x) = this_x.negated(cs)?;
 
         let (other_x_minus_this_x, (other_x, this_x_negated)) = other_x.add(cs, this_x_negated)?;
 
         let (other_x_negated, other_x) = other_x.negated(cs)?;
-        let (other_y_negated, other_y) = other_y.negated(cs)?;
-
-        // points are on curve, so we only need to be sure that other_y_negated != this_y,
-        // and other_y != this_y
-
-        let (this_y, other_y_negated) = FieldElement::enforce_not_equal(cs, this_y, other_y_negated)?;
-        let (this_y, other_y) = FieldElement::enforce_not_equal(cs, this_y, other_y)?;
 
         let (lambda, (mut tmp, _)) = FieldElement::div_from_addition_chain(cs, vec![other_y, this_y_negated], other_x_minus_this_x)?;
 
@@ -316,6 +333,12 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         cs: &mut CS,
         other: Self
     ) -> Result<(Self, (Self, Self)), SynthesisError> {
+        match (self.get_value(), other.get_value()) {
+            (Some(first), Some(second)) => {
+                assert!(first != second, "points are actually equal");
+            },
+            _ => {}
+        }
         // since we are in a circuit we don't use projective coodinates cause inversions are
         // "cheap" in terms of constraints 
 
@@ -326,8 +349,6 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         // we need to calculate lambda = (y' - y)/(x' - x). We don't care about a particular
         // value of y' - y, so we don't add them explicitly and just use in inversion witness
 
-        let params = self.x.representation_params;
-
         let this_value = self.get_value();
         let other_value = other.get_value();
 
@@ -337,19 +358,16 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let other_x = other.x;
         let other_y = other.y;
 
+        // let (this_x, other_x) = FieldElement::special_case_enforce_not_equal(cs, this_x, other_x)?;
+        let (this_x, other_x) = FieldElement::enforce_not_equal(cs, this_x, other_x)?;
+
         let (this_y_negated, this_y) = this_y.negated(cs)?;
         let (this_x_negated, this_x) = this_x.negated(cs)?;
+
 
         let (other_x_minus_this_x, (other_x, this_x_negated)) = other_x.add(cs, this_x_negated)?;
 
         let (other_x_negated, other_x) = other_x.negated(cs)?;
-        let (other_y_negated, other_y) = other_y.negated(cs)?;
-
-        // points are on curve, so we only need to be sure that other_y_negated != this_y,
-        // and other_y != this_y
-
-        let (this_y, other_y_negated) = FieldElement::enforce_not_equal(cs, this_y, other_y_negated)?;
-        let (this_y, other_y) = FieldElement::enforce_not_equal(cs, this_y, other_y)?;
 
         let (lambda, (mut tmp, _)) = FieldElement::div_from_addition_chain(cs, vec![other_y, this_y], other_x_minus_this_x)?;
 
@@ -422,7 +440,7 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
 
         let (x_squared, x) = x.square(cs)?;
         let (two_x_squared, x_squared) = x_squared.double(cs)?;
-        let (three_x_squared, (two_x_squared, x_squared)) = two_x_squared.add(cs, x_squared)?;
+        let (three_x_squared, _) = two_x_squared.add(cs, x_squared)?;
 
         // Assume A == 0 for now
 
@@ -433,7 +451,7 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let (minus_x, x) = x.negated(cs)?;
         let (minus_y, y) = y.negated(cs)?;
 
-        let (minus_two_x, minus_x) = minus_x.double(cs)?;
+        let (minus_two_x, _) = minus_x.double(cs)?;
 
         let (new_x, (lambda, _)) = lambda.square_with_addition_chain(cs, vec![minus_two_x])?;
 
@@ -491,10 +509,12 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let (this_y_negated, this_y) = this_y.negated(cs)?;
         let (this_x_negated, this_x) = this_x.negated(cs)?;
 
+        // let (this_x, other_x) = FieldElement::special_case_enforce_not_equal(cs, this_x, other_x)?;
+        let (this_x, other_x) = FieldElement::enforce_not_equal(cs, this_x, other_x)?;
+
         let (other_x_minus_this_x, (other_x, this_x_negated)) = other_x.add(cs, this_x_negated)?;
 
         let (other_x_negated, other_x) = other_x.negated(cs)?;
-        let (other_y_negated, other_y) = other_y.negated(cs)?;
 
         let (lambda, (mut tmp, _)) = FieldElement::div_from_addition_chain(cs, vec![other_y, this_y_negated], other_x_minus_this_x)?;
 
@@ -510,18 +530,18 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
 
         let (two_y, this_y) = this_y.double(cs)?;
 
-        let (t0, (two_y, new_x_minus_this_x)) = two_y.div(cs, new_x_minus_this_x)?;
+        let (t0, _) = two_y.div(cs, new_x_minus_this_x)?;
 
         let (t1, (_, _)) = lambda.add(cs, t0)?;
 
-        let (new_x_negated, new_x) = new_x.negated(cs)?;
+        let (new_x_negated, _) = new_x.negated(cs)?;
 
         let (new_x, (t1, mut tmp)) = t1.square_with_addition_chain(cs, vec![this_x_negated, new_x_negated])?;
 
         let _ = tmp.pop().unwrap();
         let this_x_negated = tmp.pop().unwrap();
 
-        let (new_x_minus_x, (new_x, this_x_negated)) = new_x.add(cs, this_x_negated)?;
+        let (new_x_minus_x, (new_x, _)) = new_x.add(cs, this_x_negated)?;
 
         let (new_y, _) = t1.fma_with_addition_chain(cs, new_x_minus_x, vec![this_y_negated])?;
 
@@ -560,8 +580,8 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
 
     pub fn mul_by_fixed_scalar<CS: ConstraintSystem<E>>(
         self,
-        cs: &mut CS,
-        scalar: &G::Scalar
+        _cs: &mut CS,
+        _scalar: &G::Scalar
     ) -> Result<(Self, Self), SynthesisError> {
         unimplemented!()
     }
@@ -621,7 +641,7 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
 
         let (lhs, y) = y.square(cs)?;
         let (x_squared, x) = x.square(cs)?;
-        let (x_cubed, (x_squared, x)) = x_squared.mul(cs, x)?;
+        let (x_cubed, (_, x)) = x_squared.mul(cs, x)?;
 
         let (rhs, _) = x_cubed.add(cs, b)?;
 
@@ -680,7 +700,7 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
 
         let generator = Self::constant(offset_generator, params);
 
-        let (mut acc, (this, gen)) = self.add_unequal(cs, generator)?;
+        let (mut acc, (this, _)) = self.add_unequal(cs, generator)?;
 
         let mut x = this.x;
         let y = this.y;
@@ -712,7 +732,7 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
                 value: t_value
             };
 
-            let (new_acc, (old_acc, t)) = acc.double_and_add(cs, t)?;
+            let (new_acc, (_, t)) = acc.double_and_add(cs, t)?;
 
             num_doubles += 1;
             acc = new_acc;
@@ -872,6 +892,105 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
         let (result, _) = acc.sub_unequal(cs, offset)?;
         
         Ok(result)
+    }
+
+    #[track_caller]
+    pub fn multiexp_using_endomorphism<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        scalars: &[Num::<E>],
+        points: &[Self],
+        endo_parameters: &super::endomorphism::EndomorphismParameters<E>,
+    ) -> Result<Self, SynthesisError> {
+        assert_eq!(scalars.len(), points.len());
+
+        let params = points[0].x.representation_params;
+
+        let beta = FieldElement::new_constant(endo_parameters.beta_g1, params);
+
+        let mut points_for_k1 = Vec::with_capacity(points.len());
+        let mut points_for_k2 = Vec::with_capacity(points.len());
+        for p in points.iter() {
+            let value = p.value;
+            let endo_value = value.map(|el| endo_parameters.apply_to_g1_point(el));
+
+            let x = p.x.clone();
+            let y = p.y.clone();
+
+            let (x_beta, (x, _)) = x.mul(cs, beta.clone())?;
+            let (y_negated, y) = y.negated(cs)?;
+
+            let p = AffinePoint {
+                x,
+                y, 
+                value,
+            };
+
+            let p_endo = AffinePoint {
+                x: x_beta,
+                y: y_negated, 
+                value: endo_value,
+            };
+
+            points_for_k1.push(p);
+            points_for_k2.push(p_endo);
+        }
+
+        let mut scalar_k1s = Vec::with_capacity(scalars.len());
+        let mut scalar_k2s = Vec::with_capacity(scalars.len());
+
+        let mut minus_one = E::Fr::one();
+        minus_one.negate();
+
+        for s in scalars.iter() {
+            let (k1, k2) = match s {
+                Num::Constant(_c) => {
+                    unreachable!("multiplication by constant it not yet supported");
+                    // let (k1, k2) = endo_parameters.calculate_decomposition(*c);
+
+                    // (Num::Constant(k1), Num::Constant(k1))
+                },
+                Num::Variable(var) => {
+                    let (k1_val, k2_val) = if let Some(val) = var.get_value() {
+                        let (k1, k2) = endo_parameters.calculate_decomposition(val);
+
+                        let mut reconstruction = k2;
+                        reconstruction.mul_assign(&endo_parameters.lambda);
+                        reconstruction.negate();
+                        reconstruction.add_assign(&k1);
+            
+                        assert_eq!(reconstruction, val);
+
+                        (Some(k1), Some(k2))
+                    } else {
+                        (None, None)
+                    };
+                    let k1 = Num::Variable(AllocatedNum::alloc(cs, || Ok(*k1_val.get()?))?);
+                    let k2 = Num::Variable(AllocatedNum::alloc(cs, || Ok(*k2_val.get()?))?);
+
+                    // k = k1 - lambda * k2
+                    // lambda * k2 + k - k1 = 0
+                    let mut decomposition_lc = LinearCombination::zero();
+                    decomposition_lc.add_assign_number_with_coeff(&k2, endo_parameters.lambda);
+                    decomposition_lc.add_assign_number_with_coeff(&s, E::Fr::one());
+                    decomposition_lc.add_assign_number_with_coeff(&k1, minus_one);
+
+                    decomposition_lc.enforce_zero(cs)?;
+
+                    (k1, k2)
+                }
+            };
+
+            scalar_k1s.push(k1);
+            scalar_k2s.push(k2);
+        }
+
+        let mut full_points_vector = points_for_k1;
+        full_points_vector.extend(points_for_k2);
+
+        let mut full_scalars_vector = scalar_k1s;
+        full_scalars_vector.extend(scalar_k2s);
+
+        Self::multiexp(cs, &full_scalars_vector, &full_points_vector, Some(endo_parameters.target_scalar_width))
     }
 }
 
@@ -1677,6 +1796,211 @@ mod test {
                 let base = cs.n();
                 let _ = a.mul(&mut cs, &b, None).unwrap();
                 println!("Affine single multiplication taken {} gates", cs.n() - base);
+                println!("Affine spent {} gates in equality checks", crate::plonk::circuit::counter::output_counter());
+                print_stats();
+            }
+        }
+    }
+
+    #[test]
+    fn test_bn254_multiexp_10_with_range_table(){
+        use crate::plonk::circuit::tables::inscribe_default_range_table_for_bit_width_over_first_three_columns;
+        use crate::plonk::circuit::bigint::*;
+        use crate::plonk::circuit::bigint::single_table_range_constraint::{reset_stats, print_stats};
+        use rand::{XorShiftRng, SeedableRng, Rng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        let info = RangeConstraintInfo {
+            minimal_multiple: 17,
+            optimal_multiple: 17,
+            multiples_per_gate: 1,
+            linear_terms_used: 3,
+            strategy: RangeConstraintStrategy::SingleTableInvocation,
+        };
+        let params = RnsParameters::<Bn256, Fq>::new_for_field_with_strategy(
+            68,
+            110, 
+            4, 
+            info,
+            true
+        );
+
+        for i in 0..10 {
+            let mut cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+            inscribe_default_range_table_for_bit_width_over_first_three_columns(&mut cs, 17).unwrap();
+
+            let mut a_s = vec![];
+            let mut b_s = vec![];
+            for _ in 0..10 {
+                let a_f: G1Affine = rng.gen();
+                let b_f: Fr = rng.gen();
+
+                a_s.push(a_f);
+                b_s.push(b_f);
+            }
+            
+            let mut a_p = vec![];
+            for a in a_s.iter() {
+                let a = AffinePoint::alloc(
+                    &mut cs, 
+                    Some(*a), 
+                    &params
+                ).unwrap();
+
+                a_p.push(a);
+            }
+
+            let mut b_n = vec![];
+
+            for b in b_s.iter() {
+                let b = AllocatedNum::alloc(
+                    &mut cs, 
+                    || {
+                        Ok(*b)
+                    }
+                ).unwrap();
+
+                let b = Num::Variable(b);
+                b_n.push(b);
+            }
+
+            let result = AffinePoint::multiexp(&mut cs, &b_n, &a_p, None).unwrap();
+
+            let mut result_recalculated = G1Affine::zero().into_projective();
+
+            for (a, b) in a_s.iter().zip(b_s.iter()) {
+                let tmp = a.mul(b.into_repr());
+                result_recalculated.add_assign(&tmp);
+            }
+
+            let result_recalculated = result_recalculated.into_affine();
+
+            assert!(cs.is_satisfied());
+
+            let x_fe = result.x.get_field_value().unwrap();
+            let y_fe = result.y.get_field_value().unwrap();
+
+            let (x, y) = result.get_value().unwrap().into_xy_unchecked();
+
+            assert_eq!(x_fe, x, "x coords mismatch between value and coordinates");
+            assert_eq!(y_fe, y, "y coords mismatch between value and coordinates");
+
+            let (x, y) = result_recalculated.into_xy_unchecked();
+
+            assert_eq!(x_fe, x, "x coords mismatch between expected result and circuit result");
+            assert_eq!(y_fe, y, "y coords mismatch between expected result and circuit result");
+
+            assert_eq!(result.get_value().unwrap(), result_recalculated, "mismatch between expected result and circuit result");
+
+            if i == 0 {
+                reset_stats();
+                crate::plonk::circuit::counter::reset_counter();
+                let base = cs.n();
+                let _ = AffinePoint::multiexp(&mut cs, &b_n, &a_p, None).unwrap();
+                println!("Affine 10 points multiexp without endo taken {} gates", cs.n() - base);
+                println!("Affine spent {} gates in equality checks", crate::plonk::circuit::counter::output_counter());
+                print_stats();
+            }
+        }
+    }
+
+    #[test]
+    fn test_bn254_multiexp_10_with_endo_and_range_table(){
+        use crate::plonk::circuit::tables::inscribe_default_range_table_for_bit_width_over_first_three_columns;
+        use crate::plonk::circuit::bigint::*;
+        use crate::plonk::circuit::bigint::single_table_range_constraint::{reset_stats, print_stats};
+        use rand::{XorShiftRng, SeedableRng, Rng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        let info = RangeConstraintInfo {
+            minimal_multiple: 17,
+            optimal_multiple: 17,
+            multiples_per_gate: 1,
+            linear_terms_used: 3,
+            strategy: RangeConstraintStrategy::SingleTableInvocation,
+        };
+        let params = RnsParameters::<Bn256, Fq>::new_for_field_with_strategy(
+            68,
+            110, 
+            4, 
+            info,
+            true
+        );
+        let endo_parameters = super::super::endomorphism::bn254_endomorphism_parameters();
+
+        for i in 0..10 {
+            let mut cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+            inscribe_default_range_table_for_bit_width_over_first_three_columns(&mut cs, 17).unwrap();
+
+            let mut a_s = vec![];
+            let mut b_s = vec![];
+            for _ in 0..10 {
+                let a_f: G1Affine = rng.gen();
+                let b_f: Fr = rng.gen();
+
+                a_s.push(a_f);
+                b_s.push(b_f);
+            }
+            
+            let mut a_p = vec![];
+            for a in a_s.iter() {
+                let a = AffinePoint::alloc(
+                    &mut cs, 
+                    Some(*a), 
+                    &params
+                ).unwrap();
+
+                a_p.push(a);
+            }
+
+            let mut b_n = vec![];
+
+            for b in b_s.iter() {
+                let b = AllocatedNum::alloc(
+                    &mut cs, 
+                    || {
+                        Ok(*b)
+                    }
+                ).unwrap();
+
+                let b = Num::Variable(b);
+                b_n.push(b);
+            }
+
+            let result = AffinePoint::multiexp_using_endomorphism(&mut cs, &b_n, &a_p, &endo_parameters).unwrap();
+
+            let mut result_recalculated = G1Affine::zero().into_projective();
+
+            for (a, b) in a_s.iter().zip(b_s.iter()) {
+                let tmp = a.mul(b.into_repr());
+                result_recalculated.add_assign(&tmp);
+            }
+
+            let result_recalculated = result_recalculated.into_affine();
+
+            assert!(cs.is_satisfied());
+
+            let x_fe = result.x.get_field_value().unwrap();
+            let y_fe = result.y.get_field_value().unwrap();
+
+            let (x, y) = result.get_value().unwrap().into_xy_unchecked();
+
+            assert_eq!(x_fe, x, "x coords mismatch between value and coordinates");
+            assert_eq!(y_fe, y, "y coords mismatch between value and coordinates");
+
+            let (x, y) = result_recalculated.into_xy_unchecked();
+
+            assert_eq!(x_fe, x, "x coords mismatch between expected result and circuit result");
+            assert_eq!(y_fe, y, "y coords mismatch between expected result and circuit result");
+
+            assert_eq!(result.get_value().unwrap(), result_recalculated, "mismatch between expected result and circuit result");
+
+            if i == 0 {
+                reset_stats();
+                crate::plonk::circuit::counter::reset_counter();
+                let base = cs.n();
+                let _ = AffinePoint::multiexp_using_endomorphism(&mut cs, &b_n, &a_p, &endo_parameters).unwrap();
+                println!("Affine 10 points multiexp with endo taken {} gates", cs.n() - base);
                 println!("Affine spent {} gates in equality checks", crate::plonk::circuit::counter::output_counter());
                 print_stats();
             }

@@ -55,7 +55,7 @@ impl Bn256RescueParams {
         Self::new_for_params::<H>(c, r, rounds, security_level)
     }
 
-    pub fn new_for_params<H: GroupHasher>(c: u32, r: u32, rounds: u32, security_level: u32) -> Self {
+    pub fn new_for_params<H: GroupHasher>(c: u32, r: u32, rounds: u32, _security_level: u32) -> Self {
         use byteorder::{WriteBytesExt, ReadBytesExt, BigEndian};
         use constants;
 

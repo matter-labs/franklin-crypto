@@ -436,7 +436,6 @@ impl<E: Engine> LinearCombination<E> {
     ) -> Result<(), SynthesisError> {
         // we assume that terms are deduplicated
 
-        let zero_fr = E::Fr::zero();
         let one_fr = E::Fr::one();
         let mut minus_one_fr = E::Fr::one();
         minus_one_fr.negate();
@@ -599,12 +598,9 @@ impl<E: Engine> LinearCombination<E> {
 
                 let mut gate_term = MainGateTerm::<E>::new();
 
-                let mut num_terms = 0;
-
                 for (c, var) in chunk.into_iter() {
                     let t = ArithmeticTerm::from_variable_and_coeff(var, c);
                     gate_term.add_assign(t);
-                    num_terms += 1;
                 }
 
                 let dummy = CS::get_dummy_variable();

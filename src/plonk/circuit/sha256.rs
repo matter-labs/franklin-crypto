@@ -107,7 +107,7 @@ pub fn sha256<E, CS>(
     assert!(padded.len() % 512 == 0);
 
     let mut cur = get_sha256_iv();
-    for (i, block) in padded.chunks(512).enumerate() {
+    for (_i, block) in padded.chunks(512).enumerate() {
         cur = sha256_compression_function(
             cs,
             block,

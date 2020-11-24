@@ -46,10 +46,10 @@ pub trait WrappedAffinePoint<'a, E: Engine>: Sized + Clone + std::fmt::Debug {
     ) -> Result<Self, SynthesisError>; 
 
     fn from_allocated_limb_witness<'b, CS: ConstraintSystem<E>, AD: aux_data::AuxData<E>>(
-        cs: &mut CS,
-        witnesses: &'b [AllocatedNum<E>],
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
-        aux_data: &AD,
+        _cs: &mut CS,
+        _witnesses: &'b [AllocatedNum<E>],
+        _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        _aux_data: &AD,
     ) -> Result<(Self, &'b [AllocatedNum<E>]), SynthesisError> {
         unimplemented!("not implemented by default");
     }

@@ -279,7 +279,7 @@ pub fn coarsely_enforce_using_multitable_into_single_gate<E: Engine, CS: Constra
             Ok(*value.get()?)
         })?;
 
-        let scaled = value.mul(&Some(current_term_coeff));
+        // let scaled = value.mul(&Some(current_term_coeff));
 
         term.add_assign(ArithmeticTerm::from_variable_and_coeff(allocated.get_variable(), current_term_coeff));
 
@@ -322,7 +322,6 @@ pub fn adaptively_coarsely_constraint_multiple_with_multitable<E: Engine, CS: Co
     assert!(strategies.len() > 0);
     assert!(strategies[0].strategy == RangeConstraintStrategy::MultiTable);
 
-    let width_per_gate = strategies[0].optimal_multiple;
     let minimal_per_gate = strategies[0].minimal_multiple;
     let linear_terms_used = strategies[0].multiples_per_gate;
 
@@ -496,8 +495,6 @@ pub fn adaptively_coarsely_constraint_multiple_with_two_bit_decomposition<E: Eng
             let index_of_high_part = w1 / 2 - 1;
 
             let peeked_high = &chain[index_of_high_part];
-
-            let high_as_term = Term::<E>::from_allocated_num(peeked_high.clone());
             
             let mut lc = LinearCombination::zero();
             lc.add_assign_term(&high_term);
