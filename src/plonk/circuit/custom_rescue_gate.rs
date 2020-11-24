@@ -86,7 +86,7 @@ impl<E: Engine> GateInternal<E> for Rescue5CustomGate {
         3
     }
 
-    fn verify_on_row(&self, row: usize, poly_storage: &AssembledPolynomialStorage<E>, last_row: bool) -> E::Fr {
+    fn verify_on_row(&self, row: usize, poly_storage: &AssembledPolynomialStorage<E>, _last_row: bool) -> E::Fr {
         let a_value = poly_storage.get_poly_at_step(PolyIdentifier::VariablesPolynomial(0), row);
         let b_value = poly_storage.get_poly_at_step(PolyIdentifier::VariablesPolynomial(1), row);
         let c_value = poly_storage.get_poly_at_step(PolyIdentifier::VariablesPolynomial(2), row);
@@ -180,8 +180,6 @@ impl<E: Engine> GateInternal<E> for Rescue5CustomGate {
             PolynomialInConstraint::from_id(PolyIdentifier::VariablesPolynomial(3)),
             ldes_storage
         ).as_ref();
-
-        let one = E::Fr::one();
 
         tmp.map_indexed(&worker,
             |i, el| {

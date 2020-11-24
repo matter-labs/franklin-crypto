@@ -281,7 +281,6 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let (other_x_minus_this_x, (other_x, this_x_negated)) = other_x.add(cs, this_x_negated)?;
 
         let (other_x_negated, other_x) = other_x.negated(cs)?;
-        let (other_y_negated, other_y) = other_y.negated(cs)?;
 
         let (lambda, (mut tmp, _)) = FieldElement::div_from_addition_chain(cs, vec![other_y, this_y_negated], other_x_minus_this_x)?;
 
@@ -350,8 +349,6 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         // we need to calculate lambda = (y' - y)/(x' - x). We don't care about a particular
         // value of y' - y, so we don't add them explicitly and just use in inversion witness
 
-        let params = self.x.representation_params;
-
         let this_value = self.get_value();
         let other_value = other.get_value();
 
@@ -371,7 +368,6 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let (other_x_minus_this_x, (other_x, this_x_negated)) = other_x.add(cs, this_x_negated)?;
 
         let (other_x_negated, other_x) = other_x.negated(cs)?;
-        let (other_y_negated, other_y) = other_y.negated(cs)?;
 
         let (lambda, (mut tmp, _)) = FieldElement::div_from_addition_chain(cs, vec![other_y, this_y], other_x_minus_this_x)?;
 
@@ -444,7 +440,7 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
 
         let (x_squared, x) = x.square(cs)?;
         let (two_x_squared, x_squared) = x_squared.double(cs)?;
-        let (three_x_squared, (two_x_squared, x_squared)) = two_x_squared.add(cs, x_squared)?;
+        let (three_x_squared, _) = two_x_squared.add(cs, x_squared)?;
 
         // Assume A == 0 for now
 
@@ -455,7 +451,7 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let (minus_x, x) = x.negated(cs)?;
         let (minus_y, y) = y.negated(cs)?;
 
-        let (minus_two_x, minus_x) = minus_x.double(cs)?;
+        let (minus_two_x, _) = minus_x.double(cs)?;
 
         let (new_x, (lambda, _)) = lambda.square_with_addition_chain(cs, vec![minus_two_x])?;
 
@@ -519,7 +515,6 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
         let (other_x_minus_this_x, (other_x, this_x_negated)) = other_x.add(cs, this_x_negated)?;
 
         let (other_x_negated, other_x) = other_x.negated(cs)?;
-        let (other_y_negated, other_y) = other_y.negated(cs)?;
 
         let (lambda, (mut tmp, _)) = FieldElement::div_from_addition_chain(cs, vec![other_y, this_y_negated], other_x_minus_this_x)?;
 
@@ -535,18 +530,18 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
 
         let (two_y, this_y) = this_y.double(cs)?;
 
-        let (t0, (two_y, new_x_minus_this_x)) = two_y.div(cs, new_x_minus_this_x)?;
+        let (t0, _) = two_y.div(cs, new_x_minus_this_x)?;
 
         let (t1, (_, _)) = lambda.add(cs, t0)?;
 
-        let (new_x_negated, new_x) = new_x.negated(cs)?;
+        let (new_x_negated, _) = new_x.negated(cs)?;
 
         let (new_x, (t1, mut tmp)) = t1.square_with_addition_chain(cs, vec![this_x_negated, new_x_negated])?;
 
         let _ = tmp.pop().unwrap();
         let this_x_negated = tmp.pop().unwrap();
 
-        let (new_x_minus_x, (new_x, this_x_negated)) = new_x.add(cs, this_x_negated)?;
+        let (new_x_minus_x, (new_x, _)) = new_x.add(cs, this_x_negated)?;
 
         let (new_y, _) = t1.fma_with_addition_chain(cs, new_x_minus_x, vec![this_y_negated])?;
 
@@ -646,7 +641,7 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
 
         let (lhs, y) = y.square(cs)?;
         let (x_squared, x) = x.square(cs)?;
-        let (x_cubed, (x_squared, x)) = x_squared.mul(cs, x)?;
+        let (x_cubed, (_, x)) = x_squared.mul(cs, x)?;
 
         let (rhs, _) = x_cubed.add(cs, b)?;
 
@@ -705,7 +700,7 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
 
         let generator = Self::constant(offset_generator, params);
 
-        let (mut acc, (this, gen)) = self.add_unequal(cs, generator)?;
+        let (mut acc, (this, _)) = self.add_unequal(cs, generator)?;
 
         let mut x = this.x;
         let y = this.y;
@@ -737,7 +732,7 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
                 value: t_value
             };
 
-            let (new_acc, (old_acc, t)) = acc.double_and_add(cs, t)?;
+            let (new_acc, (_, t)) = acc.double_and_add(cs, t)?;
 
             num_doubles += 1;
             acc = new_acc;
@@ -948,7 +943,7 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
 
         for s in scalars.iter() {
             let (k1, k2) = match s {
-                Num::Constant(c) => {
+                Num::Constant(_c) => {
                     unreachable!("multiplication by constant it not yet supported");
                     // let (k1, k2) = endo_parameters.calculate_decomposition(*c);
 

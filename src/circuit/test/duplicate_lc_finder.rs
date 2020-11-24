@@ -73,7 +73,7 @@ impl<E: Engine> ConstraintSystem<E> for DuplicateFinderTestConstraintSystem<E> {
     fn alloc<F, A, AR>(
         &mut self,
         _: A,
-        f: F
+        _f: F
     ) -> Result<Variable, SynthesisError>
         where F: FnOnce() -> Result<E::Fr, SynthesisError>, A: FnOnce() -> AR, AR: Into<String>
     {
@@ -87,7 +87,7 @@ impl<E: Engine> ConstraintSystem<E> for DuplicateFinderTestConstraintSystem<E> {
     fn alloc_input<F, A, AR>(
         &mut self,
         _: A,
-        f: F
+        _f: F
     ) -> Result<Variable, SynthesisError>
         where F: FnOnce() -> Result<E::Fr, SynthesisError>, A: FnOnce() -> AR, AR: Into<String>
     {
@@ -116,9 +116,9 @@ impl<E: Engine> ConstraintSystem<E> for DuplicateFinderTestConstraintSystem<E> {
         {
             // let mut input_set = HashSet::new();
             let mut aux_set = HashSet::new();
-            for (index, coeff) in l.as_ref().iter() {
+            for (index, _coeff) in l.as_ref().iter() {
                 match index.get_unchecked() {
-                    Index::Input(id) => {
+                    Index::Input(_id) => {
                         // if let Some(idx) = input_set.get(&id) {
                         //     return Some(*idx);
                         // } else {
@@ -161,7 +161,7 @@ impl<E: Engine> ConstraintSystem<E> for DuplicateFinderTestConstraintSystem<E> {
         self.constraints += 1;
     }
 
-    fn push_namespace<NR, N>(&mut self, name_fn: N)
+    fn push_namespace<NR, N>(&mut self, _name_fn: N)
     where NR: Into<String>, N: FnOnce() -> NR
     {
 

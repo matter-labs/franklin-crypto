@@ -133,7 +133,7 @@ impl<E: Engine> ConstraintSystem<E> for ConstraintVerifyingTestConstraintSystem<
         eval_lc::<E>(&mut self.set, c.as_ref());
     }
 
-    fn push_namespace<NR, N>(&mut self, name_fn: N)
+    fn push_namespace<NR, N>(&mut self, _name_fn: N)
     where NR: Into<String>, N: FnOnce() -> NR
     {
 

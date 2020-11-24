@@ -352,7 +352,7 @@ pub fn rescue_mimc_over_lcs<E: RescueEngine, CS>(
     assert_eq!(input.len(), state_len); 
 
     let mut state: Vec<Num<E>> = Vec::with_capacity(input.len());
-    for (i, (c, &constant)) in input.iter().cloned()
+    for (_i, (c, &constant)) in input.iter().cloned()
                         .zip(params.round_constants(0).iter())
                         .enumerate()
     {
@@ -454,7 +454,7 @@ impl<E: RescueEngine> StatefulRescueGadget<E> {
 
     pub fn specialize<CS: ConstraintSystem<E>>(
         &mut self,
-        cs: CS,
+        _cs: CS,
         dst: u8
     ) {
         assert!(dst > 0);
@@ -536,8 +536,6 @@ impl<E: RescueEngine> StatefulRescueGadget<E> {
         assert!(input.len() > 0);
         assert!(input.len() < 256);
         let absorbtion_len = params.rate() as usize;
-        let t = params.state_width();
-        let rate = params.rate();
     
         let mut absorbtion_cycles = input.len() / absorbtion_len;
         if input.len() % absorbtion_len != 0 {

@@ -119,7 +119,7 @@ impl AllocatedBit {
             value: value
         })
     }
-    pub fn inputize<E, CS>(&self, mut cs: CS, witness: &AllocatedBit) -> Result<(), SynthesisError>
+    pub fn inputize<E, CS>(&self, mut cs: CS, _witness: &AllocatedBit) -> Result<(), SynthesisError>
         where
             E: Engine,
             CS: ConstraintSystem<E>,

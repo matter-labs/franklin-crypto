@@ -80,7 +80,7 @@ impl<E: Engine> TableSelectable<E> for Term<E> {
 
         Ok(result)
     }
-    fn negate<CS: ConstraintSystem<E>>(cs: &mut CS, first: Self) -> Result<Self, SynthesisError> {
+    fn negate<CS: ConstraintSystem<E>>(_cs: &mut CS, first: Self) -> Result<Self, SynthesisError> {
         let mut new = first;
         new.negate();
 

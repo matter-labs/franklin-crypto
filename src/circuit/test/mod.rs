@@ -243,7 +243,7 @@ impl<E: Engine> TestConstraintSystem<E> {
     pub fn find_unconstrained(&self) -> String {
         let mut s = String::new();
         let pp = |hm: & mut HashSet<String>, lc: &LinearCombination<E>| {
-            for (var, coeff) in proc_lc::<E>(lc.as_ref()) {
+            for (var, _coeff) in proc_lc::<E>(lc.as_ref()) {
                 match var.0.get_unchecked() {
                     Index::Input(i) => {
                         let v = self.inputs[i].clone();
@@ -256,8 +256,6 @@ impl<E: Engine> TestConstraintSystem<E> {
                 }
             }
         };
-
-        let i_max = self.constraints.len();
 
         let mut set = HashSet::new();
         for &(ref a, ref b, ref c, ref _name) in &self.constraints {

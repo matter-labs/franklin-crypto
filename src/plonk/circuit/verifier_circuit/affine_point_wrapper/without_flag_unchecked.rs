@@ -97,7 +97,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         Ok((res, rest))
     }
 
-    fn zero(params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>) -> Self 
+    fn zero(_params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>) -> Self 
     {
         unimplemented!();
     }
@@ -129,7 +129,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         &mut self,
         cs: &mut CS,
         other: &mut Self,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
     ) -> Result<Self, SynthesisError>
     {
         let res = WrapperUnchecked { 
@@ -142,7 +142,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         &mut self,
         cs: &mut CS,
         other: &mut Self,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
     ) -> Result<Self, SynthesisError>
     {
         let res = WrapperUnchecked { 
@@ -215,9 +215,9 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
 
     fn subgroup_check<CS: ConstraintSystem<E>, AD: aux_data::AuxData<E>>(
         &self,
-        cs: &mut CS,
-        params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
-        aux_data: &AD,
+        _cs: &mut CS,
+        _params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        _aux_data: &AD,
     ) -> Result<Boolean, SynthesisError>
     {
         // we check that (n-1)x = -x
@@ -237,8 +237,8 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         cs: &mut CS,
         scalar: &AllocatedNum::<E>,
         bit_limit: Option<usize>,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
-        aux_data: &AD,
+        _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        _aux_data: &AD,
     ) -> Result<Self, SynthesisError>
     {
         let d = Num::Variable(scalar.clone());
@@ -253,8 +253,8 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         scalars: &[AllocatedNum::<E>],
         points: &[Self],
         bit_limit: Option<usize>,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
-        aux_data: &AD,
+        _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        _aux_data: &AD,
     ) -> Result<Self, SynthesisError>
     {
         let d_arr : Vec<Num<E>> = scalars.iter().map(|x| Num::Variable(x.clone())).collect();

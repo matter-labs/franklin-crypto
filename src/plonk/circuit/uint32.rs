@@ -268,7 +268,7 @@ impl UInt32 {
               CS: ConstraintSystem<E>
     {
         Self::triop(cs, a, b, c, |a, b, c| (a & b) ^ (a & c) ^ (b & c),
-            |cs, i, a, b, c| {
+            |cs, _i, a, b, c| {
                 Boolean::sha256_maj(
                     cs,
                     a,

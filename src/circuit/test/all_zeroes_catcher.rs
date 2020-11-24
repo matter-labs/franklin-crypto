@@ -267,7 +267,7 @@ impl<E: Engine> ConstraintSystem<E> for ZeroCatchingTestConstraintSystem<E> {
         self.constraints += 1;
     }
 
-    fn push_namespace<NR, N>(&mut self, name_fn: N)
+    fn push_namespace<NR, N>(&mut self, _name_fn: N)
     where NR: Into<String>, N: FnOnce() -> NR
     {
 

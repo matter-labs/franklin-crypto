@@ -522,7 +522,6 @@ impl<E: JubjubEngine> EdwardsPoint<E> {
         let y2 = y.square(cs.namespace(|| "y^2"))?;
         let x2y2 = x2.mul(cs.namespace(|| "x^2 y^2"), &y2)?;
 
-        let one = CS::one();
         let num = Num::zero();
         let num = num.add_number_with_coeff(&x2y2, *params.edwards_d());
 

@@ -60,7 +60,7 @@ impl<'a, E: RescueEngine> Prng<E::Fr> for RescueTranscriptForRNS<'a, E> {
 
 
 impl<'a, E: RescueEngine> Transcript<E::Fr> for RescueTranscriptForRNS<'a, E> {
-    fn commit_bytes(&mut self, bytes: &[u8]) {
+    fn commit_bytes(&mut self, _bytes: &[u8]) {
         unimplemented!();
     }
 

@@ -2536,8 +2536,6 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         sub: &[Self],
         params: &RnsParameters<E, F>
     ) -> Result<(), SynthesisError> {
-        let num_limbs = params.num_binary_limbs;
-
         // keep track of the max values after additions
 
         let (result_limbs, collapsed_max_values) = bases;
@@ -2746,7 +2744,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         }
 
         let shift_right_one_limb_constant = params.binary_limbs_params.shift_right_by_limb_constant;
-        let shift_left_one_limb_constant = params.binary_limbs_params.shift_left_by_limb_constant;
+        // let shift_left_one_limb_constant = params.binary_limbs_params.shift_left_by_limb_constant;
 
         // propagate carries
 
@@ -3111,7 +3109,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 
         let mut shift = 0;
 
-        for (idx, (((l, r), &limb_width), max_value)) in this.binary_limbs.iter()
+        for (_idx, (((l, r), &limb_width), max_value)) in this.binary_limbs.iter()
                                             .zip(other.binary_limbs.iter())
                                             .zip(params.binary_limbs_bit_widths.iter())
                                             .zip(params.binary_limbs_max_values.iter())

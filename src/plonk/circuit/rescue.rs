@@ -107,9 +107,9 @@ impl<E: Engine> PlonkCsSBox<E> for QuinticSBox<E> {
 
     fn apply_constraints_in_reverse<CS: ConstraintSystem<E>>(
         &self, 
-        cs: &mut CS,
-        el: &Num<E>,
-        force_no_custom_gates: bool
+        _cs: &mut CS,
+        _el: &Num<E>,
+        _force_no_custom_gates: bool
     ) -> Result<Num<E>, SynthesisError> {     
         unimplemented!("Making 5th power can only be used in straight order")
     }
@@ -190,9 +190,9 @@ impl<E: Engine> PlonkCsSBox<E> for PowerSBox<E> {
 
     fn apply_constraints<CS: ConstraintSystem<E>>(
         &self, 
-        cs: &mut CS,
-        el: &Num<E>,
-        force_no_custom_gates: bool
+        _cs: &mut CS,
+        _el: &Num<E>,
+        _force_no_custom_gates: bool
     ) -> Result<Num<E>, SynthesisError> {     
         unimplemented!("Making inverse of 5th power can only be used in backward mode")
     }
@@ -363,7 +363,7 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
         for round in 0..(params.num_rounds() * 2) {
             let mut after_nonlin = Vec::with_capacity(state_len);
 
-            for (idx, s) in state.take().unwrap().into_iter().enumerate() {
+            for (_idx, s) in state.take().unwrap().into_iter().enumerate() {
                 let input = s.into_num(cs)?;
                 let state_output = if round & 1 == 0 {
                     let sbox = params.sbox_0();
@@ -488,8 +488,6 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
         let before = cs.get_current_step_number();
 
         let absorbtion_len = params.rate() as usize;
-        let t = params.state_width();
-        let rate = params.rate();
     
         assert!(input.len() > 0);
         let mut absorbtion_cycles = input.len() / absorbtion_len;
@@ -502,7 +500,7 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
     
         let it = input.into_iter();
         
-        for (idx, val) in it.enumerate() {
+        for (_idx, val) in it.enumerate() {
             self.absorb_single_value(
                 cs,
                 val,
@@ -524,8 +522,6 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
         let before = cs.get_current_step_number();
 
         let absorbtion_len = params.rate() as usize;
-        let t = params.state_width();
-        let rate = params.rate();
     
         assert!(input.len() > 0);
         let mut absorbtion_cycles = input.len() / absorbtion_len;
@@ -538,7 +534,7 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
     
         let it = input.into_iter();
         
-        for (idx, val) in it.enumerate() {
+        for (_idx, val) in it.enumerate() {
             self.absorb_single_value(
                 cs,
                 val,
