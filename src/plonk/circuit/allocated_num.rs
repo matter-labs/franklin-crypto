@@ -135,18 +135,233 @@ impl<E: Engine> Num<E> {
         }
     }
 
-    // pub fn eq<CS: ConstraintSystem<E>>(&self, cs: &mut CS, other: &Self) -> Result<(), SynthesisError>
-    // {
-    //     match (self, other) {
-    //         (Num::Variable(x), Num::Variable(y)) => x.eq(cs, y.clone())?,
-    //         (Num::Variable(x), Num::Constant(fr)) | (Num::Constant(fr), Num::Variable(x)) => todo!(),
-    //         (Num::Constant(fr1), Num::Constant(fr2)) => {
-    //             println!("left: {}, right: {}", fr1, fr2);
-    //             assert_eq!(*fr1, *fr2);
-    //         },
-    //     }
-    //     Ok(())
-    // }
+    /// Takes two allocated numbers (a, b) and returns
+    /// (b, a) if the condition is true, and (a, b)
+    /// otherwise.
+    pub fn conditionally_reverse<CS>(
+        cs: &mut CS,
+        a: &Self,
+        b: &Self,
+        condition: &Boolean
+    ) -> Result<(Self, Self), SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        if condition.is_constant() {
+            let swap = condition.get_value().expect("must get a value of the constant");
+
+            if swap {
+                return Ok((b.clone(), a.clone()))
+            } else {
+                return Ok((a.clone(), b.clone()))
+            }
+        }
+
+        match (a, b) {
+            (Num::Variable(a), Num::Variable(b)) => {
+                let (c, d) = AllocatedNum::conditionally_reverse(cs, a, b, condition)?;
+                return Ok((Num::Variable(c), Num::Variable(d)));
+            },
+            _ =>{}
+        }
+
+        let c = AllocatedNum::alloc(
+            cs,
+            || {
+                if *condition.get_value().get()? {
+                    Ok(*b.get_value().get()?)
+                } else {
+                    Ok(*a.get_value().get()?)
+                }
+            }
+        )?;
+
+        let d = AllocatedNum::alloc(
+            cs,
+            || {
+                if *condition.get_value().get()? {
+                    Ok(*a.get_value().get()?)
+                } else {
+                    Ok(*b.get_value().get()?)
+                }
+            }
+        )?;
+
+        let c = Num::Variable(c);
+        let d = Num::Variable(d);
+
+        // (a - b) * condition = a - c
+        // (b - a) * condition = b - d 
+        // if condition == 0, then a == c, b == d
+        // if condition == 1, then b == c, a == d
+
+        match (condition, a, b) {
+            (Boolean::Constant(..), _, _) => {
+                unreachable!("constant is already handles")
+            },
+            (Boolean::Is(condition_var), Num::Constant(a), Num::Constant(b)) => {
+                // (a - b) * condition = a - c
+                // (b - a) * condition = b - d 
+                // if condition == 0, then a == c, b == d
+                // if condition == 1, then b == c, a == d
+
+                // (a-b) * condition - a + c = 0
+                // -(a-b) * condition - b + d = 0
+
+                let mut a_minus_b = *a;
+                a_minus_b.sub_assign(&b);
+                let mut ab_condition_term = ArithmeticTerm::from_variable(condition_var.get_variable());
+                ab_condition_term.scale(&a_minus_b);
+                let a_term = ArithmeticTerm::constant(*a);
+                let b_term = ArithmeticTerm::constant(*b);
+                let c_term = ArithmeticTerm::from_variable(c.get_variable().get_variable());
+                let d_term = ArithmeticTerm::from_variable(d.get_variable().get_variable());
+
+                let mut ac_term = MainGateTerm::new();
+                ac_term.add_assign(ab_condition_term.clone());
+                ac_term.sub_assign(a_term);
+                ac_term.add_assign(c_term);
+
+                cs.allocate_main_gate(ac_term)?;
+
+                let mut bd_term = MainGateTerm::new();
+                bd_term.sub_assign(ab_condition_term);
+                bd_term.sub_assign(b_term);
+                bd_term.add_assign(d_term);
+
+                cs.allocate_main_gate(bd_term)?;
+            },
+            (Boolean::Is(condition_var), Num::Variable(..), Num::Constant(b_const)) => {
+                // (a - b) * condition = a - c
+                // (b - a) * condition = b - d 
+                // if condition == 0, then a == c, b == d
+                // if condition == 1, then b == c, a == d
+
+                // (a-b) * condition - a + c = 0
+                // -(a-b) * condition - b + d = 0
+
+                let mut a_minus_b = a.sub(cs, &b)?;
+                let ab_condition_term = ArithmeticTerm::from_variable(a_minus_b.get_variable().get_variable()).mul_by_variable(condition_var.get_variable());
+                let a_term = ArithmeticTerm::from_variable(a.get_variable().get_variable());
+                let b_term = ArithmeticTerm::constant(*b_const);
+                let c_term = ArithmeticTerm::from_variable(c.get_variable().get_variable());
+                let d_term = ArithmeticTerm::from_variable(d.get_variable().get_variable());
+
+                let mut ac_term = MainGateTerm::new();
+                ac_term.add_assign(ab_condition_term.clone());
+                ac_term.sub_assign(a_term);
+                ac_term.add_assign(c_term);
+
+                cs.allocate_main_gate(ac_term)?;
+
+                let mut bd_term = MainGateTerm::new();
+                bd_term.sub_assign(ab_condition_term);
+                bd_term.sub_assign(b_term);
+                bd_term.add_assign(d_term);
+
+                cs.allocate_main_gate(bd_term)?;
+            },
+            (Boolean::Is(condition_var), Num::Constant(a_const), Num::Variable(..)) => {
+                // (a - b) * condition = a - c
+                // (b - a) * condition = b - d 
+                // if condition == 0, then a == c, b == d
+                // if condition == 1, then b == c, a == d
+
+                // (a-b) * condition - a + c = 0
+                // -(a-b) * condition - b + d = 0
+
+                let mut a_minus_b = a.sub(cs, &b)?;
+                let ab_condition_term = ArithmeticTerm::from_variable(a_minus_b.get_variable().get_variable()).mul_by_variable(condition_var.get_variable());
+                let a_term = ArithmeticTerm::constant(*a_const);
+                let b_term = ArithmeticTerm::from_variable(b.get_variable().get_variable());
+                let c_term = ArithmeticTerm::from_variable(c.get_variable().get_variable());
+                let d_term = ArithmeticTerm::from_variable(d.get_variable().get_variable());
+
+                let mut ac_term = MainGateTerm::new();
+                ac_term.add_assign(ab_condition_term.clone());
+                ac_term.sub_assign(a_term);
+                ac_term.add_assign(c_term);
+
+                cs.allocate_main_gate(ac_term)?;
+
+                let mut bd_term = MainGateTerm::new();
+                bd_term.sub_assign(ab_condition_term);
+                bd_term.sub_assign(b_term);
+                bd_term.add_assign(d_term);
+
+                cs.allocate_main_gate(bd_term)?;
+            },
+            _ => {
+                unimplemented!()
+            }
+        }
+
+        // match condition {
+        //     Boolean::Constant(..) => {
+        //         unreachable!("constant is already handles")
+        //     },
+        //     Boolean::Is(condition_var) => {
+        //         // no modifications
+        //         // (a - b) * condition = a - c
+        //         // (b - a) * condition = b - d 
+        //         // if condition == 0, then a == c, b == d
+        //         // if condition == 1, then b == c, a == d
+
+        //         // (a-b) * condition - a + c = 0
+        //         // -(a-b) * condition - b + d = 0
+
+        //         let ab_condition_term = ArithmeticTerm::from_variable(a_minus_b.get_variable()).mul_by_variable(condition_var.get_variable());
+        //         let a_term = ArithmeticTerm::from_variable(a.get_variable());
+        //         let b_term = ArithmeticTerm::from_variable(b.get_variable());
+        //         let c_term = ArithmeticTerm::from_variable(c.get_variable());
+        //         let d_term = ArithmeticTerm::from_variable(d.get_variable());
+
+        //         let mut ac_term = MainGateTerm::new();
+        //         ac_term.add_assign(ab_condition_term.clone());
+        //         ac_term.sub_assign(a_term);
+        //         ac_term.add_assign(c_term);
+
+        //         cs.allocate_main_gate(ac_term)?;
+
+        //         let mut bd_term = MainGateTerm::new();
+        //         bd_term.sub_assign(ab_condition_term);
+        //         bd_term.sub_assign(b_term);
+        //         bd_term.add_assign(d_term);
+
+        //         cs.allocate_main_gate(bd_term)?;
+        //     },
+
+        //     Boolean::Not(condition_var) => {
+        //         // modifications
+        //         // (a - b) * (1 - condition) = a - c
+        //         // (b - a) * (1 - condition) = b - d 
+
+        //         // -(a-b) * condition - b + c = 0
+        //         // (a-b) * condition - a + d = 0
+
+        //         let ab_condition_term = ArithmeticTerm::from_variable(a_minus_b.get_variable()).mul_by_variable(condition_var.get_variable());
+        //         let a_term = ArithmeticTerm::from_variable(a.get_variable());
+        //         let b_term = ArithmeticTerm::from_variable(b.get_variable());
+        //         let c_term = ArithmeticTerm::from_variable(c.get_variable());
+        //         let d_term = ArithmeticTerm::from_variable(d.get_variable());
+
+        //         let mut ac_term = MainGateTerm::new();
+        //         ac_term.sub_assign(ab_condition_term.clone());
+        //         ac_term.sub_assign(b_term);
+        //         ac_term.add_assign(c_term);
+
+        //         cs.allocate_main_gate(ac_term)?;
+
+        //         let mut bd_term = MainGateTerm::new();
+        //         bd_term.add_assign(ab_condition_term);
+        //         bd_term.sub_assign(a_term);
+        //         bd_term.add_assign(d_term);
+
+        //         cs.allocate_main_gate(bd_term)?;
+        //     }
+        // }
+
+        Ok((c, d))
+    }
 
     pub fn equals<CS: ConstraintSystem<E>>(
         cs: &mut CS,

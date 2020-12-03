@@ -194,27 +194,116 @@ pub fn prove_permutation_using_switches_witness<E, CS>(
 
                 let boolean_switch = switches_it.next().expect("must contain a switch value");
 
-                let cross_value = AllocatedNum::alloc(
-                    cs,
-                || {
-                    let value = *previous_level_pair.get_value().get()?;
-
-                    Ok(value)
-                })?;
-
-                let straight_value = AllocatedNum::alloc(
-                    cs,
-                || {
-                    let value = *previous_level_variable.get_value().get()?;
-
-                    Ok(value)
-                })?;
-
                 // perform an actual switching 
                 let (next_level_straight, next_level_cross) = AllocatedNum::conditionally_reverse(
                     cs,
-                    &straight_value,
-                    &cross_value,
+                    &previous_level_variable,
+                    &previous_level_pair,
+                    &boolean_switch
+                )?;
+
+                result_of_this_column[routed_into_straght] = Some(next_level_straight);
+                result_of_this_column[routed_into_cross] = Some(next_level_cross);
+            }
+        }
+        // permutation that we keep a track on is now replaced by result of permutation by this column
+        permutation = result_of_this_column;
+        assert!(switches_it.next().is_none());
+    }
+
+    // we have routed the "original" into some "permutation", so we check that
+    // "permutation" is equal to the claimed "permuted" value 
+    for (claimed, routed) in permuted.iter().zip(permutation.into_iter()) {
+        let routed = routed.expect("must be some");
+        routed.enforce_equal(cs, &claimed)?;
+    }
+
+
+    Ok(())
+}
+
+
+
+/// prove permutation by routing elements through the permutation network
+/// Topology is calculated exclusively based on the size on the network, 
+/// and permuted elements can be anything. Caller be responsible for validity
+/// if elements are unique or not
+pub fn prove_permutation_of_nums_using_switches_witness<E, CS>(
+    cs: &mut CS,
+    original: &[Num<E>],
+    permuted: &[Num<E>],
+    switches_layes: &Vec<Vec<Boolean>>,
+) -> Result<(), SynthesisError>
+    where CS: ConstraintSystem<E>,
+          E: Engine
+{
+    // it's a code dumplication until we introduce traits and reworks
+    assert_eq!(original.len(), permuted.len());
+    // First make a topology
+
+    let topology = AsWaksmanTopology::new(original.len());
+
+    // now route elements through the network. Deterministically do the bookkeeping of the variables in a plain array
+
+    let num_columns = AsWaksmanTopology::num_colunms(topology.size);
+    assert_eq!(num_columns, switches_layes.len());
+
+    let mut permutation: Vec<Option<Num<E>>> = original.iter().map(|e| Some(e.clone())).collect();
+
+    for column_idx in 0..num_columns {
+        // this is just a bookkeeping variable and is deterministic
+        let mut result_of_this_column: Vec<Option<Num<E>>> = vec![None; topology.size];
+        let mut switches_it = (&switches_layes[column_idx]).iter();
+        for packet_idx in 0..topology.size {
+            if topology.topology[column_idx][packet_idx].0 == topology.topology[column_idx][packet_idx].1 {
+                // straight switch, there is no need to allocate witness
+                let routed_into_idx = topology.topology[column_idx][packet_idx].0;
+                let previous_level_variable = permutation.get(packet_idx).expect("must be a variable for this packet idx");
+                let previous_level_variable = previous_level_variable.ok_or(SynthesisError::Unsatisfiable)?;
+
+                let new_variable_for_this_level = previous_level_variable;
+
+                result_of_this_column[routed_into_idx] = Some(new_variable_for_this_level);
+            } else {
+                // in normal workflow we would select an index to which it's routed.
+                // here we select a value instead, and always route as a cross, but value can be chosen
+                // tricky part is that we have to route both variables at once to properly make a cross
+
+                let routed_into_straght = topology.topology[column_idx][packet_idx].0; // this is a straight index
+                let routed_into_cross = topology.topology[column_idx][packet_idx].1; // this is a cross index
+
+                // may be we have already routed a pair, so quickly check
+                if result_of_this_column[routed_into_straght].is_some() || result_of_this_column[routed_into_cross].is_some()
+                {
+                    assert!(result_of_this_column[routed_into_straght].is_some() && result_of_this_column[routed_into_cross].is_some());
+                    continue;
+                }
+
+                // now find a pair of the variable at this index. It should be a variable for which
+                // straight == this_cross and vice versa
+
+                let mut another_idx = None;
+                for idx in (packet_idx + 1)..topology.size {
+                    let another_straght = topology.topology[column_idx][idx].0; // this is a straight index
+                    let another_cross = topology.topology[column_idx][idx].1; // this is a cross index
+                    if routed_into_straght == another_cross && routed_into_cross == another_straght {
+                        another_idx = Some(idx);
+                        break;
+                    }
+                }        
+                assert!(another_idx.is_some());
+                let another_idx = another_idx.unwrap();
+
+                let previous_level_variable = permutation.get(packet_idx).ok_or(SynthesisError::Unsatisfiable)?.as_ref().ok_or(SynthesisError::Unsatisfiable)?;
+                let previous_level_pair = permutation.get(another_idx).ok_or(SynthesisError::Unsatisfiable)?.as_ref().ok_or(SynthesisError::Unsatisfiable)?;
+
+                let boolean_switch = switches_it.next().expect("must contain a switch value");
+
+                // perform an actual switching 
+                let (next_level_straight, next_level_cross) = Num::conditionally_reverse(
+                    cs,
+                    &previous_level_variable,
+                    &previous_level_pair,
                     &boolean_switch
                 )?;
 
