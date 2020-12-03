@@ -16,6 +16,7 @@ pub mod tables;
 pub mod counter;
 pub mod byte;
 pub mod utils;
+pub mod permutation_network;
 
 pub mod assignment;
 pub mod hashes_with_tables;

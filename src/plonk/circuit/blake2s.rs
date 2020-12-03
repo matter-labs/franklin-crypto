@@ -383,7 +383,7 @@ mod test {
     #[test]
     fn test_blake2s_constraints() {
         let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
-        let input_bits: Vec<_> = (0..512).map(|i| AllocatedBit::alloc(&mut cs, Some(true)).unwrap().into()).collect();
+        let input_bits: Vec<_> = (0..512).map(|_i| AllocatedBit::alloc(&mut cs, Some(true)).unwrap().into()).collect();
         blake2s(&mut cs, &input_bits, b"12345678").unwrap();
         assert!(cs.is_satisfied());
         assert_eq!(cs.n(), 21518);
@@ -399,7 +399,7 @@ mod test {
         let input_bits: Vec<_> = (0..512)
           .map(|_| Boolean::constant(rng.gen()))
           .chain((0..512)
-                        .map(|i| AllocatedBit::alloc(&mut cs, Some(true)).unwrap().into()))
+                        .map(|_i| AllocatedBit::alloc(&mut cs, Some(true)).unwrap().into()))
           .collect();
         blake2s(&mut cs, &input_bits, b"12345678").unwrap();
         assert!(cs.is_satisfied());
@@ -433,7 +433,7 @@ mod test {
 
             let mut input_bits = vec![];
 
-            for (byte_i, input_byte) in data.into_iter().enumerate() {
+            for (_byte_i, input_byte) in data.into_iter().enumerate() {
                 for bit_i in 0..8 {
                     input_bits.push(AllocatedBit::alloc(&mut cs, Some((input_byte >> bit_i) & 1u8 == 1u8)).unwrap().into());
                 }
