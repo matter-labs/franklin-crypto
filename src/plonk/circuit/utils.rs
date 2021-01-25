@@ -154,7 +154,7 @@ pub fn pack_le_bytes_to_fe<F: PrimeField>(bytes: &[u8]) -> Result<F, SynthesisEr
 #[track_caller]
 pub fn fe_to_be_bytes<F: PrimeField>(el: &F) -> Result<Vec<u8>, SynthesisError> {
     let mut buffer = vec![];
-    let mut repr = el.into_repr();
+    let repr = el.into_repr();
     repr.write_be(&mut buffer).map_err(|_| SynthesisError::Unsatisfiable)?;
 
     Ok(buffer)
@@ -163,7 +163,7 @@ pub fn fe_to_be_bytes<F: PrimeField>(el: &F) -> Result<Vec<u8>, SynthesisError> 
 #[track_caller]
 pub fn fe_to_le_bytes<F: PrimeField>(el: &F) -> Result<Vec<u8>, SynthesisError> {
     let mut buffer = vec![];
-    let mut repr = el.into_repr();
+    let repr = el.into_repr();
     repr.write_le(&mut buffer).map_err(|_| SynthesisError::Unsatisfiable)?;
 
     Ok(buffer)

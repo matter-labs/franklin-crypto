@@ -292,7 +292,7 @@ impl<E: Engine> LinearCombination<E> {
                 Some(curval)
             },
             None => {
-                Some(coeff)
+                None
             }
         };
 
