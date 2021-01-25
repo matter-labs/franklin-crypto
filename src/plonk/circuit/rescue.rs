@@ -411,6 +411,7 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
         Ok(state.unwrap())
     }
 
+    #[track_caller]
     pub fn specizalize(
         &mut self,
         dst: u8
@@ -605,7 +606,8 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
                 };
             },
             RescueOpMode::SqueezedInto(..) => {
-                panic!("Can not call padding on a squeezed sponge");
+                // do nothing
+                // panic!("Can not call padding on a squeezed sponge");
             }
         }
 

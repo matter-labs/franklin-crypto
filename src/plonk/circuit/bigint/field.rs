@@ -145,7 +145,7 @@ impl<'a, E: Engine, F: PrimeField> RnsParameters<E, F>{
                 binary_limbs_max_bits_if_in_field.push(0);
                 binary_limbs_max_values_if_in_field.push(BigUint::from(0u64));
             } else {
-                let mut current_bits = tmp.bits() as usize;
+                let current_bits = tmp.bits() as usize;
                 tmp >>= limb_size;
                 if tmp.is_zero() {
                     // this is a last limb

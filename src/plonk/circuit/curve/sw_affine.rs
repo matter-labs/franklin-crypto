@@ -248,7 +248,7 @@ impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffin
     ) -> Result<(Self, (Self, Self)), SynthesisError> {
         match (self.get_value(), other.get_value()) {
             (Some(first), Some(second)) => {
-                assert!(first != second, "points are actualyl equal");
+                assert!(first != second, "points are actually equal");
             },
             _ => {}
         }

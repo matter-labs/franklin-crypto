@@ -38,6 +38,7 @@ use super::affine_point_wrapper::WrappedAffinePoint;
 
 use std::cell::Cell;
 
+#[track_caller]
 pub fn aggregate_proof<'a, E, CS, T, P, OldP, AD, WP>(
     cs: &mut CS,
     channel_params: &'a T::Params,

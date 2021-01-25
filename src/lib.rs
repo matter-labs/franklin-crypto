@@ -1,4 +1,5 @@
-#![ allow( dead_code, unused_imports, unused_mut, unused_macros ) ]
+#![allow(dead_code, unused_imports, unused_macros)]
+#![warn(unused_assignments)]
 
 pub extern crate bellman;
 extern crate blake2_rfc_bellman_edition as blake2_rfc;

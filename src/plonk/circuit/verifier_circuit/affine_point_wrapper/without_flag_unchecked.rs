@@ -6,7 +6,6 @@ pub struct WrapperUnchecked<'a, E: Engine> {
 }
 
 impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
-
     fn get_point(&self) -> &AffinePoint<E, E::G1Affine> {
         &self.point
     }
@@ -15,6 +14,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         Boolean::constant(false)
     }
    
+    #[track_caller]
     fn alloc<CS: ConstraintSystem<E>, AD: aux_data::AuxData<E>>(
         cs: &mut CS,
         value: Option<E::G1Affine>,
@@ -42,6 +42,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         Ok(res)
     }
 
+    #[track_caller]
     fn alloc_unchecked<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         value: Option<E::G1Affine>,
@@ -54,6 +55,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         Ok(res)
     }
 
+    #[track_caller]
     fn from_allocated_limb_witness<'b, CS: ConstraintSystem<E>, AD: aux_data::AuxData<E>>(
         cs: &mut CS,
         witnesses: &'b [AllocatedNum<E>],
@@ -102,6 +104,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         unimplemented!();
     }
     
+    #[track_caller]
     fn constant(
         value: E::G1Affine,
         params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>
@@ -113,6 +116,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         res
     }
 
+    #[track_caller]
     fn equals<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,
@@ -125,6 +129,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         Ok(eq)
     }
 
+    #[track_caller]
     fn add<CS: ConstraintSystem<E>>(
         &mut self,
         cs: &mut CS,
@@ -138,6 +143,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         Ok(res)
     } 
 
+    #[track_caller]
     fn sub<CS: ConstraintSystem<E>>(
         &mut self,
         cs: &mut CS,
@@ -151,6 +157,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         Ok(res)
     }
 
+    #[track_caller]
     fn double<CS: ConstraintSystem<E>>(
         &mut self,
         cs: &mut CS,
@@ -163,6 +170,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         Ok(res)
     }
 
+    #[track_caller]
     fn negate<CS: ConstraintSystem<E>>(
         &mut self,
         cs: &mut CS,
@@ -176,6 +184,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         Ok(res)
     }
 
+    #[track_caller]
     fn select<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         flag: &Boolean,
@@ -192,6 +201,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         Ok(res)
     }
     
+    #[track_caller]
     fn is_on_curve<CS: ConstraintSystem<E>, AD: aux_data::AuxData<E>>(
         &self,
         cs: &mut CS,
@@ -232,6 +242,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         Ok(Boolean::constant(true))
     }
 
+    #[track_caller]
     fn mul<CS: ConstraintSystem<E>, AD: aux_data::AuxData<E>>(
         &mut self,
         cs: &mut CS,
@@ -248,6 +259,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         Ok(res)
     }
 
+    #[track_caller]
     fn multiexp<CS: ConstraintSystem<E>, AD: aux_data::AuxData<E>>(
         cs: &mut CS,
         scalars: &[AllocatedNum::<E>],

@@ -599,7 +599,7 @@ impl<E: Engine> Blake2sGadget<E> {
 
         let zero = self.zero.clone();
         let one = self.one.clone();
-        let mut minus_one = self.minus_one.clone();
+        let minus_one = self.minus_one.clone();
 
         // [y0, y1, y2, y3] - decomposed parts of resulted y: y = y0 + 2^8 * y1 + 2^16 * y2 + 2^24 * y3: 
         // [a, b, x, y] - where y = a + b + x - 2^32 * of (using of via d_next selector)
@@ -702,7 +702,7 @@ impl<E: Engine> Blake2sGadget<E> {
         // y + 2^32 * of - a - b = 0;
 
         let one = self.one.clone();
-        let mut minus_one = self.minus_one.clone();
+        let minus_one = self.minus_one.clone();
 
         let mut row = GateAllocHelper::default();
         row.set_var(0, one.clone(), y.full.clone(), true);

@@ -103,7 +103,7 @@ impl<E: Engine> Byte<E> {
         a: &Self,
         b: &Self
     ) -> Result<Self, SynthesisError> {
-        let mut new_inner = Num::conditionally_select(cs, flag, &a.inner, &b.inner)?;
+        let new_inner = Num::conditionally_select(cs, flag, &a.inner, &b.inner)?;
         let new = Self {
             inner : new_inner
         };

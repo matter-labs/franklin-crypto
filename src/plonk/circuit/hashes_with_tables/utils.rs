@@ -128,7 +128,7 @@ pub fn general_normalizer<Fr: PrimeField>(fr : Fr, bit_table: &[u64], base: u64)
 
     let mut repr : <Fr as PrimeField>::Repr = Fr::zero().into_repr();
     repr.as_mut()[0] = acc;
-    let mut res = Fr::from_repr(repr).expect("should parse");
+    let res = Fr::from_repr(repr).expect("should parse");
 
     res
 }

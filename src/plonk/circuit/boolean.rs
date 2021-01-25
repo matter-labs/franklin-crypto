@@ -570,7 +570,7 @@ impl Boolean {
     {
         match (a.get_value(), b.get_value()) {
             (Some(a), Some(b)) => {
-                assert_eq!(a, b);
+                assert_eq!(a, b, "unequal: a = {}, b = {}", a, b);
             },
             _ => {}
         };
