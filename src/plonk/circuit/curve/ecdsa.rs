@@ -127,15 +127,13 @@ impl<'a, E: Engine, F: PrimeField, G: CurveAffine> ECDSA<E, G, F> {
         let u2 = Num::Variable(u2);
         let (p1, g) = g.mul(&mut cs, &u1, None).unwrap();
         let (p2, pk) = pk.mul(&mut cs, &u2, None).unwrap();
-       // let (result, (p1, p2)) = p1.add_unequal(&mut cs, p2).unwrap();
+        let (result, (p1, p2)) = p1.add_unequal(&mut cs, p2).unwrap();
 
-        // we need to check p1 + p2 = 0 (point at infinity)
-        // this is the same as checking p1 = -p2
-        let mut p2_negated = p2;
-        p2_negated.negate(cs);
-        let (eq, _) = AffinePoint::equals(cs, p1, p2_negated)?;
+        // we need to check x-coordinate of p1 + p2 equals r
+        let (check, _) = FieldElement::equals(cs, result.get_x(), r)?;
+        //let (check, _) = FieldElement::equals(cs, result.get_x().clone(), r.clone())?;
 
-        Ok(eq)
+        Ok(check)
 
     }
 
