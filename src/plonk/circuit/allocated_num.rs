@@ -761,7 +761,7 @@ impl<E: Engine> Num<E> {
                         let mut main_term = MainGateTerm::<E>::new();
                         let term = ArithmeticTerm::from_variable(cond.get_variable()).mul_by_variable(var.get_variable());
                         main_term.sub_assign(term);
-                        main_term.sub_assign(ArithmeticTerm::from_variable_and_coeff(cond.get_variable(), *constant));
+                        main_term.add_assign(ArithmeticTerm::from_variable_and_coeff(cond.get_variable(), *constant));
                         main_term.sub_assign(ArithmeticTerm::from_variable(c.get_variable()));
                         main_term.add_assign(ArithmeticTerm::from_variable(var.get_variable()));
 
