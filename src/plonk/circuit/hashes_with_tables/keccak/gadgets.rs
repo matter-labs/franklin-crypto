@@ -572,17 +572,17 @@ impl<E: Engine> KeccakGadget<E> {
     // ---------------------------------------------------------------------------------------------------------------------------
 
     fn theta<CS: ConstraintSystem<E>>(&self, cs: &mut CS, state: KeccakState<E>) -> Result<KeccakState<E>> {
-        let mut C = Vec::with_capacity(KECCAK_LANE_WIDTH);
+        let mut C = Vec::with_capacity(KECCAK_STATE_WIDTH);
         // calculate C[x] for each column:
-        for i in 0..KECCAK_LANE_WIDTH {
+        for i in 0..KECCAK_STATE_WIDTH {
             C.push(Num::sum(cs, &state.0[i])?);
         }
 
         // recalculate state
         let coeffs = [E::Fr::one(), E::Fr::one(), u64_to_ff(KECCAK_FIRST_SPARSE_BASE)];
         let mut new_state = KeccakState::default();
-        for (i, j) in (0..KECCAK_LANE_WIDTH).cartesian_product(0..KECCAK_LANE_WIDTH) {
-            let inputs = [state[(i, j)].clone(), C[(i-1) % KECCAK_LANE_WIDTH].clone(), C[(i+1) % KECCAK_LANE_WIDTH].clone()];
+        for (i, j) in (0..KECCAK_STATE_WIDTH).cartesian_product(0..KECCAK_STATE_WIDTH) {
+            let inputs = [state[(i, j)].clone(), C[(i+KECCAK_STATE_WIDTH-1) % KECCAK_STATE_WIDTH].clone(), C[(i+1) % KECCAK_STATE_WIDTH].clone()];
             new_state[(i, j)] = Num::lc(cs, &coeffs, &inputs[..])?;
         }
         Ok(new_state)   
@@ -590,8 +590,8 @@ impl<E: Engine> KeccakGadget<E> {
 
     fn pi<CS: ConstraintSystem<E>>(&self, _cs: &mut CS, state: KeccakState<E>) -> Result<KeccakState<E>> {
         let mut new_state = KeccakState::default();
-        for (i, j) in (0..KECCAK_LANE_WIDTH).cartesian_product(0..KECCAK_LANE_WIDTH) {
-            new_state[(i, j)] = state[((i + 3*j) % KECCAK_LANE_WIDTH, i)].clone();
+        for (i, j) in (0..KECCAK_STATE_WIDTH).cartesian_product(0..KECCAK_STATE_WIDTH) {
+            new_state[(i, j)] = state[((i + 3*j) % KECCAK_STATE_WIDTH, i)].clone();
         }
         Ok(new_state)
     }
@@ -600,12 +600,13 @@ impl<E: Engine> KeccakGadget<E> {
     fn rho<CS: ConstraintSystem<E>>(&self, cs: &mut CS, state: KeccakState<E>) -> Result<KeccakState<E>> {
         let mut new_state = KeccakState::default();
         let mut of_map : std::collections::HashMap<usize, Vec<AllocatedNum<E>>> = HashMap::new();
-        let num_slices = (KECCAK_LANE_WIDTH -1) / self.first_base_num_of_chunks + 3;  
+        let num_slices_max = (KECCAK_LANE_WIDTH -1) / self.first_base_num_of_chunks + 3;  
         
         let input_chunks_standard_step = u64_exp_to_ff(KECCAK_FIRST_SPARSE_BASE, self.first_base_num_of_chunks as u64);
         let output_chunks_standard_step = u64_exp_to_ff(KECCAK_SECOND_SPARSE_BASE, self.first_base_num_of_chunks as u64);
+        let gap = u64_exp_to_ff(KECCAK_FIRST_SPARSE_BASE, KECCAK_LANE_WIDTH as u64);
         
-        for (i, j) in (0..KECCAK_LANE_WIDTH).cartesian_product(0..KECCAK_LANE_WIDTH) {
+        for (i, j) in (0..KECCAK_STATE_WIDTH).cartesian_product(0..KECCAK_STATE_WIDTH) {
             let offset = self.offsets[i][j];
 
             if state[(i, j)].is_constant() {
@@ -616,8 +617,8 @@ impl<E: Engine> KeccakGadget<E> {
 
             let var = state[(i, j)].get_variable();
 
-            let mut output_slices : Vec<AllocatedNum<E>> = Vec::with_capacity(num_slices);
-            let mut output_coefs : Vec<E::Fr> = Vec::with_capacity(num_slices);
+            let mut output_slices : Vec<AllocatedNum<E>> = Vec::with_capacity(num_slices_max);
+            let mut output_coefs : Vec<E::Fr> = Vec::with_capacity(num_slices_max);
             
             let mut cur_offset = 0;
             let mut cur_input_coef = E::Fr::one();
@@ -640,24 +641,19 @@ impl<E: Engine> KeccakGadget<E> {
             };
 
             // first iteration is somehow special and distinct from all other
-            let input_slice = if has_value {
+            // prepare half of the coefficient
+            let last_chunk_low_value = if has_value {
                 let divider = KECCAK_FIRST_SPARSE_BASE;
                 let remainder = (raw_value.clone() % BigUint::from(divider)).to_u64().unwrap();
-                let new_val = u64_to_ff(remainder);
+                let mut new_val = u64_to_ff(remainder);
                 raw_value /= divider;
-                AllocatedNum::alloc(cs, || Ok(new_val))?
+                new_val
             }
             else {
-                AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?
+                E::Fr::zero()
             };
 
-            let (_chunk_count, output_slice, new_acc) = self.query_table_accumulate(
-                cs, &self.of_first_to_second_base_converter_table, &input_slice, &acc, &cur_input_coef, false,
-            )?; 
-
-            output_coefs.push(cur_output_coef.clone());
-            output_slices.push(output_slice);
-
+            let last_coef = cur_output_coef.clone();
             cur_input_coef.mul_assign(&u64_to_ff(KECCAK_FIRST_SPARSE_BASE));
             if offset == 1 {
                 cur_output_coef = E::Fr::one();
@@ -684,11 +680,10 @@ impl<E: Engine> KeccakGadget<E> {
                     AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?    
                 };
 
-                let is_last = cur_offset + self.first_base_num_of_chunks >= KECCAK_LANE_WIDTH;
                 let (g_chunk, output_slice, new_acc) = self.query_table_accumulate(
-                    cs, table, &input_slice, &acc, &cur_input_coef, is_last
-                )?; 
-
+                    cs, table, &input_slice, &acc, &cur_input_coef, false,
+                )?;
+                
                 output_coefs.push(cur_output_coef.clone());
                 output_slices.push(output_slice);
 
@@ -724,6 +719,36 @@ impl<E: Engine> KeccakGadget<E> {
                     entry.push(g_chunk);
                 }
             }
+
+            let last_chunk_high_value = if has_value {
+                let divider = KECCAK_FIRST_SPARSE_BASE;
+                let remainder = (raw_value.clone() % BigUint::from(divider)).to_u64().unwrap();
+                let mut new_val = u64_to_ff(remainder);
+                raw_value /= divider;
+                assert!(raw_value.is_zero());
+                new_val
+            }
+            else {
+                E::Fr::zero()
+            };
+
+            let mut last_chunk_value = last_chunk_high_value;
+            last_chunk_value.mul_assign(&gap);
+            last_chunk_value.add_assign(&last_chunk_low_value);
+
+            let last_chunk = if has_value {
+                AllocatedNum::alloc(cs, || Ok(last_chunk_value))?
+            }
+            else {
+                AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?    
+            };
+
+            let (_, output_slice, new_acc) = self.query_table_accumulate(
+                cs, &self.of_first_to_second_base_converter_table, &last_chunk, &acc, &last_coef, true,
+            )?; 
+
+            output_coefs.push(cur_output_coef.clone());
+            output_slices.push(output_slice);
 
             AllocatedNum::long_lc_eq(cs, &output_slices[..], &output_coefs[..], &output_total, false)?;
             new_state[(i, j)] = Num::Variable(output_total);
@@ -909,6 +934,36 @@ impl<E: Engine> KeccakGadget<E> {
         Ok((new_state, squeezed))
     }
 
+    fn keccak_f2<CS: ConstraintSystem<E>>(
+        &self, cs: &mut CS, input_state: KeccakState<E>, elems_to_squeeze: usize, elems_to_mix: Option<&[Num<E>]>, is_final: bool,
+    ) -> Result<()>
+    {
+        let mut state = input_state;
+
+        for round in 0..1 {
+            state = self.theta(cs, state)?;
+            state = self.pi(cs, state)?;
+            state = self.rho(cs, state)?;
+            // let (new_state, _) = self.xi_i(cs, state, round, 0, None, false)?;
+            // state = new_state; 
+        }
+
+        
+
+        // state = self.theta(cs, state)?;
+        // state = self.pi(cs, state)?;
+        // state = self.rho(cs, state)?;
+        // let (mut new_state, out) = self.xi_i(cs, state, KECCAK_NUM_ROUNDS-1, elems_to_squeeze, elems_to_mix, is_final)?;
+        // if elems_to_mix.is_some() {
+        //     new_state[(0, 0)] = new_state[(0, 0)].add(cs, &Num::Constant(self.round_cnsts_in_first_base[KECCAK_NUM_ROUNDS-1]))?;
+        // }
+
+        Ok(())
+
+        // let squeezed = if elems_to_squeeze > 0 { Some(out) } else { None };
+        // Ok((new_state, squeezed))
+    }
+
     // ---------------------------------------------------------------------------------------------------------------------------
     // public interface: exported functions
     // ---------------------------------------------------------------------------------------------------------------------------
@@ -933,14 +988,15 @@ impl<E: Engine> KeccakGadget<E> {
             }            
         }
 
-        // while res.len() < self.digest_size {
-        //     let elems_to_squeeze = std::cmp::min(self.digest_size - res.len(), KECCAK_RATE_WORDS_SIZE);
-        //     let is_final = res.len() + KECCAK_RATE_WORDS_SIZE >= self.digest_size;
+        //while res.len() < self.digest_size {
+            let elems_to_squeeze = std::cmp::min(self.digest_size - res.len(), KECCAK_RATE_WORDS_SIZE);
+            let is_final = res.len() + KECCAK_RATE_WORDS_SIZE >= self.digest_size;
 
-        //     //let (new_state, mut squeezed) = self.keccak_f(cs, state, elems_to_squeeze, None, is_final)?;
-        //     //state = new_state;
-        //     res.extend(squeezed.unwrap().into_iter());
-        // }
+            //let (new_state, mut squeezed) = 
+            self.keccak_f2(cs, state, elems_to_squeeze, None, is_final)?;
+            // state = new_state;
+            // res.extend(squeezed.unwrap().into_iter());
+        //}
 
         Ok(res)
     }
