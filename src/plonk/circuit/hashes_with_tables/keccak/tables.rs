@@ -92,7 +92,7 @@ impl<E: Engine> LookupTableInternal<E> for ExtendedBaseConverterTable<E> {
         self.name
     }
     fn table_size(&self) -> usize {
-        1 << pow(self.base_b as usize, self.num_chunks)
+        pow(self.base_b as usize, self.num_chunks)
     }
     fn num_keys(&self) -> usize {
         1
@@ -146,62 +146,47 @@ impl<E: Engine> LookupTableInternal<E> for ExtendedBaseConverterTable<E> {
 pub struct OverflowCognizantConverterTable<E: Engine> {
     table_entries: [Vec<E::Fr>; 3],
     table_lookup_map: std::collections::HashMap<E::Fr, (E::Fr, E::Fr)>,
-    num_chunks: usize,
     base_b: u64,
     base_c: u64,
-    high_chunk_offset : u64,
+    high_chunk_offset: u64,
     name: &'static str,
 }
 
 impl<E: Engine> OverflowCognizantConverterTable<E> {
-    pub fn new<F: Fn(u64) -> u64>(num_chunks: usize, base_b: u64, base_c: u64, offset: u64, f: F, name: &'static str) -> Self {
-        let table_size = pow(base_b as usize, num_chunks);
+    pub fn new<F: Fn(u64) -> u64>(
+        base_b: u64, base_c: u64, offset:u64, transform_f: F, name: &'static str
+    ) -> Self 
+    {
+        let table_size = (base_b * (base_b+1)/2) as usize;
         let mut keys_vec = Vec::with_capacity(table_size);
-        let mut chunk_count_vec = Vec::with_capacity(table_size);
+        let mut zero_vec = vec![E::Fr::zero(); table_size];
         let mut values_vec = Vec::with_capacity(table_size);
         let mut map = std::collections::HashMap::with_capacity(table_size);
 
-        let base_b_fr = u64_to_ff::<E::Fr>(base_b);
-        let base_c_fr = u64_to_ff::<E::Fr>(base_c);
         let offset_fr = u64_exp_to_ff::<E::Fr>(base_b, offset);
         let zero_fr = E::Fr::zero();
 
-        for mut coefs in (0..num_chunks).map(|_| 0..base_b).multi_cartesian_product() {
-            let high = coefs.drain(0..1).next().unwrap();
-            let mut high_fr = u64_to_ff::<E::Fr>(high);
-            high_fr.mul_assign(&offset_fr);
+        for i in 0..base_b {
+            for j in 0..(base_b-i) {
+                let low = i;
+                let high = j;
 
-            let mut key = coefs.iter().fold(zero_fr.clone(), |acc, x| {
-                let mut tmp = acc;
-                tmp.mul_assign(&base_b_fr);
-                tmp.add_assign(&u64_to_ff(*x));
-                tmp
-            });
-            key.add_assign(&high_fr);
+                let mut key = u64_to_ff::<E::Fr>(low);
+                let mut high_fr = u64_to_ff::<E::Fr>(high);
+                high_fr.mul_assign(&offset_fr);
+                key.add_assign(&high_fr);
 
-            let mut chunk_count = (num_chunks - coefs.iter().take_while(|x| **x == 0).count()) as u64;
-            // optimization: if the number is zero, than chunk count is set to one: 
-            chunk_count = if chunk_count > 0 {chunk_count} else {1};
-            let chunk_count_fr = u64_to_ff(chunk_count);
+                let value = u64_to_ff(transform_f(low + high));
 
-            *coefs.last_mut().unwrap() += high;
-            let value = coefs.iter().fold(zero_fr.clone(), |acc, x| {
-                let mut tmp = acc;
-                tmp.mul_assign(&base_c_fr);
-                tmp.add_assign(&u64_to_ff(f(*x)));
-                tmp
-            });
-
-            keys_vec.push(key);
-            chunk_count_vec.push(chunk_count_fr);
-            values_vec.push(value);
-            map.insert(key, (chunk_count_fr, value));
+                keys_vec.push(key);
+                values_vec.push(value);
+                map.insert(key, (zero_fr.clone(), value));
+            }
         }
 
         Self {
-            table_entries: [keys_vec, chunk_count_vec, values_vec],
+            table_entries: [keys_vec, zero_vec, values_vec],
             table_lookup_map: map,
-            num_chunks,
             base_b,
             base_c,
             high_chunk_offset: offset,
@@ -213,7 +198,6 @@ impl<E: Engine> OverflowCognizantConverterTable<E> {
 impl<E: Engine> std::fmt::Debug for OverflowCognizantConverterTable<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ExtendedBaseConverterTable")
-            .field("num_chunks", &self.num_chunks)
             .field("base_b", &self.base_b)
             .field("base_c", &self.base_c)
             .field("high_chunk_offset", &self.high_chunk_offset)
@@ -226,7 +210,8 @@ impl<E: Engine> LookupTableInternal<E> for OverflowCognizantConverterTable<E> {
         self.name
     }
     fn table_size(&self) -> usize {
-        1 << pow(self.base_b as usize, self.num_chunks)
+        let table_size = (self.base_b * (self.base_b+1)/2) as usize;
+        table_size
     }
     fn num_keys(&self) -> usize {
         1

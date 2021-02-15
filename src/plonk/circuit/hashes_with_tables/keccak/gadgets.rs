@@ -40,7 +40,6 @@ pub const KECCAK_RATE_WORDS_SIZE : usize = 17;
 pub const DEFAULT_KECCAK_DIGEST_WORDS_SIZE : usize = 4;
 pub const DEFAULT_BINARY_NUM_OF_CHUNKS : usize = 16; // 2^16 is fine
 pub const DEFAULT_FIRST_BASE_NUM_OF_CHUNKS : usize = 4; 
-pub const DEFAULT_OF_FIRST_BASE_NUM_OF_CHUNKS : usize = 2;
 pub const DEFAULT_SECOND_BASE_NUM_OF_CHUNKS : usize = 5;
 pub const BINARY_BASE: u64 = 2;
 // keccak state has 5 x 5 x 64 - bits, 
@@ -114,14 +113,12 @@ impl<E: Engine> KeccakGadget<E> {
         first_base_num_of_chunks: Option<usize>,
         second_base_num_of_chunks: Option<usize>,
         digest_size : Option<usize>,
-
         use_global_range_table: bool,
         global_range_table_name: &str,
     ) -> Result<Self> 
     {
         let binary_base_num_of_chunks = binary_base_num_of_chunks.unwrap_or(DEFAULT_BINARY_NUM_OF_CHUNKS);
         let first_base_num_of_chunks = first_base_num_of_chunks.unwrap_or(DEFAULT_FIRST_BASE_NUM_OF_CHUNKS);
-        let of_first_base_num_of_chunks = DEFAULT_OF_FIRST_BASE_NUM_OF_CHUNKS;
         let second_base_num_of_chunks = second_base_num_of_chunks.unwrap_or(DEFAULT_SECOND_BASE_NUM_OF_CHUNKS);
         let digest_size = digest_size.unwrap_or(DEFAULT_KECCAK_DIGEST_WORDS_SIZE);
         
@@ -130,6 +127,8 @@ impl<E: Engine> KeccakGadget<E> {
             PolyIdentifier::VariablesPolynomial(1), 
             PolyIdentifier::VariablesPolynomial(2)
         ];
+
+        println!("table1");
 
         let name1: &'static str = "from_binary_converter_table";
         let from_binary_converter_table = LookupTableApplication::new(
@@ -141,6 +140,8 @@ impl<E: Engine> KeccakGadget<E> {
             None,
             true
         );
+
+        println!("table2");
 
         let name2 : &'static str = "first_to_second_base_converter_table";
         let f = |x| { keccak_u64_first_converter(x)};
@@ -168,18 +169,21 @@ impl<E: Engine> KeccakGadget<E> {
             true
         );
 
+        println!("table3");
+
         let name3 : &'static str = "of_first_to_second_base_converter_table";
         let f = |x| { keccak_u64_first_converter(x)};
         let of_first_to_second_base_converter_table = LookupTableApplication::new(
             name3,
             OverflowCognizantConverterTable::new(
-                of_first_base_num_of_chunks, KECCAK_FIRST_SPARSE_BASE, KECCAK_SECOND_SPARSE_BASE, KECCAK_LANE_WIDTH as u64, 
-                f, name3,
+                KECCAK_FIRST_SPARSE_BASE, KECCAK_SECOND_SPARSE_BASE, KECCAK_LANE_WIDTH as u64, f, name3,
             ),
             columns3.clone(),
             None,
             true
         );
+
+        println!("table4");
 
         let name4 : &'static str = "from_second_base_converter_table";
         let f = |x| { keccak_u64_second_converter(x)};
@@ -221,6 +225,8 @@ impl<E: Engine> KeccakGadget<E> {
             res
         };
 
+        println!("table5");
+
         let range_table = match use_global_range_table {
             true => cs.get_table(global_range_table_name)?,
             false => {
@@ -230,6 +236,7 @@ impl<E: Engine> KeccakGadget<E> {
             },
         };
 
+        println!("here");
         let t = KECCAK_FIRST_SPARSE_BASE;
         let round_cnsts_in_first_base = [
             f(0x0000000000000001, t), f(0x0000000000008082, t), f(0x800000000000808A, t), f(0x8000000080008000, t),
@@ -240,6 +247,7 @@ impl<E: Engine> KeccakGadget<E> {
             f(0x8000000080008081, t), f(0x8000000000008080, t), f(0x0000000080000001, t), f(0x8000000080008008, t),
         ];
 
+        println!("there");
         let r = KECCAK_SECOND_SPARSE_BASE;
         let round_cnsts_in_second_base = [
             f(0x0000000000000001, r), f(0x0000000000008082, r), f(0x800000000000808A, r), f(0x8000000080008000, r),
@@ -249,6 +257,8 @@ impl<E: Engine> KeccakGadget<E> {
             f(0x8000000000008002, r), f(0x8000000000000080, r), f(0x000000000000800A, r), f(0x800000008000000A, r),
             f(0x8000000080008081, r), f(0x8000000000008080, r), f(0x0000000080000001, r), f(0x8000000080008008, r),
         ];
+
+        println!("22");
 
         Ok(KeccakGadget {
             from_binary_converter_table,
@@ -326,7 +336,7 @@ impl<E: Engine> KeccakGadget<E> {
 
         // new_acc = prev_acc - base * key
         // or: base * key + new_acc - prev_acc = 0;
-        let vars = [key.get_variable(), f_key.get_variable(), g_key.get_variable(), new_acc.get_variable()];
+        let vars = [key.get_variable(), f_key.get_variable(), g_key.get_variable(), prev_acc.get_variable()];
         let coeffs = [coef.clone(), E::Fr::zero(), E::Fr::zero(), minus_one];
 
         cs.begin_gates_batch_for_step()?;
@@ -590,7 +600,7 @@ impl<E: Engine> KeccakGadget<E> {
     fn rho<CS: ConstraintSystem<E>>(&self, cs: &mut CS, state: KeccakState<E>) -> Result<KeccakState<E>> {
         let mut new_state = KeccakState::default();
         let mut of_map : std::collections::HashMap<usize, Vec<AllocatedNum<E>>> = HashMap::new();
-        let num_slices = round_up(KECCAK_LANE_WIDTH -1, self.first_base_num_of_chunks) + 3;  
+        let num_slices = (KECCAK_LANE_WIDTH -1) / self.first_base_num_of_chunks + 3;  
         
         let input_chunks_standard_step = u64_exp_to_ff(KECCAK_FIRST_SPARSE_BASE, self.first_base_num_of_chunks as u64);
         let output_chunks_standard_step = u64_exp_to_ff(KECCAK_SECOND_SPARSE_BASE, self.first_base_num_of_chunks as u64);
@@ -907,7 +917,7 @@ impl<E: Engine> KeccakGadget<E> {
     pub fn digest<CS: ConstraintSystem<E>>(&self, cs: &mut CS, data: &[Num<E>]) -> Result<Vec<Num<E>>> {
         assert!(data.len() % KECCAK_RATE_WORDS_SIZE == 0);
         
-        let mut state = KeccakState::default();
+        let mut state : KeccakState<E> = KeccakState::default();
         let mut res = Vec::with_capacity(self.digest_size);
         
         for (is_first, _is_last, data_block) in data.chunks(KECCAK_RATE_WORDS_SIZE).identify_first_last() {
@@ -923,14 +933,14 @@ impl<E: Engine> KeccakGadget<E> {
             }            
         }
 
-        while res.len() < self.digest_size {
-            let elems_to_squeeze = std::cmp::min(self.digest_size - res.len(), KECCAK_RATE_WORDS_SIZE);
-            let is_final = res.len() + KECCAK_RATE_WORDS_SIZE >= self.digest_size;
+        // while res.len() < self.digest_size {
+        //     let elems_to_squeeze = std::cmp::min(self.digest_size - res.len(), KECCAK_RATE_WORDS_SIZE);
+        //     let is_final = res.len() + KECCAK_RATE_WORDS_SIZE >= self.digest_size;
 
-            let (new_state, mut squeezed) = self.keccak_f(cs, state, elems_to_squeeze, None, is_final)?;
-            state = new_state;
-            res.extend(squeezed.unwrap().into_iter());
-        }
+        //     //let (new_state, mut squeezed) = self.keccak_f(cs, state, elems_to_squeeze, None, is_final)?;
+        //     //state = new_state;
+        //     res.extend(squeezed.unwrap().into_iter());
+        // }
 
         Ok(res)
     }
