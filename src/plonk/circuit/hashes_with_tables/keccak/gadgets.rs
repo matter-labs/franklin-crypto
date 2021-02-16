@@ -201,12 +201,20 @@ impl<E: Engine> KeccakGadget<E> {
         let from_second_base_converter_table = cs.add_table(from_second_base_converter_table)?;
 
         let offsets = [
-            [64, 28, 61, 46, 23], 
+            [64, 28, 61, 23, 46], 
             [63, 20, 54, 19, 62], 
             [2, 58, 21, 49, 3], 
             [36, 9, 39, 43, 8], 
             [37, 44, 25, 56, 50]
         ];
+
+        // let offsets = [
+        //     [64, 63, 2, 36, 37], 
+        //     [28, 20, 58, 9, 44], 
+        //     [61, 54, 21, 39, 25],
+        //     [23, 19, 49, 43, 56], 
+        //     [46, 62, 3, 8, 50]
+        // ];
 
         let f = |mut input: u64, step: u64| -> E::Fr {
             let mut acc = BigUint::default(); 
@@ -923,7 +931,6 @@ impl<E: Engine> KeccakGadget<E> {
         state = self.rho(cs, state)?;
         state = self.pi(cs, state)?;
 
-        // TODO: why do I mix again?
         let (mut new_state, out) = self.xi_i(cs, state, KECCAK_NUM_ROUNDS-1, elems_to_squeeze, elems_to_mix, is_final)?;
         if elems_to_mix.is_some() {
             new_state[(0, 0)] = new_state[(0, 0)].add(cs, &Num::Constant(self.round_cnsts_in_first_base[KECCAK_NUM_ROUNDS-1]))?;
@@ -969,3 +976,5 @@ impl<E: Engine> KeccakGadget<E> {
         Ok(res)
     }
 } 
+
+// TODO: implement padding!

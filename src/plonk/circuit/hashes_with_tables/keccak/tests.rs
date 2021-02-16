@@ -83,9 +83,9 @@ mod test {
         let mut rng = rand::thread_rng();
 
         let mut input = [0u8; 8 * KECCAK_RATE_WORDS_SIZE * NUM_OF_BLOCKS];
-        for i in 0..(input.len() - 1) {
-            input[i] = rng.gen();
-        }
+        // for i in 0..(input.len() - 1) {
+        //     input[i] = rng.gen();
+        // }
         *(input.last_mut().unwrap()) = 0b10000001 as u8;
 
         let mut hasher = Keccak::new_sha3_256();
@@ -93,6 +93,7 @@ mod test {
 
         let mut output: [u8; DEFAULT_KECCAK_DIGEST_WORDS_SIZE * 8] = [0; DEFAULT_KECCAK_DIGEST_WORDS_SIZE * 8];
         hasher.finalize(&mut output);
+        println!("real output: {:?}", output);
     
         let mut input_fr_arr = Vec::with_capacity(KECCAK_RATE_WORDS_SIZE * NUM_OF_BLOCKS);
         let mut output_fr_arr = [Fr::zero(); DEFAULT_KECCAK_DIGEST_WORDS_SIZE];
