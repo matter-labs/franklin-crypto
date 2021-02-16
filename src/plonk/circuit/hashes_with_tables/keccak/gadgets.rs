@@ -47,6 +47,12 @@ pub const BINARY_BASE: u64 = 2;
 pub const KECCAK_STATE_WIDTH : usize = 5;
 pub const KECCAK_LANE_WIDTH : usize = 64;
 pub const KECCAK_NUM_ROUNDS : usize = 24;
+
+// TODO: compute actual number of offsets!
+// it will reduce number of constraints drastically!
+pub const MAX_OF_COUNT_PER_ITER : u64 = 50;
+pub const DEFAULT_RANGE_TABLE_WIDTH: usize = 16;
+
 #[derive(Clone)]
 pub struct KeccakState<E: Engine>([[Num<E>; KECCAK_STATE_WIDTH]; KECCAK_STATE_WIDTH]);
 
@@ -146,16 +152,16 @@ impl<E: Engine> KeccakGadget<E> {
         let name2 : &'static str = "first_to_second_base_converter_table";
         let f = |x| { keccak_u64_first_converter(x)};
         
-        // we have 25 shifted rows so there are at most 25 overflows
+        // we have 25 shifted rows so there are at most 50 overflows
         // let g(0) = 0, g(1) = 0, g(2) = 1
-        // g(3) should be than at least 26
-        // g(4) than should be g(3) * 25 + 1 = 651
+        // g(3) should be than at least 51
+        // g(4) than should be g(3) * 50 + 1 = 2551
         // and so forth: g(i+1) = 25 * g(i) + 1
         let mut of_transformed = Vec::with_capacity(first_base_num_of_chunks + 1);
         of_transformed.extend([0, 0].iter());
         for _ in 2..(first_base_num_of_chunks+1) {
             let elem = of_transformed.last().unwrap(); 
-            of_transformed.push(25 * elem + 1);
+            of_transformed.push(MAX_OF_COUNT_PER_ITER * elem + 1);
         }
         let g = |x| { of_transformed[x as usize] };
         
@@ -230,8 +236,7 @@ impl<E: Engine> KeccakGadget<E> {
         let range_table = match use_global_range_table {
             true => cs.get_table(global_range_table_name)?,
             false => {
-                // width 10 would be sufficient for all our purposes: 1024 > 651
-                let range_table = LookupTableApplication::new_range_table_of_width_3(10, columns3)?;
+                let range_table = LookupTableApplication::new_range_table_of_width_3(DEFAULT_RANGE_TABLE_WIDTH, columns3)?;
                 cs.add_table(range_table)?
             },
         };
@@ -313,16 +318,20 @@ impl<E: Engine> KeccakGadget<E> {
             },     
         };
 
+        let lambda = || {
+            let mut res = prev_acc.get_value().grab()?;
+            let mut tmp = key.get_value().grab()?;
+            tmp.mul_assign(coef);
+            res.sub_assign(&tmp);
+            Ok(res)
+        };
+
         let new_acc = if !is_final {
-            AllocatedNum::alloc(cs, || {
-                let mut res = prev_acc.get_value().grab()?;
-                let mut tmp = key.get_value().grab()?;
-                tmp.mul_assign(coef);
-                res.sub_assign(&tmp);
-                Ok(res)
-            })?
+            AllocatedNum::alloc(cs, lambda)?
         }
         else {
+            let val = lambda().unwrap_or(E::Fr::zero());
+            assert!(val.is_zero());
             AllocatedNum::zero(cs)
         };
 
@@ -377,7 +386,7 @@ impl<E: Engine> KeccakGadget<E> {
         }
 
         let mut acc = BigUint::default(); 
-        let init_base = biguint_pow(KECCAK_FIRST_SPARSE_BASE as usize, KECCAK_LANE_WIDTH - rot);
+        let init_base = biguint_pow(KECCAK_SECOND_SPARSE_BASE as usize, KECCAK_LANE_WIDTH - rot);
         let mut base = init_base.clone();
         let mut iter_n = 0;
         let mut special_chunk = 0;
@@ -403,6 +412,7 @@ impl<E: Engine> KeccakGadget<E> {
 
         acc += keccak_u64_first_converter(special_chunk) * init_base;
         let res = E::Fr::from_str(&acc.to_str_radix(10)).expect("should parse");
+        println!("res: {}", res);
         res
     }
 
@@ -532,6 +542,8 @@ impl<E: Engine> KeccakGadget<E> {
             Ok(res)
         })?;
 
+        println!("sum_of_inputs: {}, total: {}", sum_of_inputs.get_value().unwrap(), total_fr);
+
         let range_of_linear_terms = CS::MainGate::range_of_linear_terms();
         let vars = [res.get_variable(), dummy.get_variable(), dummy.get_variable(), sum_of_inputs.get_variable()];
         let coeffs = [one.clone(), zero.clone(), zero.clone(), one.clone()];
@@ -640,6 +652,9 @@ impl<E: Engine> KeccakGadget<E> {
                 },
             };
 
+            println!("total input: {}", var.get_value().unwrap());
+            println!("total output: {}", output_total.get_value().unwrap());
+
             // first iteration is somehow special and distinct from all other
             // prepare half of the coefficient
             let last_chunk_low_value = if has_value {
@@ -667,6 +682,7 @@ impl<E: Engine> KeccakGadget<E> {
             let table = &self.first_to_second_base_converter_table;
             while cur_offset < KECCAK_LANE_WIDTH {
                 let chunk_count_bound = self.check_offset_helper(cur_offset, offset);
+                println!("chunk bound: {}", chunk_count_bound);
                 assert!((chunk_count_bound > 0) && (chunk_count_bound <= self.first_base_num_of_chunks));
 
                 let input_slice = if has_value {
@@ -683,6 +699,11 @@ impl<E: Engine> KeccakGadget<E> {
                 let (g_chunk, output_slice, new_acc) = self.query_table_accumulate(
                     cs, table, &input_slice, &acc, &cur_input_coef, false,
                 )?;
+                acc = new_acc;
+
+                println!("chunk input: {}", input_slice.get_value().unwrap());
+                println!("chunk output: {}", output_slice.get_value().unwrap());
+                println!("coef: {}", cur_output_coef);
                 
                 output_coefs.push(cur_output_coef.clone());
                 output_slices.push(output_slice);
@@ -743,21 +764,28 @@ impl<E: Engine> KeccakGadget<E> {
                 AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?    
             };
 
-            let (_, output_slice, new_acc) = self.query_table_accumulate(
-                cs, &self.of_first_to_second_base_converter_table, &last_chunk, &acc, &last_coef, true,
+            println!("before last check!");
+            let (_, output_slice, _) = self.query_table_accumulate(
+                cs, &self.of_first_to_second_base_converter_table, &last_chunk, &acc, &E::Fr::one(), true,
             )?; 
 
-            output_coefs.push(cur_output_coef.clone());
-            output_slices.push(output_slice);
+            println!("last chunk input: {}", last_chunk.get_value().unwrap());
+            println!("last chunk output: {}", output_slice.get_value().unwrap());
+            println!("last coef: {}", last_coef);
 
+            output_coefs.push(last_coef.clone());
+            output_slices.push(output_slice);
+            
+            println!("before lc");
             AllocatedNum::long_lc_eq(cs, &output_slices[..], &output_coefs[..], &output_total, false)?;
+            println!("after lc");
             new_state[(i, j)] = Num::Variable(output_total);
         }
         
         // handle offsets
         for i in 1..self.first_base_num_of_chunks {
             if let Some(arr) = of_map.get(&i) {
-                self.handle_of_arr(cs, &arr[..], self.of_transformed[i])?
+                self.handle_of_arr(cs, &arr[..], self.of_transformed[i] * MAX_OF_COUNT_PER_ITER)?
             }
         }
         
@@ -803,7 +831,7 @@ impl<E: Engine> KeccakGadget<E> {
             func_normalizer(fr, KECCAK_SECOND_SPARSE_BASE, output_base, |n| { keccak_u64_second_converter(n) })
         };
 
-        for (j, i) in (0..KECCAK_LANE_WIDTH).cartesian_product(0..KECCAK_LANE_WIDTH) {
+        for (j, i) in (0..KECCAK_STATE_WIDTH).cartesian_product(0..KECCAK_STATE_WIDTH) {
             // A′[x, y,z] = (A[x, y,z] ⊕ ((A[(x+1) mod 5, y, z] ⊕ 1) ⋅ A[(x+2) mod 5, y, z])) ⊕ D.
             // the corresponding algebraic transform is y = 2a + b + 3c +2d
             // if we are squeezing:
@@ -814,12 +842,12 @@ impl<E: Engine> KeccakGadget<E> {
             let d = match elems_to_mix {
                 None => if i == 0  && j == 0 {Num::Constant(self.round_cnsts_in_second_base[round].clone())} else { Num::default() },
                 Some(input_to_mix) => {
-                    let idx = j * KECCAK_LANE_WIDTH + i; 
+                    let idx = j * KECCAK_STATE_WIDTH + i; 
                     if idx < KECCAK_RATE_WORDS_SIZE { input_to_mix[idx].clone() } else { Num::default() }
                 },
             }; 
-            let b = state[((i+1 % KECCAK_STATE_WIDTH), j)].clone();
-            let c = state[((i+2 % KECCAK_STATE_WIDTH), j)].clone();
+            let b = state[((i+1) % KECCAK_STATE_WIDTH, j)].clone();
+            let c = state[((i+2) % KECCAK_STATE_WIDTH, j)].clone();
             let inputs = [state[(i, j)].clone(), b, c, d];
             let lc = Num::lc_with_d_next(cs, &coeffs[..], &inputs[..])?;
 
@@ -866,18 +894,24 @@ impl<E: Engine> KeccakGadget<E> {
                 }
             }
 
+            //println!("total input: {}", var.get_value().unwrap());
+
             let mut coef = E::Fr::one();
             let mut acc = var.clone();
             for (_is_first, is_last, input_chunk) in input_slices.iter().identify_first_last() {
                 let (output1, output2, new_acc) = self.query_table_accumulate(
                     cs, &self.from_second_base_converter_table, input_chunk, &acc, &coef, is_last
-                )?; 
+                )?;
+
 
                 coef.mul_assign(&input_slice_modulus_fr);
                 acc = new_acc;
 
                 output1_slices.push(output1);
-                output1_slices.push(output2);
+                output2_slices.push(output2);
+
+                //println!("chunk input: {}", input_chunk.get_value().unwrap());
+                //println!("chunk output: {}", output1.get_value().unwrap());
             }
 
             if !is_final {
@@ -886,7 +920,11 @@ impl<E: Engine> KeccakGadget<E> {
                     Ok(keccak_ff_second_converter(fr, KECCAK_FIRST_SPARSE_BASE))
                 })?;
 
+                //println!("total output: {}", output1_total.get_value().unwrap());
+                
+                //println!("start lc2");
                 AllocatedNum::long_weighted_sum_eq(cs, &output1_slices[..], &output1_slice_modulus_fr, &output1_total, false)?;
+                //println!("end lc2");
                 new_state[(i, j)] = Num::Variable(output1_total);
             }
 
@@ -940,23 +978,23 @@ impl<E: Engine> KeccakGadget<E> {
     {
         let mut state = input_state;
 
-        for round in 0..1 {
+        for round in 0..(KECCAK_NUM_ROUNDS-1) {
             state = self.theta(cs, state)?;
             state = self.pi(cs, state)?;
             state = self.rho(cs, state)?;
-            // let (new_state, _) = self.xi_i(cs, state, round, 0, None, false)?;
-            // state = new_state; 
+            let (new_state, _) = self.xi_i(cs, state, round, 0, None, false)?;
+            state = new_state; 
         }
 
         
 
-        // state = self.theta(cs, state)?;
-        // state = self.pi(cs, state)?;
-        // state = self.rho(cs, state)?;
-        // let (mut new_state, out) = self.xi_i(cs, state, KECCAK_NUM_ROUNDS-1, elems_to_squeeze, elems_to_mix, is_final)?;
-        // if elems_to_mix.is_some() {
-        //     new_state[(0, 0)] = new_state[(0, 0)].add(cs, &Num::Constant(self.round_cnsts_in_first_base[KECCAK_NUM_ROUNDS-1]))?;
-        // }
+        state = self.theta(cs, state)?;
+        state = self.pi(cs, state)?;
+        state = self.rho(cs, state)?;
+        let (mut new_state, out) = self.xi_i(cs, state, KECCAK_NUM_ROUNDS-1, elems_to_squeeze, elems_to_mix, is_final)?;
+        if elems_to_mix.is_some() {
+            new_state[(0, 0)] = new_state[(0, 0)].add(cs, &Num::Constant(self.round_cnsts_in_first_base[KECCAK_NUM_ROUNDS-1]))?;
+        }
 
         Ok(())
 
@@ -988,15 +1026,14 @@ impl<E: Engine> KeccakGadget<E> {
             }            
         }
 
-        //while res.len() < self.digest_size {
+        while res.len() < self.digest_size {
             let elems_to_squeeze = std::cmp::min(self.digest_size - res.len(), KECCAK_RATE_WORDS_SIZE);
             let is_final = res.len() + KECCAK_RATE_WORDS_SIZE >= self.digest_size;
 
-            //let (new_state, mut squeezed) = 
-            self.keccak_f2(cs, state, elems_to_squeeze, None, is_final)?;
-            // state = new_state;
-            // res.extend(squeezed.unwrap().into_iter());
-        //}
+            let (new_state, mut squeezed) = self.keccak_f(cs, state, elems_to_squeeze, None, is_final)?;
+            state = new_state;
+            res.extend(squeezed.unwrap().into_iter());
+        }
 
         Ok(res)
     }

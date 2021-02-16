@@ -50,14 +50,14 @@ pub fn u64_to_ff<Fr: PrimeField>(n: u64) -> Fr {
 }
 
 pub fn u64_exp_to_ff<Fr: PrimeField>(n: u64, exp: u64) -> Fr {
+    if exp == 0 {
+        return Fr::one();
+    }
+
     let mut repr : <Fr as PrimeField>::Repr = Fr::zero().into_repr();
     repr.as_mut()[0] = n;
     let mut res = Fr::from_repr(repr).expect("should parse");
-
-    if exp != 0 {
-        res = res.pow(&[exp]);
-    }
-    res
+    res.pow(&[exp])
 }
 
 pub fn ff_to_u64<Fr: PrimeField>(fr: &Fr) -> u64 {
