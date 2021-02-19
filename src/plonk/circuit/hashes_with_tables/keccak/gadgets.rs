@@ -209,22 +209,6 @@ impl<E: Engine> KeccakGadget<E> {
             [37, 44, 25, 56, 50]
         ];
 
-        // let offsets = [
-        //     [64, 64, 64, 64, 64], 
-        //     [64, 64, 64, 64, 64], 
-        //     [64, 64, 64, 64, 64], 
-        //     [64, 64, 64, 64, 64], 
-        //     [64, 64, 64, 64, 64]
-        // ];
-
-        // let offsets = [
-        //     [64, 63, 2, 36, 37], 
-        //     [28, 20, 58, 9, 44], 
-        //     [61, 54, 21, 39, 25],
-        //     [23, 19, 49, 43, 56], 
-        //     [46, 62, 3, 8, 50]
-        // ];
-
         let f = |mut input: u64, step: u64| -> E::Fr {
             let mut acc = BigUint::default(); 
             let mut base = BigUint::one();
@@ -930,7 +914,6 @@ impl<E: Engine> KeccakGadget<E> {
     ) -> Result<(KeccakState<E>, Option<Vec<Num<E>>>)>
     {
         let mut state = input_state;
-        println!("perm function is called!");
 
         for round in 0..(KECCAK_NUM_ROUNDS-1) {
             state = self.theta(cs, state)?;
@@ -939,16 +922,6 @@ impl<E: Engine> KeccakGadget<E> {
             state = self.pi(cs, state)?;
       
             let (new_state, _) = self.xi_i(cs, state, round, 0, None, false)?;
-
-            if round == 0 {
-                for (i, j) in (0..KECCAK_STATE_WIDTH).cartesian_product(0..KECCAK_STATE_WIDTH)
-                {
-                    println!("{}", new_state.0[i][j].get_value().unwrap());
-                }
-            }   
-
-            
-            
             state = new_state; 
         }
 
@@ -984,7 +957,10 @@ impl<E: Engine> KeccakGadget<E> {
                 }
             }
             else {
-                let (new_state, _) = self.keccak_f(cs, state, 0, Some(data_block), false)?;
+                let converted : Vec<Num<E>> =  data_block.iter().map(|elem| {
+                    self.convert_binary_to_sparse_repr(cs, elem, KeccakBase::KeccakSecondSparseBase)
+                }).collect::<Result<Vec<_>>>()?;
+                let (new_state, _) = self.keccak_f(cs, state, 0, Some(&converted[..]), false)?;
                 state = new_state;
             }            
         }

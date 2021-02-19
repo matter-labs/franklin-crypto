@@ -113,7 +113,6 @@ mod test {
         let mut output: [u8; DEFAULT_KECCAK_DIGEST_WORDS_SIZE * 8] = [0; DEFAULT_KECCAK_DIGEST_WORDS_SIZE * 8];
 
         let mut hasher = Keccak::keccak256(&input[0..(input.len() - 1)], &mut output);
-        println!("real output: {:?}", output);
     
         let mut input_fr_arr = Vec::with_capacity(KECCAK_RATE_WORDS_SIZE * NUM_OF_BLOCKS);
         let mut output_fr_arr = [Fr::zero(); DEFAULT_KECCAK_DIGEST_WORDS_SIZE];
@@ -154,7 +153,7 @@ mod test {
     #[test]
     fn keccak_gadget_bytes_test() 
     {
-        const NUM_OF_BYTES: usize = 341;
+        const NUM_OF_BYTES: usize = 1341;
         const IS_CONST_TEST: bool = false;
 
         let mut rng = rand::thread_rng();
