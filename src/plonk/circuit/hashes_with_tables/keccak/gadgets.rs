@@ -25,6 +25,7 @@ use super::super::tables::*;
 use std::sync::Arc;
 use std::collections::HashMap;
 use std::ops::{Index, IndexMut};
+use std::iter;
 
 use crate::num_bigint::BigUint;
 use crate::num_traits::cast::ToPrimitive;
@@ -156,7 +157,7 @@ impl<E: Engine> KeccakGadget<E> {
         let mut of_transformed = Vec::with_capacity(first_base_num_of_chunks + 1);
         of_transformed.extend([0, 0].iter());
         for _ in 2..(first_base_num_of_chunks+1) {
-            let elem = of_transformed.last().unwrap(); 
+            let elem = of_transformed.last().cloned().unwrap(); 
             of_transformed.push(MAX_OF_COUNT_PER_ITER * elem + 1);
         }
         let g = |x| { of_transformed[x as usize] };
@@ -357,7 +358,7 @@ impl<E: Engine> KeccakGadget<E> {
         let mut gate_term = MainGateTerm::new();
         let (_, mut gate_coefs) = CS::MainGate::format_term(gate_term, dummy)?;
 
-        for (idx, coef) in range_of_linear_terms.zip(coeffs.into_iter()) {
+        for (idx, coef) in range_of_linear_terms.zip(coeffs.iter()) {
             gate_coefs[idx] = *coef;
         }
 
@@ -555,7 +556,7 @@ impl<E: Engine> KeccakGadget<E> {
         let mut gate_term = MainGateTerm::new();
         let (_, mut gate_coefs) = CS::MainGate::format_term(gate_term, dummy.get_variable())?;
 
-        for (idx, coef) in range_of_linear_terms.zip(coeffs.into_iter()) {
+        for (idx, coef) in range_of_linear_terms.zip(coeffs.iter()) {
             gate_coefs[idx] = *coef;
         }
 
@@ -583,17 +584,20 @@ impl<E: Engine> KeccakGadget<E> {
     // ---------------------------------------------------------------------------------------------------------------------------
 
     fn theta<CS: ConstraintSystem<E>>(&self, cs: &mut CS, state: KeccakState<E>) -> Result<KeccakState<E>> {
-        let mut C = Vec::with_capacity(KECCAK_STATE_WIDTH);
+        let mut c_vec = Vec::with_capacity(KECCAK_STATE_WIDTH);
         // calculate C[x] for each column:
         for i in 0..KECCAK_STATE_WIDTH {
-            C.push(Num::sum(cs, &state.0[i])?);
+            c_vec.push(Num::sum(cs, &state.0[i])?);
         }
 
         // recalculate state
         let coeffs = [E::Fr::one(), E::Fr::one(), u64_to_ff(KECCAK_FIRST_SPARSE_BASE)];
         let mut new_state = KeccakState::default();
         for (i, j) in (0..KECCAK_STATE_WIDTH).cartesian_product(0..KECCAK_STATE_WIDTH) {
-            let inputs = [state[(i, j)].clone(), C[(i+KECCAK_STATE_WIDTH-1) % KECCAK_STATE_WIDTH].clone(), C[(i+1) % KECCAK_STATE_WIDTH].clone()];
+            let inputs = [
+                state[(i, j)].clone(), c_vec[(i+KECCAK_STATE_WIDTH-1) % KECCAK_STATE_WIDTH].clone(), 
+                c_vec[(i+1) % KECCAK_STATE_WIDTH].clone()
+            ];
             new_state[(i, j)] = Num::lc(cs, &coeffs, &inputs[..])?;
         }
         Ok(new_state)   
@@ -996,6 +1000,46 @@ impl<E: Engine> KeccakGadget<E> {
 
         Ok(res)
     }
-} 
 
-// TODO: implement padding!
+    pub fn digest_from_bytes<CS: ConstraintSystem<E>>(&self, cs: &mut CS, bytes: &[Byte<E>]) -> Result<Vec<Num<E>>>
+    {
+        // Keccak padding algorithm is the following:
+        // padlen = align_bytes - used_bytes (here align is multiple of block size)
+        // if padlen == 0:
+        //      padlen = align_bytes
+        // if padlen == 1:
+        //      return [0x81]
+        // else:
+        //      return [0x01] + ([0x00] * int(padlen - 2)) + [0x80]
+
+        let mut padded = vec![];
+        padded.extend(bytes.iter().cloned());
+
+        let block_size = KECCAK_RATE_WORDS_SIZE * (KECCAK_LANE_WIDTH / 8);
+        let last_block_size = bytes.len() % block_size;
+        let padlen = block_size - last_block_size;
+        if padlen == 1{
+            padded.push(Byte::from_cnst(cs, u64_to_ff(0x81)));
+        }
+        else {
+            padded.push(Byte::from_cnst(cs, u64_to_ff(0x01)));
+            padded.extend(iter::repeat(Byte::from_cnst(cs, E::Fr::zero())).take(padlen - 2));
+            padded.push(Byte::from_cnst(cs, u64_to_ff(0x80)));
+        }
+       
+        assert_eq!(padded.len() % block_size, 0);
+
+        // now convert the byte array to array of 64-bit words
+        let mut words64 = Vec::with_capacity(padded.len() % 8);
+        for chunk in padded.chunks(8) {
+            let elems = [
+                chunk[0].into_num(), chunk[1].into_num(), chunk[2].into_num(), chunk[3].into_num(),
+                chunk[4].into_num(), chunk[5].into_num(), chunk[6].into_num(), chunk[7].into_num()
+            ];
+            let tmp = Num::long_weighted_sum(cs, &elems, &u64_to_ff(1 << 8))?;
+            words64.push(tmp);
+        }
+
+        self.digest(cs, &words64[..])           
+    }
+} 
