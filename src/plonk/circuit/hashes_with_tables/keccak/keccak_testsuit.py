@@ -20,7 +20,17 @@ RotationConstants = [
   [ 18,  2, 61, 56, 14, ]
 ]
 
+# RotationConstants = [
+#   [  0,  0, 0, 0, 0, ],
+#   [ 0, 0,  0, 0, 0, ],
+#   [  0, 0, 0, 0, 0, ],
+#   [ 0, 0, 0, 0,  0, ],
+#   [ 0, 0, 0, 0, 0, ]
+# ]
+
 Masks = [(1 << i) - 1 for i in range(65)]
+
+RES = [[0 for i in xrange(5)] for j in xrange(5)]
 
 def bits2bytes(x):
     return int((int(x) + 7) / 8)
@@ -61,7 +71,7 @@ def keccak_f(state):
     This is Keccak-f permutation.  It operates on and
     mutates the passed-in KeccakState.  It returns nothing.
     """
-    def round(A, RC):
+    def round(A, RC, cur_round):
         W, H = state.W, state.H
         rangeW, rangeH = state.rangeW, state.rangeH
         lanew = state.lanew
@@ -74,12 +84,17 @@ def keccak_f(state):
             D[x] = C[(x - 1) % W] ^ rol(C[(x + 1) % W], 1, lanew)
             for y in rangeH:
                 A[x][y] ^= D[x]
+                
+        
         
         # rho and pi
         B = zero()
         for x in rangeW:
             for y in rangeH:
                 B[y % W][(2 * x + 3 * y) % H] = rol(A[x][y], RotationConstants[y][x], lanew)
+                #B[y % W][(2 * x + 3 * y) % H] = rol(A[x][y], RotationConstants[y][x], lanew)
+                
+        
                 
         # chi
         for x in rangeW:
@@ -88,12 +103,21 @@ def keccak_f(state):
         
         # iota
         A[0][0] ^= RC
+        
+        if cur_round == 0:
+            print "cur state"
+            for x in rangeW:
+                for y in rangeH:
+                    RES[x][y] = A[x][y]
+            print "cur state ended"
+        
+        
 
     l = int(log(state.lanew, 2))
     nr = 12 + 2 * l
     
     for ir in xrange(nr):
-        round(state.s, RoundConstants[ir])
+        round(state.s, RoundConstants[ir], ir)
 
 class KeccakState(object):
     """
@@ -252,7 +276,7 @@ class KeccakSponge(object):
         
     def squeeze_once(self):
         rc = self.state.squeeze()
-        self.permfn(self.state)
+        #self.permfn(self.state)
         return rc
     
     def squeeze(self, l):
@@ -319,13 +343,80 @@ Keccak512 = KeccakHash.preset(576, 1024, 512)
 
    
 def test_sponge():
-    s = KeccakSponge(1024, 1600, multirate_padding, keccak_f)
+    s = Keccak256()
     input = "\00" * (8 * 17 - 1)
-    s.absorb(input)
-    #s.absorb_final()
-    print KeccakState.bytes2str(s.squeeze(32)).encode('hex')
+    #input = ""
+    s.update(input)
+    return s.digest().encode('hex')
+    
+    
+def converter(num):
+    base_step = 13
+    special_chunk = 0
+    base = 1
+    acc = 0
+    for i in xrange(65):
+        val = num % base_step
+        num /= base_step
+        if i == 0 or i == 64:
+            special_chunk += val
+        else:
+            acc += base * (val & 1)
+        base *= 2
+    acc += special_chunk & 1
+    return acc
+
+
+def converter2(num):
+    base_step = 9
+    base = 1
+    acc = 0
+    for i in xrange(64):
+        val = num % base_step
+        num /= base_step
+        acc += base * (val & 1)
+        base *= 2
+    return acc
     
     
 test_sponge()
-print "success"
-print hex(0b10000001)
+
+
+class Fr():
+    def __init__(self, val):
+        self.val = val
+
+
+state = [Fr(0x0000000000079856bd55fa4479ad68f38a2f0a53a1a68e23faf3a2eb9de3accc),
+Fr(0x00000000412e6066e2dccd4c7abff5273c5a18347213c6ac5442949694639b06),
+Fr(0x0000000000000000000000000000000000000000000000000000000000000000),
+Fr(0x0000000000000000000000000000000000000000000000000000000000000000),
+Fr(0x000000034f5ae61c14637131444df45c54694d998f2a40d1fd5a1a35ffdddd36),
+Fr(0x0000000000000000000000000000000000000000000000000000000000000000),
+Fr(0x0000000000000000000000070ef55d4d0d06e30a4bb73c9fb80c821d2fe2f30e),
+Fr(0x0000002b079da3ebc3c3877d08b8d6e6d779fa9f4f0e27c39ff41767f5c156f6),
+Fr(0x0000000000000000000000000000002529f52361d7b692ef083f6ae25e8d6e8c),
+Fr(0x00000000000000000000000000d28d26b8760a5b7991453df237b416270e8d56),
+Fr(0x0000000000000000000000000ab12af75dfe86a52c6084254cd4251ffbbd2d5e),
+Fr(0x00000000000000116d799ddeb1e393cc2c9a5039d4032a9ee69cf746308624b2),
+Fr(0x00000000000000000000000000000000000000000000000618a1de70407f5a1e),
+Fr(0x0000000000000000000000000000000000000000000000000000000000000000),
+Fr(0x0000000000000000000000000000000000000000000000000000000000000000),
+Fr(0x0000000000079856bd55fa446efc3dfc2c3083ae754609feae1f7dcba2267f6e),
+Fr(0x0000000000000000000000070ef55d4d0d06e30a4bb73c9fb80c821d2fe2f30e),
+Fr(0x0000000000000000000000000000000000000000000000000000000000000000),
+Fr(0x000000000000000000000000000000000000000000000000000dfd05e48e853e),
+Fr(0x000000034f5ae61c14637131452081830cdf57f508bb860fef91ce4c26ec6a8c),
+Fr(0x0000000000000000000000000000000000000000000000000000000000000000),
+Fr(0x00000000412e607850566b2b2ca388f368f4686e4616f14b3adf8bdcc4e9ae8e),
+Fr(0x0000002b079da3ebc3c3877d08b8d6e6d779fa9f4f0e27c9b895f5d83640b114),
+Fr(0x0000000000000000000000000000002529f52361d7b692ef08316ddc79fee94e),
+Fr(0x0000000000000000000000000000000000000000000000000000000000000000)]
+
+
+print "real state"
+for count, x in enumerate(state):
+    if converter(x.val) != RES[count / 5][count % 5]:
+        print "error", count / 5, count % 5
+    
+    

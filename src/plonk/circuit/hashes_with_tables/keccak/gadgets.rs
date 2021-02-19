@@ -209,6 +209,14 @@ impl<E: Engine> KeccakGadget<E> {
         ];
 
         // let offsets = [
+        //     [64, 64, 64, 64, 64], 
+        //     [64, 64, 64, 64, 64], 
+        //     [64, 64, 64, 64, 64], 
+        //     [64, 64, 64, 64, 64], 
+        //     [64, 64, 64, 64, 64]
+        // ];
+
+        // let offsets = [
         //     [64, 63, 2, 36, 37], 
         //     [28, 20, 58, 9, 44], 
         //     [61, 54, 21, 39, 25],
@@ -443,7 +451,7 @@ impl<E: Engine> KeccakGadget<E> {
                 let mut output_slices : Vec<AllocatedNum<E>> = Vec::with_capacity(num_slices);
 
                 let input_slice_modulus = pow(BINARY_BASE as usize, num_of_chunks);
-                let output1_slice_modulus = pow(output_base as usize, num_of_chunks);
+                //let output1_slice_modulus = pow(output_base as usize, num_of_chunks);
 
                 let input_slice_modulus_fr = u64_exp_to_ff(BINARY_BASE, num_of_chunks as u64);
                 let output_slice_modulus_fr = u64_exp_to_ff(output_base, num_of_chunks as u64);
@@ -784,7 +792,7 @@ impl<E: Engine> KeccakGadget<E> {
         
         let mut new_state = KeccakState::default();
         let mut iter_count = 0;
-        let coeffs = [u64_to_ff(2), E::Fr::one(), u64_to_ff(3), E::Fr::one()];
+        let coeffs = [u64_to_ff(2), E::Fr::one(), u64_to_ff(3), u64_to_ff(2)];
         let mut squeezed = Vec::with_capacity(elems_to_squeeze);
         
         let num_of_chunks = self.second_base_num_of_chunks;
@@ -918,12 +926,25 @@ impl<E: Engine> KeccakGadget<E> {
     ) -> Result<(KeccakState<E>, Option<Vec<Num<E>>>)>
     {
         let mut state = input_state;
+        println!("perm function is called!");
 
         for round in 0..(KECCAK_NUM_ROUNDS-1) {
             state = self.theta(cs, state)?;
             state = self.rho(cs, state)?;
-            state = self.pi(cs, state)?;          
+
+            state = self.pi(cs, state)?;
+      
             let (new_state, _) = self.xi_i(cs, state, round, 0, None, false)?;
+
+            if round == 0 {
+                for (i, j) in (0..KECCAK_STATE_WIDTH).cartesian_product(0..KECCAK_STATE_WIDTH)
+                {
+                    println!("{}", new_state.0[i][j].get_value().unwrap());
+                }
+            }   
+
+            
+            
             state = new_state; 
         }
 
