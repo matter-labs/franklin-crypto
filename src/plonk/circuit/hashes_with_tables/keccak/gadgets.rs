@@ -128,6 +128,27 @@ impl<E: Engine> KeccakGadget<E> {
         let first_base_num_of_chunks = first_base_num_of_chunks.unwrap_or(DEFAULT_FIRST_BASE_NUM_OF_CHUNKS);
         let second_base_num_of_chunks = second_base_num_of_chunks.unwrap_or(DEFAULT_SECOND_BASE_NUM_OF_CHUNKS);
         let digest_size = digest_size.unwrap_or(DEFAULT_KECCAK_DIGEST_WORDS_SIZE);
+
+        let offsets = [
+            [64, 28, 61, 23, 46], 
+            [63, 20, 54, 19, 62], 
+            [2, 58, 21, 49, 3], 
+            [36, 9, 39, 43, 8], 
+            [37, 44, 25, 56, 50]
+        ];
+        
+        let mut counts = vec![0; first_base_num_of_chunks - 1];
+        for max_offset in offsets.iter().flat_map(|r| r.iter()) {
+            let mut cur_offset = 1;
+            while cur_offset < KECCAK_LANE_WIDTH {
+                let step = Self::check_offset_helper(first_base_num_of_chunks, cur_offset, *max_offset);
+                assert!(step > 0);
+                if step != first_base_num_of_chunks {
+                    counts[step - 1] += 1;
+                }
+                cur_offset += step;
+            }
+        }
         
         let columns3 = vec![
             PolyIdentifier::VariablesPolynomial(0), 
@@ -156,10 +177,24 @@ impl<E: Engine> KeccakGadget<E> {
         // and so forth: g(i+1) = 25 * g(i) + 1
         let mut of_transformed = Vec::with_capacity(first_base_num_of_chunks + 1);
         of_transformed.extend([0, 0].iter());
-        for _ in 2..(first_base_num_of_chunks+1) {
+        for c in counts.iter() {
+            assert!(*c > 0);
             let elem = of_transformed.last().cloned().unwrap(); 
-            of_transformed.push(MAX_OF_COUNT_PER_ITER * elem + 1);
+            //assert that is nonempty!
+            of_transformed.push(c * elem + 1);
         }
+
+        let range_table_bitlen = {
+            let num = of_transformed.last().cloned().unwrap(); 
+            let mut pow = 0;
+
+            while (1 << pow) <= num {
+                pow += 1;
+            }
+            pow
+        };
+        println!("range table bitlen: {}", range_table_bitlen);
+        
         let g = |x| { of_transformed[x as usize] };
         
         let first_to_second_base_converter_table = LookupTableApplication::new(
@@ -201,14 +236,6 @@ impl<E: Engine> KeccakGadget<E> {
         let of_first_to_second_base_converter_table = cs.add_table(of_first_to_second_base_converter_table)?;
         let from_second_base_converter_table = cs.add_table(from_second_base_converter_table)?;
 
-        let offsets = [
-            [64, 28, 61, 23, 46], 
-            [63, 20, 54, 19, 62], 
-            [2, 58, 21, 49, 3], 
-            [36, 9, 39, 43, 8], 
-            [37, 44, 25, 56, 50]
-        ];
-
         let f = |mut input: u64, step: u64| -> E::Fr {
             let mut acc = BigUint::default(); 
             let mut base = BigUint::one();
@@ -227,7 +254,7 @@ impl<E: Engine> KeccakGadget<E> {
         let range_table = match use_global_range_table {
             true => cs.get_table(global_range_table_name)?,
             false => {
-                let range_table = LookupTableApplication::new_range_table_of_width_3(DEFAULT_RANGE_TABLE_WIDTH, columns3)?;
+                let range_table = LookupTableApplication::new_range_table_of_width_3(range_table_bitlen, columns3)?;
                 cs.add_table(range_table)?
             },
         };
@@ -404,15 +431,15 @@ impl<E: Engine> KeccakGadget<E> {
 
     // helper functions for rho subroutine
     // returns expected num_of_chunks (if less than maximum possible value contained in a table)
-    fn check_offset_helper(&self, cur_offset: usize, max_offset: usize) -> usize 
+    fn check_offset_helper(base_num_of_chunks: usize, cur_offset: usize, max_offset: usize) -> usize 
     {
-        if (cur_offset < max_offset) && (cur_offset + self.first_base_num_of_chunks > max_offset) {
+        if (cur_offset < max_offset) && (cur_offset + base_num_of_chunks > max_offset) {
             return max_offset - cur_offset;
         }
-        if (cur_offset < KECCAK_LANE_WIDTH) && (cur_offset + self.first_base_num_of_chunks > KECCAK_LANE_WIDTH) {
+        if (cur_offset < KECCAK_LANE_WIDTH) && (cur_offset + base_num_of_chunks > KECCAK_LANE_WIDTH) {
             return KECCAK_LANE_WIDTH - cur_offset;
         }
-        return self.first_base_num_of_chunks;
+        return base_num_of_chunks;
     }
 
     fn convert_binary_to_sparse_repr<CS>(&self, cs: &mut CS, input: &Num<E>, sparse_base: KeccakBase) -> Result<Num<E>> 
@@ -562,7 +589,6 @@ impl<E: Engine> KeccakGadget<E> {
     }
 
     // --------------------------------------------------------------------------------------------------------------------------
-    // --------------------------------------------------------------------------------------------------------------------------
     // block transformation components - theta, pi, etc...
     // ---------------------------------------------------------------------------------------------------------------------------
     // ---------------------------------------------------------------------------------------------------------------------------
@@ -665,7 +691,7 @@ impl<E: Engine> KeccakGadget<E> {
             // iteration starting from the second are all handled in the same manner
             let table = &self.first_to_second_base_converter_table;
             while cur_offset < KECCAK_LANE_WIDTH {
-                let chunk_count_bound = self.check_offset_helper(cur_offset, offset);
+                let chunk_count_bound = Self::check_offset_helper(self.first_base_num_of_chunks, cur_offset, offset);
                 assert!((chunk_count_bound > 0) && (chunk_count_bound <= self.first_base_num_of_chunks));
 
                 let input_slice = if has_value {
@@ -757,7 +783,7 @@ impl<E: Engine> KeccakGadget<E> {
         // handle offsets
         for i in 1..self.first_base_num_of_chunks {
             if let Some(arr) = of_map.get(&i) {
-                self.handle_of_arr(cs, &arr[..], self.of_transformed[i] * MAX_OF_COUNT_PER_ITER)?
+                self.handle_of_arr(cs, &arr[..], self.of_transformed[i] * (arr.len() as u64))?
             }
         }
         

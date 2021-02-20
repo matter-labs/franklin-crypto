@@ -102,7 +102,7 @@ mod test {
 
     fn keccak_gadget_test_template(is_const_test: bool) 
     {
-        const NUM_OF_BLOCKS: usize = 1;
+        const NUM_OF_BLOCKS: usize = 4;
         let mut rng = rand::thread_rng();
 
         let mut input = [0u8; 8 * KECCAK_RATE_WORDS_SIZE * NUM_OF_BLOCKS];
@@ -153,7 +153,7 @@ mod test {
     #[test]
     fn keccak_gadget_bytes_test() 
     {
-        const NUM_OF_BYTES: usize = 1341;
+        const NUM_OF_BYTES: usize = 777;
         const IS_CONST_TEST: bool = false;
 
         let mut rng = rand::thread_rng();

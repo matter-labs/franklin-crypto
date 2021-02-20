@@ -413,12 +413,45 @@ Fr(0x0000022f6867a0b66d4e7ad94df31bfad589fe65d6da8a27d0fd298cb798703a),
 Fr(0x0000025dbf05122e8e23f3d6fc945d73b8667adb80bc43fcb0e3a48c3460f46b)]
 
 
-print "real state"
-for count, x in enumerate(state):
-    if converter(x.val) != RES[count / 5][count % 5]:
-        print "error", count / 5, count % 5
-        print converter(x.val)
-        print RES[count / 5][count % 5]
+# print "real state"
+# for count, x in enumerate(state):
+#     if converter(x.val) != RES[count / 5][count % 5]:
+#         print "error", count / 5, count % 5
+#         print converter(x.val)
+#         print RES[count / 5][count % 5]
+        
+        
+# here I would actually compute the number of all offsets
+offsets = [64, 28, 61, 23, 46, 63, 20, 54, 19, 62, 2, 58, 21, 49, 3, 36, 9, 39, 43, 8, 37, 44, 25, 56, 50]
+chunk_size = 4
+
+
+def of_helper(cur_offset, max_offset):
+    if (cur_offset < max_offset) and (cur_offset + chunk_size > max_offset):
+        return max_offset - cur_offset;
+    if (cur_offset < 64) and (cur_offset + chunk_size > 64):
+        return 64 - cur_offset
+    return chunk_size
+
+def compute_ofs(max_offset):
+    cur_offset = 1
+    res = []
+    while cur_offset < 64:
+        step = of_helper(cur_offset, max_offset)
+        if step == 0:
+            print "error!"
+        if step != chunk_size:
+            res.append(step)
+        cur_offset += step
+    return res
+        
+        
+ofs = []
+for x in offsets:
+    ofs += compute_ofs(x)
+print ofs
+    
+    
     
     
 
