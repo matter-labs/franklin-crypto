@@ -673,6 +673,21 @@ impl<E: Engine> LinearCombination<E> {
 
         Ok(num)
     }
+
+    pub fn uniquely_pack_booleans_into_nums<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        bools: &[Boolean],
+    ) -> Result<Vec<Num<E>>, SynthesisError> {
+        let mut result = vec![];
+
+        let chunk_size = E::Fr::CAPACITY as usize;
+        for chunk in bools.chunks(chunk_size) {
+            let el = Self::uniquely_pack_booleans_into_single_num(cs, chunk)?;
+            result.push(el);
+        }
+
+        Ok(result)
+    }
 }
 
 #[cfg(test)]
