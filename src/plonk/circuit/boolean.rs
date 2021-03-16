@@ -559,6 +559,17 @@ impl Boolean {
         }
     }
 
+    pub fn alloc<E: Engine, CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        witness: Option<bool>
+    ) -> Result<Self, SynthesisError> {
+        let new = Boolean::from(
+            AllocatedBit::alloc(cs, witness)?
+        );
+
+        Ok(new)
+    }
+
     #[track_caller]
     pub fn enforce_equal<E, CS>(
         cs: &mut CS,
