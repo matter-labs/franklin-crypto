@@ -72,6 +72,14 @@ impl<E: Engine> std::fmt::Display for Num<E> {
 }
 
 impl<E: Engine> Num<E> {
+    pub fn zero() -> Self {
+        Num::Constant(E::Fr::zero())
+    }
+
+    pub fn one() -> Self {
+        Num::Constant(E::Fr::one())
+    }
+
     pub fn alloc<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         witness: Option<E::Fr>
