@@ -344,6 +344,27 @@ impl<E: RescueEngine> StatefulRescueGadget<E>
     //     }
     // }
 
+
+    pub fn rescue_mimc_over_nums<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        state: &[Num<E>],
+        params: &E::Params
+    ) -> Result<Vec<Num<E>>, SynthesisError> {
+        let state: Vec<_> = state.iter().map(|el| LinearCombination::from(*el)).collect();
+        let out_lcs = Self::rescue_mimc_over_lcs(
+            cs,
+            &state,
+            &params
+        )?;
+        let mut out = vec![];
+        for lc in out_lcs.into_iter() {
+            let as_num = lc.into_num(cs)?;
+            out.push(as_num);
+        }
+
+        Ok(out)
+    }
+
     pub fn rescue_mimc_over_lcs<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         state: &[LinearCombination<E>],

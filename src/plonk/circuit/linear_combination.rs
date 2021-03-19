@@ -63,6 +63,23 @@ impl<E: Engine> From<AllocatedNum<E>> for LinearCombination<E> {
     }
 }
 
+impl<E: Engine> From<Num<E>> for LinearCombination<E> {
+    fn from(num: Num<E>) -> LinearCombination<E> {
+        match num {
+            Num::Variable(allocated) => {
+                Self::from(allocated)
+            },
+            Num::Constant(constant) => {
+                Self {
+                    value: Some(constant),
+                    terms: vec![],
+                    constant: constant
+                }
+            }
+        }
+    }
+}
+
 impl<E: Engine> Clone for LinearCombination<E> {
     fn clone(&self) -> Self {
         Self {
