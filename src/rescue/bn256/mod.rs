@@ -14,7 +14,7 @@ impl RescueEngine for bn256::Bn256 {
     type Params = Bn256RescueParams;
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bn256RescueParams {
     c: u32,
     r: u32,

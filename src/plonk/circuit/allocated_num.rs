@@ -993,7 +993,6 @@ impl<E: Engine> Num<E> {
     }
 }
 
-
 #[derive(Debug)]
 pub struct AllocatedNum<E: Engine> {
     pub(crate) value: Option<E::Fr>,

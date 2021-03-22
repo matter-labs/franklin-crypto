@@ -33,6 +33,14 @@ pub struct QuinticSBox<E: Engine> {
     pub _marker: PhantomData<E>
 }
 
+impl<E: Engine> PartialEq for QuinticSBox<E> {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl<E: Engine> Eq for QuinticSBox<E> {}
+
 impl<E: Engine>SBox<E> for QuinticSBox<E> {
     fn apply(&self, elements: &mut [E::Fr]) {
         for element in elements.iter_mut() {
@@ -49,6 +57,15 @@ pub struct PowerSBox<E: Engine> {
     pub power: <E::Fr as PrimeField>::Repr,
     pub inv: u64,
 }
+
+impl<E: Engine> PartialEq for PowerSBox<E> {
+    fn eq(&self, other: &Self) -> bool {
+        self.power.eq(&other.power) &&
+        self.inv.eq(&other.inv)
+    }
+}
+
+impl<E: Engine> Eq for PowerSBox<E> {}
 
 impl<E: Engine>SBox<E> for PowerSBox<E> {
     fn apply(&self, elements: &mut [E::Fr]) {
@@ -137,7 +154,7 @@ pub trait RescueHashParams<E: Engine>: RescueParamsInternal<E> {
     }
 }
 
-pub trait RescueParamsInternal<E: Engine>: Send + Sync + Sized + Clone + std::fmt::Debug {
+pub trait RescueParamsInternal<E: Engine>: Send + Sync + Sized + Clone + std::fmt::Debug + Eq{
     fn set_round_constants(&mut self, to: Vec<E::Fr>);
 }
 
