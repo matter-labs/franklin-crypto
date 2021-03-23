@@ -991,6 +991,21 @@ impl<E: Engine> Num<E> {
     
         Ok(result)
     }
+
+    pub fn get_value_multiple<const N: usize>(
+        els: &[Self; N]
+    ) -> Option<[E::Fr; N]> {
+        let mut result = [E::Fr::zero(); N];
+        for (r, el) in result.iter_mut().zip(els.iter()) {
+            if let Some(value) = el.get_value() {
+                *r = value;
+            } else {
+                return None
+            }
+        }
+    
+        Some(result)
+    }
 }
 
 #[derive(Debug)]
