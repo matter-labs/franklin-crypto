@@ -32,6 +32,27 @@ use crate::circuit::{
 
 pub const STATE_WIDTH : usize = 4;
 
+pub mod stats {
+    use std::sync::atomic::*;
+
+    pub static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    pub fn reset_counter() {
+        COUNTER.store(0, Ordering::Relaxed);
+    }
+
+    pub fn increment_counter() {
+        COUNTER.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub fn increment_counter_by(val: usize) {
+        COUNTER.fetch_add(val, Ordering::SeqCst);
+    }
+
+    pub fn output_counter() -> usize {
+        COUNTER.load(Ordering::Relaxed)
+    }
+}
 
 #[derive(Debug)]
 pub enum Num<E: Engine> {
@@ -1006,6 +1027,21 @@ impl<E: Engine> Num<E> {
     
         Some(result)
     }
+
+    pub fn get_value_for_slice(
+        els: &[Self]
+    ) -> Option<Vec<E::Fr>> {
+        let mut result = vec![];
+        for el in els.iter() {
+            if let Some(value) = el.get_value() {
+                result.push(value);
+            } else {
+                return None;
+            }
+        }
+    
+        Some(result)
+    }
 }
 
 #[derive(Debug)]
@@ -1883,6 +1919,8 @@ impl<E: Engine> AllocatedNum<E> {
 
                 cs.allocate_main_gate(main_term)?;
 
+                self::stats::increment_counter();
+
                 c
             },
 
@@ -1910,6 +1948,8 @@ impl<E: Engine> AllocatedNum<E> {
                 main_term.add_assign(ArithmeticTerm::from_variable(a.get_variable()));
 
                 cs.allocate_main_gate(main_term)?;
+
+                self::stats::increment_counter();
 
                 c
             }
