@@ -811,6 +811,22 @@ impl Boolean {
 
                 return Ok(Boolean::Constant(ch_value.expect("they're all constants")));
             },
+            (_, &Boolean::Constant(false), &Boolean::Constant(false)) => {
+                // Regardless of a we have
+                // (a and b) xor ((not a) and c)
+                // equals
+                // false xor false
+                // that is always false
+                return Ok(Boolean::Constant(false))
+            },
+            (_, &Boolean::Constant(true), &Boolean::Constant(true)) => {
+                // Regardless of a we have
+                // (a and b) xor ((not a) and c)
+                // equals
+                // a xor (not (a))
+                // that is always true
+                return Ok(Boolean::Constant(true))
+            },
             (&Boolean::Constant(false), _, c) => {
                 // If a is false
                 // (a and b) xor ((not a) and c)
@@ -868,12 +884,14 @@ impl Boolean {
                     &c.not()
                 )?.not());
             },
-            (&Boolean::Constant(true), _, _) => {
+            (&Boolean::Constant(true), b, _) => {
                 // If a is true
                 // (a and b) xor ((not a) and c)
                 // equals
-                // b xor ((not a) and c)
-                // So we just continue!
+                // b xor false
+                // equals
+                // b
+                return Ok(b.clone())
             },
             (&Boolean::Is(_), &Boolean::Is(_), &Boolean::Is(_)) |
             (&Boolean::Is(_), &Boolean::Is(_), &Boolean::Not(_)) |

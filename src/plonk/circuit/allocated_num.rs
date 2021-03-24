@@ -816,6 +816,9 @@ impl<E: Engine> Num<E> {
                 Self::conditionally_select(cs, &condition_flag.not(), b, a)
             },
             (&Num::Constant(a), &Num::Constant(b)) => {
+                if a == b {
+                    return Ok(Num::Constant(a));
+                }
                 match condition_flag {
                     Boolean::Constant(flag) => {
                         let result_value = if *flag { 
