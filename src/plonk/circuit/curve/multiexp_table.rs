@@ -1,7 +1,7 @@
 use crate::bellman::pairing::{
     Engine,
-    CurveAffine,
-    CurveProjective
+    GenericCurveAffine,
+    GenericCurveProjective
 };
 
 use crate::bellman::pairing::ff::{
@@ -49,7 +49,7 @@ use super::super::bigint::bigint::*;
 use super::sw_affine::*;
 use super::selection_table::*;
 
-pub struct MultiexpTable<'a, E: Engine, G: CurveAffine> where G::Base: PrimeField {
+pub struct MultiexpTable<'a, E: Engine, G: GenericCurveAffine> where G::Base: PrimeField {
     width_four_tables: Vec<Vec<[SelectorTable<E, Term<E>>; 2]>>,
     width_three_table: Option<Vec<[SelectorTable<E, Term<E>>; 2]>>,
     width_two_table: Option<Vec<[SelectorTable<E, Term<E>>; 2]>>,
@@ -61,7 +61,7 @@ pub struct MultiexpTable<'a, E: Engine, G: CurveAffine> where G::Base: PrimeFiel
     pub width: usize,
 }
 
-impl<'a, E: Engine, G: CurveAffine> MultiexpTable<'a, E, G> where G::Base: PrimeField {
+impl<'a, E: Engine, G: GenericCurveAffine> MultiexpTable<'a, E, G> where G::Base: PrimeField {
     #[track_caller]
     pub fn new<CS: ConstraintSystem<E>>(
         cs: &mut CS,

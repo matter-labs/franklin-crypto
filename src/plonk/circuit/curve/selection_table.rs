@@ -1,7 +1,7 @@
 use crate::bellman::pairing::{
     Engine,
-    CurveAffine,
-    CurveProjective
+    GenericCurveAffine,
+    GenericCurveProjective
 };
 
 use crate::bellman::pairing::ff::{

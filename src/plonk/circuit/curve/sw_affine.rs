@@ -1,7 +1,7 @@
 use crate::bellman::pairing::{
     Engine,
-    CurveAffine,
-    CurveProjective
+    GenericCurveAffine,
+    GenericCurveProjective,
 };
 
 use crate::bellman::pairing::ff::{
@@ -49,13 +49,13 @@ use super::super::bigint::field::*;
 use super::super::bigint::bigint::*;
 
 #[derive(Clone, Debug)]
-pub struct AffinePoint<'a, E: Engine, G: CurveAffine> where <G as CurveAffine>::Base: PrimeField {
+pub struct AffinePoint<'a, E: Engine, G: GenericCurveAffine> where <G as GenericCurveAffine>::Base: PrimeField {
     pub x: FieldElement<'a, E, G::Base>,
     pub y: FieldElement<'a, E, G::Base>,
     pub value: Option<G>,
 }
 
-impl<'a, E: Engine, G: CurveAffine> AffinePoint<'a, E, G> where <G as CurveAffine>::Base: PrimeField {
+impl<'a, E: Engine, G: GenericCurveAffine> AffinePoint<'a, E, G> where <G as GenericCurveAffine>::Base: PrimeField {
     pub fn get_x(&self) -> FieldElement<'a, E, G::Base> {
         self.x.clone()
     }

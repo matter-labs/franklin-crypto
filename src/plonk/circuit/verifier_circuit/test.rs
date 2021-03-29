@@ -1,8 +1,8 @@
 // new test paradigm: using better_cs for witness generation and better_better_cs for actual constraint system
 use crate::bellman::pairing::{
     Engine,
-    CurveAffine,
-    CurveProjective
+    GenericCurveAffine,
+    GenericCurveProjective
 };
 
 use crate::bellman::pairing::ff::{
@@ -275,8 +275,8 @@ mod test {
 
     use crate::bellman::pairing::{
         Engine,
-        CurveAffine,
-        CurveProjective
+        GenericCurveAffine,
+        GenericCurveProjective
     };
 
     use crate::bellman::pairing::ff::{
@@ -339,7 +339,7 @@ mod test {
         b: E::Fr, 
         num_steps: usize,
         channel_params: &'a CG::Params,
-        rns_params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        rns_params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
         transcript_params: <T as Prng<E::Fr>>::InitializationParameters,
     )
     where E: Engine, T: Transcript<E::Fr>, CG: ChannelGadget<E>, AD: AuxData<E>, WP: WrappedAffinePoint<'a, E>

@@ -8,16 +8,16 @@ use crate::plonk::circuit::bigint::bigint::*;
 
 fn add<'b, E: Engine, CS: ConstraintSystem<E>>(
     cs: &mut CS, 
-    x_m: FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>, 
-    z_m: FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>, 
-    x_n: FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>,
-    z_n: FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>,
-    x: &FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>,
+    x_m: FieldElement<'b, E, <E::G1Affine as GenericCurveAffine>::Base>, 
+    z_m: FieldElement<'b, E, <E::G1Affine as GenericCurveAffine>::Base>, 
+    x_n: FieldElement<'b, E, <E::G1Affine as GenericCurveAffine>::Base>,
+    z_n: FieldElement<'b, E, <E::G1Affine as GenericCurveAffine>::Base>,
+    x: &FieldElement<'b, E, <E::G1Affine as GenericCurveAffine>::Base>,
 
-    params: &'b RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
-    b: &<E::G1Affine as CurveAffine>::Base, 
-) -> Result<(FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>, 
-            FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>), SynthesisError> 
+    params: &'b RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
+    b: &<E::G1Affine as GenericCurveAffine>::Base, 
+) -> Result<(FieldElement<'b, E, <E::G1Affine as GenericCurveAffine>::Base>, 
+            FieldElement<'b, E, <E::G1Affine as GenericCurveAffine>::Base>), SynthesisError> 
 { 
     let (x_m_z_n, (red_x_m, red_z_n)) = x_m.clone().mul(cs, z_n.clone())?;
     let (x_n_z_m, (red_x_n, red_z_m)) = x_n.clone().mul(cs, z_m.clone())?;
@@ -25,7 +25,7 @@ fn add<'b, E: Engine, CS: ConstraintSystem<E>>(
     let x_m_x_n = x_m.mul(cs, x_n)?.0;
     let z_m_z_n = z_m.mul(cs, z_n)?.0;
 
-    let mut cnst = <<E::G1Affine as CurveAffine>::Base>::one();
+    let mut cnst = <<E::G1Affine as GenericCurveAffine>::Base>::one();
     cnst.double();
     cnst.double();
     cnst.negate();
@@ -52,13 +52,13 @@ fn add<'b, E: Engine, CS: ConstraintSystem<E>>(
 
 fn double<'b, E: Engine, CS: ConstraintSystem<E>>(
     cs: &mut CS, 
-    x_n: FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>, 
-    z_n: FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>, 
+    x_n: FieldElement<'b, E, <E::G1Affine as GenericCurveAffine>::Base>, 
+    z_n: FieldElement<'b, E, <E::G1Affine as GenericCurveAffine>::Base>, 
 
-    params: &'b RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
-    b: &<E::G1Affine as CurveAffine>::Base, 
-) -> Result<(FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>, 
-            FieldElement<'b, E, <E::G1Affine as CurveAffine>::Base>), SynthesisError> 
+    params: &'b RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
+    b: &<E::G1Affine as GenericCurveAffine>::Base, 
+) -> Result<(FieldElement<'b, E, <E::G1Affine as GenericCurveAffine>::Base>, 
+            FieldElement<'b, E, <E::G1Affine as GenericCurveAffine>::Base>), SynthesisError> 
 { 
     let (x_n_2, x_n_red) = x_n.clone().square(cs)?;
     let (z_n_2, z_n_red) = z_n.clone().square(cs)?;
@@ -68,7 +68,7 @@ fn double<'b, E: Engine, CS: ConstraintSystem<E>>(
     let x_n_3 = x_n_2.mul(cs, x_n.clone())?.0;
     let z_n_3 = z_n_2.mul(cs, z_n.clone())?.0;
 
-    let mut cnst = <<E::G1Affine as CurveAffine>::Base>::one();
+    let mut cnst = <<E::G1Affine as GenericCurveAffine>::Base>::one();
     cnst.double();
     cnst.double();
     let cnst_4 = FieldElement::new_constant(cnst, params);
@@ -110,7 +110,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperWithFlag<'a, E> {
     fn alloc<CS: ConstraintSystem<E>, AD: AuxData<E>>(
         cs: &mut CS,
         value: Option<E::G1Affine>,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
         aux_data: &AD,
     ) -> Result<Self, SynthesisError> 
     {
@@ -146,7 +146,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperWithFlag<'a, E> {
     fn alloc_unchecked<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         value: Option<E::G1Affine>,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
     ) -> Result<Self, SynthesisError> 
     {
         let mut point = AffinePoint::alloc(cs, value, params)?;
@@ -167,7 +167,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperWithFlag<'a, E> {
     }
 
     fn zero(
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>
+        params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>
     ) -> Self
     {
         let is_zero = Boolean::constant(true);
@@ -181,7 +181,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperWithFlag<'a, E> {
 
     fn constant(
         value: E::G1Affine,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>
+        params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>
     ) -> Self {
         let is_zero = Boolean::constant(value.is_zero());
         let point = AffinePoint::constant(value, params);
@@ -196,7 +196,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperWithFlag<'a, E> {
         &self,
         cs: &mut CS,
         other: &Self,
-        _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        _params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
     ) -> Result<Boolean, SynthesisError> 
     {
         let pt_check = self.point.equals(cs, &other.point)?;
@@ -209,7 +209,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperWithFlag<'a, E> {
         &mut self,
         cs: &mut CS,
         other: &mut Self,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
     ) -> Result<Self, SynthesisError> {
         
         // assume we have points A with coordinates (x_1, y_1) and point B with cooridnates (x_2, y_2)
@@ -262,7 +262,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperWithFlag<'a, E> {
         &mut self,
         cs: &mut CS,
         other: &mut Self,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
     ) -> Result<Self, SynthesisError> {
 
         // assume we have points A with coordinates (x_1, y_1) and point B with cooridnates (x_2, y_2)
@@ -315,7 +315,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperWithFlag<'a, E> {
     fn double<CS: ConstraintSystem<E>>(
         &mut self,
         cs: &mut CS,
-        _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        _params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
     ) -> Result<Self, SynthesisError> {
         
         //  A == O ----(true)---- A
@@ -338,7 +338,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperWithFlag<'a, E> {
     fn negate<CS: ConstraintSystem<E>>(
         &mut self,
         cs: &mut CS,
-        _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        _params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
     ) -> Result<Self, SynthesisError> {
 
         // cloning is inevitable: again it's only RUST, and not powerful C++
@@ -392,7 +392,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperWithFlag<'a, E> {
     fn is_on_curve<CS: ConstraintSystem<E>, AD: AuxData<E>>(
         &self,
         cs: &mut CS,
-        params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
         aux_data: &AD,
     ) -> Result<Boolean, SynthesisError> {
 
@@ -418,7 +418,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperWithFlag<'a, E> {
     fn subgroup_check<CS: ConstraintSystem<E>, AD: AuxData<E>>(
         &self,
         cs: &mut CS,
-        params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
         aux_data: &AD,
     ) -> Result<Boolean, SynthesisError> {
         
@@ -508,7 +508,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperWithFlag<'a, E> {
         cs: &mut CS,
         scalar: &AllocatedNum::<E>,
         bit_limit: Option<usize>,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
         aux_data: &AD,
     ) -> Result<Self, SynthesisError> 
     {
@@ -534,7 +534,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperWithFlag<'a, E> {
         scalars: &[AllocatedNum::<E>],
         points: &[Self],
         bit_limit: Option<usize>,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
         aux_data: &AD,
     ) -> Result<Self, SynthesisError> 
     {
@@ -550,7 +550,7 @@ impl<'a, E: Engine> WrapperWithFlag<'a, E> {
         scalars: &[AllocatedNum::<E>],
         points: &[Self],
         bit_limit: Option<usize>,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
         aux_data: &AD,
     ) -> Result<Self, SynthesisError> 
     {
@@ -568,7 +568,7 @@ impl<'a, E: Engine> WrapperWithFlag<'a, E> {
         cs: &mut CS,
         scalar: &AllocatedNum::<E>,
         bit_limit: Option<usize>,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
         Q: &E::G1Affine,
     ) -> Result<Self, SynthesisError> 
     {

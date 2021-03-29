@@ -1,7 +1,7 @@
 use crate::bellman::pairing::{
     Engine,
-    CurveAffine,
-    CurveProjective
+    GenericCurveAffine,
+    GenericCurveProjective
 };
 
 use crate::bellman::pairing::ff::{
@@ -29,7 +29,7 @@ use crate::plonk::circuit::bigint::bigint::*;
 #[derive(Clone, Debug)]
 pub struct EndomorphismParameters<E: Engine> {
     pub lambda: E::Fr,
-    pub beta_g1: <<E as Engine>::G1Affine as CurveAffine>::Base,
+    pub beta_g1: <<E as Engine>::G1Affine as GenericCurveAffine>::Base,
     pub a1: BigUint,
     pub a2: BigUint,
     pub minus_b1: BigUint,
