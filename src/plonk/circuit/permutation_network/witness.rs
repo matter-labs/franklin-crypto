@@ -13,15 +13,15 @@ impl AsWaksmanTopology {
     pub fn new(size: usize) -> Self {
         assert!(size > 1, "don't make strange moves");
 
-        let num_colunms = Self::num_colunms(size);
+        let num_columns = Self::num_columns(size);
 
         // make the grid
-        let mut topology = vec![vec![(EMPTY_STATE, EMPTY_STATE); size]; num_colunms];
+        let mut topology = vec![vec![(EMPTY_STATE, EMPTY_STATE); size]; num_columns];
 
         let destinations: Vec<usize> = (0..size).collect();
 
         // recursively iterate and construct the topology
-        Self::construct_inner(0, num_colunms-1, 0, size-1, &destinations, &mut topology);
+        Self::construct_inner(0, num_columns-1, 0, size-1, &destinations, &mut topology);
 
         Self {
             topology,
@@ -46,7 +46,7 @@ impl AsWaksmanTopology {
         let rows_to_generate = high - low + 1;
         assert_eq!(destinations.len(), rows_to_generate);
 
-        let columns_to_generate = Self::num_colunms(rows_to_generate);
+        let columns_to_generate = Self::num_columns(rows_to_generate);
         let num_columns = right - left + 1;
         assert!(num_columns >= columns_to_generate);
 
@@ -130,17 +130,16 @@ impl AsWaksmanTopology {
         }
     }
 
-    pub(crate) fn num_colunms(size: usize) -> usize {
+    pub(crate) fn num_columns(size: usize) -> usize {
         if size <= 1 {
             return 0;
         }
 
-        let as_float = f64::from(size as u32);
+        let next_power_of_two = size.next_power_of_two();
+        let log_2 = next_power_of_two.trailing_zeros();
+        let num_columns = log_2 as usize;
 
-        let ceil = as_float.log(2.0).ceil();
-        let num_colunms = ceil as usize;
-
-        2*num_colunms - 1
+        2*num_columns - 1
     }
 
     fn calculate_in_out_index(
@@ -283,7 +282,7 @@ pub struct AsWaksmanRoute {
 impl AsWaksmanRoute {
     pub fn new(permutation: &IntegerPermutation) -> Self {
         let size = permutation.size();
-        let num_columns = AsWaksmanTopology::num_colunms(size);
+        let num_columns = AsWaksmanTopology::num_columns(size);
         let empty_assignment: std::collections::HashMap<usize, bool> = std::collections::HashMap::new();
         let mut assignments = vec![empty_assignment; num_columns];
 
@@ -335,7 +334,7 @@ impl AsWaksmanRoute {
         }
 
         let rows_to_generate = high - low + 1;
-        let columns_to_generate = AsWaksmanTopology::num_colunms(rows_to_generate);
+        let columns_to_generate = AsWaksmanTopology::num_columns(rows_to_generate);
         let num_columns = right - left + 1;
         assert!(num_columns >= columns_to_generate);
 
@@ -557,7 +556,7 @@ impl AsWaksmanRoute {
                                         routing: &Self) -> bool 
     {
         let size = permutation.size();
-        let num_columns = AsWaksmanTopology::num_colunms(size);
+        let num_columns = AsWaksmanTopology::num_columns(size);
         let topology = AsWaksmanTopology::new(size);
 
         let mut current_perm = IntegerPermutation::new(size);
@@ -647,7 +646,7 @@ impl AsWaksmanRoute {
     // that were supplied to the router
     fn calculate_permutation(&self) -> IntegerPermutation 
     {
-        let num_columns = AsWaksmanTopology::num_colunms(self.size);
+        let num_columns = AsWaksmanTopology::num_columns(self.size);
         let topology = AsWaksmanTopology::new(self.size);
 
         let mut permutation = IntegerPermutation::new(self.size);

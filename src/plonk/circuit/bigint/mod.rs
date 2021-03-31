@@ -43,6 +43,9 @@ pub mod range_constraint_functions;
 pub mod range_constraint_with_two_bit_gate;
 pub mod single_table_range_constraint;
 
+pub use self::bigint::*;
+pub use self::field::*;
+
 use self::range_constraint_gate::TwoBitDecompositionRangecheckCustomGate;
 
 // dummy for now, will address later based on either lookup/range check or trivial

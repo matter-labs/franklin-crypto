@@ -51,14 +51,14 @@ pub const ETH_BLOCK_10_000_000_HASH: &'static str
 /// DST constant for multiexp function
 pub const MULTIEXP_DST: &'static [u8; 8]  = b"Multiexp";
   
-use crate::bellman::pairing::{Engine, CurveProjective};
+use crate::bellman::pairing::{Engine, GenericCurveAffine, GenericCurveProjective};
 use crate::byteorder::{BigEndian, ReadBytesExt};
   
-pub fn make_random_points_with_unknown_discrete_log_from_seed<E: Engine>(
+pub fn make_random_points_with_unknown_discrete_log_from_seed<G: GenericCurveProjective + rand::Rand>(
     dst: &[u8],
     seed: &[u8],
     num_points: usize
-) -> Vec<E::G1Affine> {
+) -> Vec<G::Affine> {
     let mut result = vec![];
 
     use rand::{Rng, SeedableRng};
@@ -78,7 +78,7 @@ pub fn make_random_points_with_unknown_discrete_log_from_seed<E: Engine>(
     };
 
     for _ in 0..num_points {
-        let point: E::G1 = rng.gen();
+        let point: G = rng.gen();
 
         result.push(point.into_affine());
     }
@@ -90,7 +90,18 @@ pub fn make_random_points_with_unknown_discrete_log<E: Engine>(
     dst: &[u8],
     num_points: usize
 ) -> Vec<E::G1Affine> {
-    make_random_points_with_unknown_discrete_log_from_seed::<E>(
+    make_random_points_with_unknown_discrete_log_from_seed::<E::G1>(
+        dst, 
+        &hex::decode(crate::constants::ETH_BLOCK_10_000_000_HASH).unwrap(),
+        num_points
+    )
+}
+
+pub fn make_random_points_with_unknown_discrete_log_generic<G: GenericCurveProjective + rand::Rand>(
+    dst: &[u8],
+    num_points: usize
+) -> Vec<G::Affine> {
+    make_random_points_with_unknown_discrete_log_from_seed::<G>(
         dst, 
         &hex::decode(crate::constants::ETH_BLOCK_10_000_000_HASH).unwrap(),
         num_points
