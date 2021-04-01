@@ -57,7 +57,7 @@ impl<E: Engine> ExtendedBaseConverterTable<E> {
                 tmp
             });
 
-            let mut chunk_count = (num_chunks - coefs.iter().take_while(|x| **x == 0).count()) as u64;
+            let chunk_count = (num_chunks - coefs.iter().take_while(|x| **x == 0).count()) as u64;
             let chunk_count_fr = u64_to_ff(transform_counter(chunk_count));
 
             keys_vec.push(key);
@@ -159,7 +159,7 @@ impl<E: Engine> OverflowCognizantConverterTable<E> {
     {
         let table_size = (base_b * (base_b+1)/2) as usize;
         let mut keys_vec = Vec::with_capacity(table_size);
-        let mut zero_vec = vec![E::Fr::zero(); table_size];
+        let zero_vec = vec![E::Fr::zero(); table_size];
         let mut values_vec = Vec::with_capacity(table_size);
         let mut map = std::collections::HashMap::with_capacity(table_size);
 

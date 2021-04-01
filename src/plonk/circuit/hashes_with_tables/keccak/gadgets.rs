@@ -21,6 +21,7 @@ use super::tables::*;
 use super::utils::*;
 use super::super::utils::*;
 use super::super::tables::*;
+use super::super::{NumExtension, AllocatedNumExtension};
 
 use std::sync::Arc;
 use std::collections::HashMap;
@@ -366,7 +367,7 @@ impl<E: Engine> KeccakGadget<E> {
 
         cs.apply_single_lookup_gate(&vars[..table.width()], table.clone())?;
     
-        let mut gate_term = MainGateTerm::new();
+        let gate_term = MainGateTerm::new();
         let (_, mut gate_coefs) = CS::MainGate::format_term(gate_term, dummy)?;
 
         for (idx, coef) in range_of_linear_terms.zip(coeffs.iter()) {
@@ -405,7 +406,7 @@ impl<E: Engine> KeccakGadget<E> {
         let mut iter_n = 0;
         let mut special_chunk = 0;
 
-        for (is_first, is_last, i) in (0..(KECCAK_LANE_WIDTH + 1)).identify_first_last() {
+        for (is_first, is_last, _i) in (0..(KECCAK_LANE_WIDTH + 1)).identify_first_last() {
             let remainder = (input.clone() % BigUint::from(KECCAK_FIRST_SPARSE_BASE)).to_u64().unwrap();
             if is_first || is_last {
                 special_chunk += remainder;
@@ -514,7 +515,7 @@ impl<E: Engine> KeccakGadget<E> {
                     output_slices.push(output);
                 }
                 
-                let mut output_total = AllocatedNum::alloc(cs, || {
+                let output_total = AllocatedNum::alloc(cs, || {
                     let fr = var.get_value().grab()?;
                     Ok(func_normalizer(fr, BINARY_BASE, output_base, |x| { x }))
                 })?;
@@ -564,7 +565,7 @@ impl<E: Engine> KeccakGadget<E> {
 
         cs.apply_single_lookup_gate(&vars[..table.width()], table.clone())?;
     
-        let mut gate_term = MainGateTerm::new();
+        let gate_term = MainGateTerm::new();
         let (_, mut gate_coefs) = CS::MainGate::format_term(gate_term, dummy.get_variable())?;
 
         for (idx, coef) in range_of_linear_terms.zip(coeffs.iter()) {
@@ -670,7 +671,7 @@ impl<E: Engine> KeccakGadget<E> {
             let last_chunk_low_value = if has_value {
                 let divider = KECCAK_FIRST_SPARSE_BASE;
                 let remainder = (raw_value.clone() % BigUint::from(divider)).to_u64().unwrap();
-                let mut new_val = u64_to_ff(remainder);
+                let new_val = u64_to_ff(remainder);
                 raw_value /= divider;
                 new_val
             }
@@ -749,7 +750,7 @@ impl<E: Engine> KeccakGadget<E> {
             let last_chunk_high_value = if has_value {
                 let divider = KECCAK_FIRST_SPARSE_BASE;
                 let remainder = (raw_value.clone() % BigUint::from(divider)).to_u64().unwrap();
-                let mut new_val = u64_to_ff(remainder);
+                let new_val = u64_to_ff(remainder);
                 raw_value /= divider;
                 assert!(raw_value.is_zero());
                 new_val
@@ -805,7 +806,7 @@ impl<E: Engine> KeccakGadget<E> {
         }
         
         let mut new_state = KeccakState::default();
-        let mut iter_count = 0;
+        let iter_count = 0;
         let coeffs = [u64_to_ff(2), E::Fr::one(), u64_to_ff(3), u64_to_ff(2)];
         let mut squeezed = Vec::with_capacity(elems_to_squeeze);
         
@@ -813,15 +814,15 @@ impl<E: Engine> KeccakGadget<E> {
         let num_slices = round_up(KECCAK_LANE_WIDTH, num_of_chunks);
                     
         let input_slice_modulus = pow(KECCAK_SECOND_SPARSE_BASE as usize, num_of_chunks);
-        let output1_slice_modulus = pow(KECCAK_FIRST_SPARSE_BASE as usize, num_of_chunks);
-        let output2_slice_modulus = pow(BINARY_BASE as usize, num_of_chunks);
+        //let output1_slice_modulus = pow(KECCAK_FIRST_SPARSE_BASE as usize, num_of_chunks);
+        //let output2_slice_modulus = pow(BINARY_BASE as usize, num_of_chunks);
 
         let input_slice_modulus_fr = u64_exp_to_ff(KECCAK_SECOND_SPARSE_BASE, num_of_chunks as u64);
         let output1_slice_modulus_fr = u64_exp_to_ff(KECCAK_FIRST_SPARSE_BASE, num_of_chunks as u64);
         let output2_slice_modulus_fr = u64_exp_to_ff(BINARY_BASE, num_of_chunks as u64);
 
-        let dummy = AllocatedNum::zero(cs);
-        let next_row_coef_idx = CS::MainGate::range_of_next_step_linear_terms().last().unwrap();
+        //let dummy = AllocatedNum::zero(cs);
+        //let next_row_coef_idx = CS::MainGate::range_of_next_step_linear_terms().last().unwrap();
         let mut minus_one = E::Fr::one();
         minus_one.negate();
 
@@ -908,7 +909,7 @@ impl<E: Engine> KeccakGadget<E> {
             }
 
             if !is_final {
-                let mut output1_total = AllocatedNum::alloc(cs, || {
+                let output1_total = AllocatedNum::alloc(cs, || {
                     let fr = var.get_value().grab()?;
                     Ok(keccak_ff_second_converter(fr, KECCAK_FIRST_SPARSE_BASE))
                 })?;
@@ -918,7 +919,7 @@ impl<E: Engine> KeccakGadget<E> {
             }
 
             if iter_count < elems_to_squeeze {
-                let mut output2_total = AllocatedNum::alloc(cs, || {
+                let output2_total = AllocatedNum::alloc(cs, || {
                     let fr = var.get_value().grab()?;
                     Ok(keccak_ff_second_converter(fr, BINARY_BASE))
                 })?;
@@ -995,7 +996,7 @@ impl<E: Engine> KeccakGadget<E> {
             let elems_to_squeeze = std::cmp::min(self.digest_size - res.len(), KECCAK_RATE_WORDS_SIZE);
             let is_final = res.len() + KECCAK_RATE_WORDS_SIZE >= self.digest_size;
 
-            let (new_state, mut squeezed) = self.keccak_f(cs, state, elems_to_squeeze, None, is_final)?;
+            let (new_state, squeezed) = self.keccak_f(cs, state, elems_to_squeeze, None, is_final)?;
             state = new_state;
             res.extend(squeezed.unwrap().into_iter());
         }
