@@ -30,6 +30,10 @@ impl<E: Engine> Byte<E> {
         }
     }
 
+    pub fn zero() -> Self {
+        Self {inner: Num::Constant(E::Fr::zero())}
+    }
+
     pub fn into_num(&self) -> Num<E> {
         self.inner.clone()
     }

@@ -551,6 +551,10 @@ impl Boolean {
         }
     }
 
+    pub fn zero() -> Self {
+        Boolean::Constant(false)
+    }
+
     pub fn get_variable(&self) -> Option<&AllocatedBit> {
         match *self {
             Boolean::Is(ref v) => Some(v),

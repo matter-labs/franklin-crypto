@@ -6,6 +6,23 @@ use crate::num_traits::{ Zero, One };
 use std::{ iter, mem };
 
 
+// for given x=(x_0, x_1, ..., x_n) extract the k lower bits: y = (x_0, x_1, ..., x_{k-1}, 0, ..., 0)
+// and then rotate
+// NOTE: by rotate we always mean right rotate of 32-bit numbers!
+pub fn rotate_extract(value: usize, rotation: usize, extraction: usize) -> usize
+{
+    let temp = if extraction > 0 {value & ((1 << extraction) - 1)} else {value}; 
+    let res = if rotation > 0 {(temp >> rotation) + ((temp << (32 - rotation)) & 0xffffffff) } else {temp};
+
+    res
+}
+
+pub fn shift_right(value: usize, shift: usize) -> usize
+{
+    if shift > 0 {value >> shift} else {value}
+}
+
+
 pub fn pow(base: usize, exp: usize) -> usize {
 
     let mut res = 1;
@@ -33,14 +50,14 @@ pub fn u64_to_ff<Fr: PrimeField>(n: u64) -> Fr {
 }
 
 pub fn u64_exp_to_ff<Fr: PrimeField>(n: u64, exp: u64) -> Fr {
+    if exp == 0 {
+        return Fr::one();
+    }
+
     let mut repr : <Fr as PrimeField>::Repr = Fr::zero().into_repr();
     repr.as_mut()[0] = n;
     let mut res = Fr::from_repr(repr).expect("should parse");
-
-    if exp != 0 {
-        res = res.pow(&[exp]);
-    }
-    res
+    res.pow(&[exp])
 }
 
 pub fn ff_to_u64<Fr: PrimeField>(fr: &Fr) -> u64 {
@@ -128,8 +145,32 @@ pub fn general_normalizer<Fr: PrimeField>(fr : Fr, bit_table: &[u64], base: u64)
 
     let mut repr : <Fr as PrimeField>::Repr = Fr::zero().into_repr();
     repr.as_mut()[0] = acc;
-    let res = Fr::from_repr(repr).expect("should parse");
+    let mut res = Fr::from_repr(repr).expect("should parse");
 
+    res
+}
+
+pub fn func_normalizer<Fr: PrimeField, T: Fn(u64) -> u64>(fr : Fr, input_base: u64, output_base: u64, transform_f: T) -> Fr
+{
+    let mut input = BigUint::default();
+    let fr_repr = fr.into_repr();
+    for n in fr_repr.as_ref().iter().rev() {
+        input <<= 64;
+        input += *n;
+    }
+
+    let mut acc = BigUint::default(); 
+    let mut base = BigUint::one();
+ 
+    while !input.is_zero() {
+        let remainder = (input.clone() % BigUint::from(input_base)).to_u64().unwrap();
+        let output_chunk = transform_f(remainder);
+        acc += output_chunk * base.clone();
+        input /= input_base;
+        base *= output_base;
+    }
+
+    let res = Fr::from_str(&acc.to_str_radix(10)).expect("should parse");
     res
 }
 
