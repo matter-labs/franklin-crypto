@@ -305,6 +305,7 @@ pub trait TwistedEdwardsCurveParams<E: Engine>: Clone {
     fn param_d(&self) -> E::Fr;
     fn param_a(&self) -> E::Fr;
     fn generator(&self) -> TwistedEdwardsPoint<E>;
+    fn log_2_cofactor(&self) -> usize;
 }
 
 pub struct TwistedEdwardsCurveImplementor<E: Engine, C: TwistedEdwardsCurveParams<E>> {
@@ -469,12 +470,13 @@ pub struct GenericTwistedEdwardsCurveParams<E: Engine> {
     pub param_d: E::Fr,
     pub param_a: E::Fr,
     pub generator: TwistedEdwardsPoint<E>,
+    pub log_2_cofactor: usize,
 }
 
 impl<E: Engine> Copy for GenericTwistedEdwardsCurveParams<E> {}
 
 impl<E: Engine> GenericTwistedEdwardsCurveParams<E> {
-    pub fn new(d: E::Fr, a: E::Fr, generator: TwistedEdwardsPoint<E>) -> Self {
+    pub fn new(d: E::Fr, a: E::Fr, generator: TwistedEdwardsPoint<E>, log_2_cofactor: usize) -> Self {
         let mut minus_one = E::Fr::one();
         minus_one.negate();
         
@@ -484,7 +486,8 @@ impl<E: Engine> GenericTwistedEdwardsCurveParams<E> {
             param_d: d,
             param_a: a,
             is_param_a_equals_minus_one,
-            generator
+            generator,
+            log_2_cofactor
         }
     }
 }

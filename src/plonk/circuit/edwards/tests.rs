@@ -1,5 +1,6 @@
 mod tests {
-    use super::super::{jubjub::CircuitAltJubjub, edwards::{EdwardsCurve, EdwardsPoint}};
+    use super::super::edwards::*;
+    use super::super::bn256::*;
     use crate::bellman::plonk::better_better_cs::cs::{
         PlonkCsWidth4WithNextStepAndCustomGatesParams, TrivialAssembly, Width4MainGateWithDNext,
     };
@@ -30,7 +31,7 @@ mod tests {
             let (p_x, p_y) = p.into_xy();
             let p_x_num = Num::Variable(AllocatedNum::alloc(&mut cs, || Ok(p_x)).unwrap());
             let p_y_num = Num::Variable(AllocatedNum::alloc(&mut cs, || Ok(p_y)).unwrap());
-            let p_allocated = EdwardsPoint {
+            let p_allocated = CircuitTwistedEdwardsPoint {
                 x: p_x_num,
                 y: p_y_num,
             };
@@ -39,7 +40,7 @@ mod tests {
             let (q_x, q_y) = q.into_xy();
             let q_x_num = Num::Variable(AllocatedNum::alloc(&mut cs, || Ok(q_x)).unwrap());
             let q_y_num = Num::Variable(AllocatedNum::alloc(&mut cs, || Ok(q_y)).unwrap());
-            let q_allocated = EdwardsPoint {
+            let q_allocated = CircuitTwistedEdwardsPoint {
                 x: q_x_num,
                 y: q_y_num,
             };
@@ -47,7 +48,7 @@ mod tests {
             let expected = p.add(&q, &params);
             let (expected_x, expected_y) = expected.into_xy();
 
-            let curve = CircuitAltJubjub::new();
+            let curve = CircuitAltBabyJubjubBn256::get_implementor();
             let result = curve.add(&mut cs, &p_allocated, &q_allocated).unwrap();
 
             assert!(cs.is_satisfied());
@@ -84,12 +85,12 @@ mod tests {
 
             let p_x_num = Num::Variable(AllocatedNum::alloc(&mut cs, || Ok(p_x)).unwrap());
             let p_y_num = Num::Variable(AllocatedNum::alloc(&mut cs, || Ok(p_y)).unwrap());
-            let p_allocated = EdwardsPoint {
+            let p_allocated = CircuitTwistedEdwardsPoint {
                 x: p_x_num,
                 y: p_y_num,
             };
 
-            let curve = CircuitAltJubjub::new();
+            let curve = CircuitAltBabyJubjubBn256::get_implementor();
             let result = curve.double(&mut cs, &p_allocated).unwrap();
 
             assert!(cs.is_satisfied());
@@ -124,7 +125,7 @@ mod tests {
 
             let p_x_num = Num::Variable(AllocatedNum::alloc(&mut cs, || Ok(p_x)).unwrap());
             let p_y_num = Num::Variable(AllocatedNum::alloc(&mut cs, || Ok(p_y)).unwrap());
-            let p_allocated = EdwardsPoint {
+            let p_allocated = CircuitTwistedEdwardsPoint {
                 x: p_x_num,
                 y: p_y_num,
             };
@@ -145,7 +146,7 @@ mod tests {
             let expected = p.mul(s, &params);
             let (expected_x, expected_y) = expected.into_xy();
 
-            let curve = CircuitAltJubjub::new();
+            let curve = CircuitAltBabyJubjubBn256::get_implementor();
             let result = curve.mul(&mut cs, &p_allocated, &s_bits).unwrap();
 
             assert!(cs.is_satisfied());
@@ -181,13 +182,13 @@ mod tests {
 
             let p_x_num = Num::Variable(AllocatedNum::alloc(&mut cs, || Ok(p_x)).unwrap());
             let p_y_num = Num::Variable(AllocatedNum::alloc(&mut cs, || Ok(p_y)).unwrap());
-            let p_allocated = EdwardsPoint {
+            let p_allocated = CircuitTwistedEdwardsPoint {
                 x: p_x_num,
                 y: p_y_num,
             };
 
-            let curve = CircuitAltJubjub::new();
-            let result = curve.is_on_curve(&mut cs, &p_x_num, &p_y_num).unwrap();
+            let curve = CircuitAltBabyJubjubBn256::get_implementor();
+            let result = curve.from_xy_assert_on_curve(&mut cs, &p_x_num, &p_y_num).unwrap();
 
             assert!(cs.is_satisfied());
 
@@ -208,7 +209,7 @@ mod tests {
 
         //     let p_x_num = Num::Variable(AllocatedNum::alloc(&mut cs, || Ok(p_x)).unwrap());
         //     let p_y_num = Num::Variable(AllocatedNum::alloc(&mut cs, || Ok(p_y)).unwrap());
-        //     let p_allocated = EdwardsPoint {
+        //     let p_allocated = CircuitTwistedEdwardsPoint {
         //         x: p_x_num,
         //         y: p_y_num,
         //     };
@@ -261,7 +262,7 @@ mod tests {
                 .map(|v| Boolean::from(v))
                 .collect::<Vec<_>>();
 
-            let curve = CircuitAltJubjub::new();
+            let curve = CircuitAltBabyJubjubBn256::get_implementor();
             let result = curve.mul_by_generator(&mut cs, &s_bits).unwrap();
 
             let actual_x = result.x.get_variable().get_value().unwrap();

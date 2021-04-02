@@ -26,6 +26,9 @@ impl TwistedEdwardsCurveParams<Bn256> for AltBabyJubjubParams {
     fn generator(&self) -> TwistedEdwardsPoint<Bn256> {
         self.curve_params.generator
     }
+    fn log_2_cofactor(&self) -> usize {
+        self.curve_params.log_2_cofactor
+    }
 }
 
 pub struct AltBabyJubjubBn256;
@@ -56,6 +59,8 @@ impl AltBabyJubjubParams {
         )
         .expect("field element");
 
+        let log_2_cofactor = 3; // h = 8
+
         let mut generator_t = generator_x.clone();
         generator_t.mul_assign(&generator_y);
 
@@ -66,7 +71,7 @@ impl AltBabyJubjubParams {
             z: <Bn256 as ScalarEngine>::Fr::one(),
         };
         Self {
-            curve_params: GenericTwistedEdwardsCurveParams::new(d, a, generator),
+            curve_params: GenericTwistedEdwardsCurveParams::new(d, a, generator, log_2_cofactor),
         }
     }
 }

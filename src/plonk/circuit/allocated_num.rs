@@ -654,6 +654,77 @@ impl<E: Engine> Num<E> {
         }
     }
 
+    pub fn assert_not_zero<CS>(
+        &self,
+        cs: &mut CS,
+    ) -> Result<(), SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        match self {
+            Num::Constant(c) => {
+                assert!(!c.is_zero());
+            },
+            Num::Variable(var) => {
+                var.assert_not_zero(cs)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn inverse<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS
+    ) -> Result<Self, SynthesisError> {
+        match self {
+            Num::Constant(c) => {
+                assert!(!c.is_zero());
+                Ok(Num::Constant(c.inverse().expect("inverse must exist")))
+            },
+            Num::Variable(var) => {
+                let result = var.inverse(cs)?;
+
+                Ok(Num::Variable(result))
+            }
+        }
+    }
+
+    pub fn div<CS>(
+        &self,
+        cs: &mut CS,
+        other: &Self
+    ) -> Result<Self, SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        match (self, other) {
+            (Num::Constant(a), Num::Constant(b)) => {
+                let b_inv = b.inverse().expect("inverse must exist");
+
+                let mut result = *a;
+                result.mul_assign(&b_inv);
+
+                Ok(Num::Constant(result))
+            },
+            (Num::Variable(a), Num::Variable(b)) => {
+                let result =  a.div(cs, b)?;
+
+                Ok(Num::Variable(result))
+            },
+            (Num::Variable(a), Num::Constant(b)) => {
+                let b_inv = b.inverse().expect("inverse must exist");
+                let result = Num::Variable(*a).mul(cs, &Num::Constant(b_inv))?;
+
+                Ok(result)
+            },
+            (Num::Constant(a), Num::Variable(b)) => {
+                let b_inv = b.inverse(cs)?;
+                let result = Num::Variable(b_inv).mul(cs, &Num::Constant(*a))?;
+
+                Ok(result)
+            }
+        }
+    }
+
     pub fn mask<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         a: &Self,
@@ -1125,9 +1196,13 @@ impl<E: Engine> AllocatedNum<E> {
             }
         )?;
 
-        let r = self.mul(cs, &new_allocated)?;
+        let self_by_inv = ArithmeticTerm::from_variable(self.variable).mul_by_variable(new_allocated.variable);
+        let constant_term = ArithmeticTerm::constant(E::Fr::one());
+        let mut term = MainGateTerm::new();
+        term.add_assign(self_by_inv);
+        term.sub_assign(constant_term);
 
-        r.assert_equal_to_constant(cs, E::Fr::one())?;
+        cs.allocate_main_gate(term)?;
 
         Ok(new_allocated)
     }
