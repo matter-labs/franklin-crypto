@@ -131,7 +131,7 @@ pub trait JubjubParams<E: JubjubEngine>: Sized {
     fn generator(&self, base: FixedGenerators) -> &edwards::Point<E, PrimeOrder>;
     /// Returns a window table [0, 1, ..., 8] for different magnitudes of some
     /// fixed generator.
-    fn circuit_generators(&self, FixedGenerators) -> &[Vec<(E::Fr, E::Fr)>];
+    fn circuit_generators(&self, base: FixedGenerators) -> &[Vec<(E::Fr, E::Fr)>];
     /// Returns the window size for exponentiation of Pedersen hash generators
     /// outside the circuit
     fn pedersen_hash_exp_window_size(&self) -> u32;

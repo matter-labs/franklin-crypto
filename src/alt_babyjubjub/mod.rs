@@ -71,6 +71,7 @@ pub use super::jubjub::{
 
 /// This is an implementation of the scalar field for Jubjub.
 pub mod fs;
+pub mod v2;
 
 #[cfg(test)]
 pub mod tests;
