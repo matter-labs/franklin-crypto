@@ -32,7 +32,7 @@ use crate::bellman::plonk::better_better_cs::cs::{
     TrivialAssembly
 };
 
-use crate::circuit::Assignment;
+use crate::plonk::circuit::Assignment;
 
 use super::allocated_num::*;
 
@@ -239,7 +239,7 @@ pub fn create_range_constraint_chain<E: Engine, CS: ConstraintSystem<E>>(
 
         let four = Some(four);
 
-        use crate::circuit::SomeField;
+        use crate::plonk::circuit::SomeField;
 
         let mut previous_value = to_constraint.get_value();
 

@@ -21,9 +21,7 @@ use crate::bellman::plonk::better_better_cs::cs::{
     PlonkConstraintSystemParams
 };
 
-use crate::circuit::{
-    Assignment
-};
+use crate::plonk::circuit::Assignment;
 
 use super::boolean::{
     Boolean

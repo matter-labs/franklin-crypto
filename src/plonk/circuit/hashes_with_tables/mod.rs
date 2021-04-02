@@ -15,9 +15,8 @@ use crate::plonk::circuit::allocated_num::{
     Num,
     STATE_WIDTH
 };
-use crate::circuit::{
-    Assignment
-};
+use crate::plonk::circuit::Assignment;
+
 use std::iter;
 
 

@@ -35,7 +35,7 @@ use crate::bellman::plonk::better_better_cs::cs::{
 use crate::bellman::plonk::better_better_cs::data_structures::PolyIdentifier;
 use crate::bellman::plonk::better_better_cs::lookup_tables::*;
 
-use crate::circuit::Assignment;
+use crate::plonk::circuit::Assignment;
 use super::*;
 use super::bigint::*;
 

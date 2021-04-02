@@ -41,6 +41,6 @@ blake2s_simd = { version = "0.5" }
 hex = "0.4"
 
 [dev-dependencies]
-hex-literal = "0.1"
+hex-literal = "0.3"
 
 

@@ -20,9 +20,7 @@ use crate::bellman::plonk::better_better_cs::cs::{
     MainGateTerm
 };
 
-use crate::circuit::{
-    Assignment
-};
+use crate::plonk::circuit::Assignment;
 
 use super::allocated_num::{
     AllocatedNum,

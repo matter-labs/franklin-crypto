@@ -35,7 +35,7 @@ use crate::bellman::plonk::better_better_cs::cs::{
     PlonkCsWidth4WithNextStepParams,
 };
 
-use crate::circuit::Assignment;
+use crate::plonk::circuit::Assignment;
 
 use super::super::allocated_num::{AllocatedNum, Num};
 use super::super::linear_combination::LinearCombination;

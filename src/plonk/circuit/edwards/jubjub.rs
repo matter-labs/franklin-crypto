@@ -1,8 +1,8 @@
-use super::edwards::{EdwardsCurve, EdwardsPoint};
+use super::edwards::{CircuitTwistedEdwardsCurve, CircuitTwistedEdwardsPoint};
 use crate::bellman::plonk::better_better_cs::cs::ConstraintSystem;
-use crate::alt_babyjubjub::v2::edwards::TwistedEdwardsPoint;
+use crate::generic_twisted_edwards::edwards::TwistedEdwardsPoint;
 use crate::bellman::{Engine, Field, PrimeField, SqrtField, SynthesisError};
-use crate::circuit::Assignment;
+use crate::plonk::circuit::Assignment;
 use crate::plonk::circuit::allocated_num::{AllocatedNum, Num};
 use crate::plonk::circuit::boolean::Boolean;
 

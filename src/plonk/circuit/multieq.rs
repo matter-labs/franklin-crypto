@@ -30,9 +30,7 @@ use crate::bellman::plonk::better_better_cs::cs::{
 };
 
 
-use crate::circuit::{
-    Assignment
-};
+use crate::plonk::circuit::Assignment;
 
 use super::allocated_num::{
     AllocatedNum
@@ -117,4 +115,44 @@ impl<'a, E: Engine, CS: ConstraintSystem<E> + 'a> Drop for MultiEq<'a, E, CS> {
            self.accumulate();
         }
     }
+}
+
+
+pub fn bytes_to_bits(bytes: &[u8]) -> Vec<bool>
+{
+    bytes.iter()
+         .flat_map(|&v| (0..8).rev().map(move |i| (v >> i) & 1 == 1))
+         .collect()
+}
+
+pub fn bytes_to_bits_le(bytes: &[u8]) -> Vec<bool>
+{
+    bytes.iter()
+         .flat_map(|&v| (0..8).map(move |i| (v >> i) & 1 == 1))
+         .collect()
+}
+
+pub fn compute_multipacking<E: Engine>(
+    bits: &[bool]
+) -> Vec<E::Fr>
+{
+    let mut result = vec![];
+
+    for bits in bits.chunks(E::Fr::CAPACITY as usize)
+    {
+        let mut cur = E::Fr::zero();
+        let mut coeff = E::Fr::one();
+
+        for bit in bits {
+            if *bit {
+                cur.add_assign(&coeff);
+            }
+
+            coeff.double();
+        }
+
+        result.push(cur);
+    }
+
+    result
 }

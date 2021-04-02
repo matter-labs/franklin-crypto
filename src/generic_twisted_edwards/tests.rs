@@ -2,10 +2,9 @@ mod test {
     use super::*;
     use crate::alt_babyjubjub::edwards::Point;
     use crate::alt_babyjubjub::fs::Fs;
-    use crate::alt_babyjubjub::{
-        v2::{alt_babyjubjub::AltJubjub, edwards::TwistedEdwardsCurve},
-        AltJubjubBn256,
-    };
+    use crate::alt_babyjubjub::AltJubjubBn256;
+    use crate::generic_twisted_edwards::edwards::*;
+    use crate::generic_twisted_edwards::bn256::*;
     use crate::bellman::pairing::bn256::{Bn256, Fr};
     use bellman::ScalarEngine;
     use rand::{Rand, Rng, SeedableRng, XorShiftRng};
@@ -14,7 +13,7 @@ mod test {
     fn test_new_edwards_addition() {
         let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
-        let jubjub = AltJubjub::new();
+        let jubjub = AltBabyJubjubBn256::get_implementor();
         let jubjub_params = AltJubjubBn256::new();
 
         for _ in 0..10 {
@@ -48,7 +47,7 @@ mod test {
     fn test_new_edwards_doubling() {
         let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
-        let jubjub = AltJubjub::new();
+        let jubjub = AltBabyJubjubBn256::get_implementor();
         let jubjub_params = AltJubjubBn256::new();
 
         for _ in 0..10 {
@@ -79,7 +78,7 @@ mod test {
     fn test_new_edwards_mul_scalar() {
         let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
-        let jubjub = AltJubjub::new();
+        let jubjub = AltBabyJubjubBn256::get_implementor();
         let jubjub_params = AltJubjubBn256::new();
 
         for _ in 0..10 {
@@ -112,7 +111,7 @@ mod test {
     fn test_new_edwards_negate() {
         let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
-        let jubjub = AltJubjub::new();
+        let jubjub = AltBabyJubjubBn256::get_implementor();
         let jubjub_params = AltJubjubBn256::new();
 
         for _ in 0..10 {

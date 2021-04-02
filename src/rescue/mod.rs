@@ -123,11 +123,11 @@ impl<E: Engine>SBox<E> for InversionSBox<E> {
     }
 }
 
-use crate::circuit::rescue::CsSBox;
+use crate::plonk::circuit::rescue::PlonkCsSBox;
 
 pub trait RescueHashParams<E: Engine>: RescueParamsInternal<E> {
-    type SBox0: CsSBox<E>;
-    type SBox1: CsSBox<E>;
+    type SBox0: PlonkCsSBox<E>;
+    type SBox1: PlonkCsSBox<E>;
     fn capacity(&self) -> u32;
     fn rate(&self) -> u32;
     fn state_width(&self) -> u32 {

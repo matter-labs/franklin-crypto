@@ -7,7 +7,7 @@ use super::allocated_num::*;
 use super::linear_combination::*;
 use super::boolean::Boolean;
 use super::utils::*;
-use crate::circuit::Assignment;
+use crate::plonk::circuit::Assignment;
 
 use crate::bellman::plonk::better_better_cs::cs::{
     Variable, 

@@ -1,7 +1,7 @@
-use super::edwards::TwistedEdwardsCurve;
+use super::edwards::*;
 use bellman::{Engine, Field, PrimeField, PrimeFieldRepr};
 
-pub fn scalar_to_radix_16<E: Engine, C: TwistedEdwardsCurve<E>>(scalar: &C::Fs) -> [i8; 64] {
+pub fn scalar_to_radix_16<E: Engine, C: TwistedEdwardsCurveParams<E>>(scalar: &C::Fs) -> [i8; 64] {
     let mut buf = [0u8; 32];
 
     let repr = scalar.into_repr();

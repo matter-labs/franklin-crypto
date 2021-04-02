@@ -30,9 +30,7 @@ use crate::bellman::plonk::better_better_cs::cs::{
 };
 
 
-use crate::circuit::{
-    Assignment
-};
+use crate::plonk::circuit::Assignment;
 
 use super::allocated_num::{
     AllocatedNum
@@ -448,7 +446,7 @@ mod test {
 
     use bellman::pairing::bn256::{Bn256, Fr};
     use bellman::pairing::ff::{Field, PrimeField};
-    use ::circuit::test::*;
+    // use ::circuit::test::*;
 
     use crate::bellman::plonk::better_better_cs::cs::*;
 

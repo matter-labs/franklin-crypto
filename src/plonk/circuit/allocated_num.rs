@@ -26,9 +26,7 @@ use crate::bellman::plonk::better_better_cs::cs::{
 use super::boolean::{self, AllocatedBit, Boolean};
 use super::linear_combination::*;
 
-use crate::circuit::{
-    Assignment
-};
+use crate::plonk::circuit::Assignment;
 
 pub const STATE_WIDTH : usize = 4;
 

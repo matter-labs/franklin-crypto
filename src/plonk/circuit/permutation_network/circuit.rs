@@ -489,7 +489,6 @@ mod test {
     use rand::{XorShiftRng, SeedableRng, Rand, Rng};
     use bellman::pairing::bn256::{Bn256, Fr};
     use bellman::pairing::ff::{BitIterator, Field, PrimeField};
-    use ::circuit::test::*;
 
     use super::{AsWaksmanRoute, AsWaksmanTopology, IntegerPermutation, prove_shuffle};
 

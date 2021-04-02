@@ -124,7 +124,7 @@ impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> ProofGadget<'a, E, WP> {
         aux_data: &AD,
     ) -> Result<Self, SynthesisError> {
 
-        use crate::circuit::Assignment;
+        use crate::plonk::circuit::Assignment;
 
         let state_width = P::STATE_WIDTH;
         let num_quotient_commitments = P::STATE_WIDTH;

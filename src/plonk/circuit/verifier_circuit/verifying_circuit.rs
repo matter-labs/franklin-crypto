@@ -323,7 +323,7 @@ pub fn aggregate_proof<'a, E, CS, T, P, OldP, AD, WP>(
                             .zip(Some(E::Fr::one()).iter().chain(&vk.non_residues)).enumerate() 
             {
                 // tmp = non_res * z * beta + wire
-                use crate::circuit::Assignment;
+                use crate::plonk::circuit::Assignment;
 
                 let mut tmp = AllocatedNum::alloc(
                     cs,
@@ -399,7 +399,7 @@ pub fn aggregate_proof<'a, E, CS, T, P, OldP, AD, WP>(
                             .zip(&proof.permutation_polynomials_at_z).enumerate() 
             {
                 // tmp = perm_at_z * beta + wire
-                use crate::circuit::Assignment;
+                use crate::plonk::circuit::Assignment;
 
                 let mut tmp = AllocatedNum::alloc(
                     cs,
