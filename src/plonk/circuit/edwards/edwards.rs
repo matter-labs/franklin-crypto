@@ -3,6 +3,7 @@ use crate::bellman::plonk::better_better_cs::cs::ConstraintSystem;
 use crate::bellman::{Engine, Field, PrimeField, SqrtField, SynthesisError};
 use crate::plonk::circuit::Assignment;
 use crate::plonk::circuit::allocated_num::{AllocatedNum, Num};
+use crate::plonk::circuit::simple_term::Term;
 use crate::plonk::circuit::{boolean::Boolean, linear_combination::LinearCombination};
 
 pub struct CircuitTwistedEdwardsCurveImplementor<E: Engine, C: TwistedEdwardsCurveParams<E>> {
@@ -31,20 +32,29 @@ impl<E: Engine, C: TwistedEdwardsCurveParams<E>> CircuitTwistedEdwardsCurveImple
         let b = q.x.mul(cs, &p.y)?;
 
         // Compute C = d*A*B
-        let param_d = Num::Constant(self.implementor.curve_params.param_d());
-        let t2 = a.mul(cs, &b)?;
-        let c = t2.mul(cs, &param_d)?;
+        // save on multiplication
+        let mut c = Term::from_num(a).mul(cs, &Term::from_num(b))?;
+        c.scale(&self.implementor.curve_params.param_d());
 
         // Compute x3 = (A + B) / (1 + C)
         let t3 = a.add(cs, &b)?;
-        let t4 = c.add(cs, &Num::Constant(E::Fr::one()))?;
-        let x3 = t3.div(cs, &t4)?;
+        // save on division
+        let mut c_plus_one = c.clone();
+        c_plus_one.add_constant(&E::Fr::one());
+        let t3 = Term::from_num(t3);
+        let x3 = t3.div(cs, &c_plus_one)?.into_num();
 
         // Compute y3 = (U - A - B) / (1 - C)
-        let t5 = t3.negate(cs)?;
+        let u = Term::from_num(u);
+        let mut t5 = t3;
+        t5.negate();
         let t6 = u.add(cs, &t5)?;
-        let t7 = Num::Constant(E::Fr::one()).sub(cs, &c)?;
+        let mut t7 = c.clone();
+        t7.negate();
+        t7.add_constant(&E::Fr::one());
+
         let y3 = t6.div(cs, &t7)?;
+        let y3 = y3.into_num();
 
         Ok(CircuitTwistedEdwardsPoint { x: x3, y: y3 })
     }
@@ -64,20 +74,27 @@ impl<E: Engine, C: TwistedEdwardsCurveParams<E>> CircuitTwistedEdwardsCurveImple
         // Compute A = x1 * y1
         let a = p.x.mul(cs, &p.y)?;
 
+        let mut two = E::Fr::one();
+        two.double();
+
         // Compute C = d*A*A
-        let param_d = Num::Constant(self.implementor.curve_params.param_d());
-        let t1 = a.mul(cs, &a)?;
-        let c = t1.mul(cs, &param_d)?;
+        let mut c = Term::from_num(a).mul(cs, &Term::from_num(a))?;
+        c.scale(&self.implementor.curve_params.param_d());
 
         // Compute x3 = (2.A) / (1 + C)
-        let t2 = a.add(cs, &a)?;
-        let t3 = c.add(cs, &Num::Constant(E::Fr::one()))?;
-        let x3 = t2.div(cs, &t3)?;
+        let mut t3 = Term::from_num(a);
+        t3.scale(&two);
+        let mut c_plus_one = c.clone();
+        c_plus_one.add_constant(&E::Fr::one());
+        let x3 = t3.div(cs, &c_plus_one)?.into_num();
 
         // Compute y3 = (T - 2.A) / (1 - C)
-        let t5 = t.sub(cs, &t2)?;
-        let t6 = Num::Constant(E::Fr::one()).sub(cs, &c)?;
+        let t5 = Term::from_num(t).sub(cs, &t3)?;
+        let mut t6 = c.clone();
+        t6.negate();
+        t6.add_constant(&E::Fr::one());
         let y3 = t5.div(cs, &t6)?;
+        let y3 = y3.into_num();
 
         Ok(CircuitTwistedEdwardsPoint { x: x3, y: y3 })
     }
