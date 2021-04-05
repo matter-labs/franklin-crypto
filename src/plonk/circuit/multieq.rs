@@ -117,7 +117,6 @@ impl<'a, E: Engine, CS: ConstraintSystem<E> + 'a> Drop for MultiEq<'a, E, CS> {
     }
 }
 
-
 pub fn bytes_to_bits(bytes: &[u8]) -> Vec<bool>
 {
     bytes.iter()

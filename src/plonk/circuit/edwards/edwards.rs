@@ -115,7 +115,7 @@ impl<E: Engine, C: TwistedEdwardsCurveParams<E>> CircuitTwistedEdwardsCurveImple
 
         // Represents the result of the multiplication
         let mut result = None;
-        let inf = CircuitTwistedEdwardsPoint::zero(cs);
+        let inf = CircuitTwistedEdwardsPoint::zero();
         // for (i, bit) in s.get_variable().into_bits_le(cs, None)?.iter().enumerate() {
         for (_i, bit) in s.iter().enumerate() {
             if curbase.is_none() {
@@ -141,28 +141,55 @@ impl<E: Engine, C: TwistedEdwardsCurveParams<E>> CircuitTwistedEdwardsCurveImple
 
         Ok(result.unwrap())
     }
-    pub fn subgroup_check<CS: ConstraintSystem<E>>(
+    // pub fn subgroup_check<CS: ConstraintSystem<E>>(
+    //     &self,
+    //     cs: &mut CS,
+    //     p: &CircuitTwistedEdwardsPoint<E>,
+    // ) -> Result<(), SynthesisError> {
+    //     if !self.implementor.curve_params.is_param_a_equals_minus_one() {
+    //         unimplemented!("not yet implemented for a != -1");
+    //     }
+
+    //     let mut tmp = p.clone();
+
+    //     for _ in 0..self.implementor.curve_params.log_2_cofactor() {
+    //         tmp = self.double(cs, &tmp)?;
+    //     }
+
+    //     // (0, -1) is a small order point, but won't ever appear here
+    //     // because cofactor is 2^3, and we performed three doublings.
+    //     // (0, 1) is the neutral element, so checking if x is nonzero
+    //     // is sufficient to prevent small order points here.
+    //     tmp.x.get_variable().assert_not_zero(cs)?;
+
+    //     Ok(())
+    // }
+    pub fn is_in_main_subgroup<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,
         p: &CircuitTwistedEdwardsPoint<E>,
-    ) -> Result<(), SynthesisError> {
+    ) -> Result<Boolean, SynthesisError> {
         if !self.implementor.curve_params.is_param_a_equals_minus_one() {
             unimplemented!("not yet implemented for a != -1");
         }
 
+        use crate::plonk::circuit::utils::words_to_msb_first_bits;
+
         let mut tmp = p.clone();
 
-        for _ in 0..self.implementor.curve_params.log_2_cofactor() {
+        let msb_bits = words_to_msb_first_bits(C::Fs::char().as_ref());
+        for b in msb_bits.into_iter().skip(1) {
             tmp = self.double(cs, &tmp)?;
+            if b {
+                tmp = self.add(cs, &tmp, p)?;
+            }
         }
 
-        // (0, -1) is a small order point, but won't ever appear here
-        // because cofactor is 2^3, and we performed three doublings.
-        // (0, 1) is the neutral element, so checking if x is nonzero
-        // is sufficient to prevent small order points here.
-        tmp.x.get_variable().assert_not_zero(cs)?;
-
-        Ok(())
+        CircuitTwistedEdwardsPoint::equals(
+            cs,
+            &CircuitTwistedEdwardsPoint::zero(),
+            &tmp
+        )
     }
     pub fn mul_by_generator<CS: ConstraintSystem<E>>(
         &self,
@@ -177,7 +204,7 @@ impl<E: Engine, C: TwistedEdwardsCurveParams<E>> CircuitTwistedEdwardsCurveImple
 
         self.mul(cs, &generator, s)
     }
-    pub fn alloc_point_checked_on_curve<CS: ConstraintSystem<E>>(
+    pub fn alloc_point_enforce_on_curve<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,
         p: Option<TwistedEdwardsPoint<E>>,
@@ -193,6 +220,49 @@ impl<E: Engine, C: TwistedEdwardsCurveParams<E>> CircuitTwistedEdwardsCurveImple
         self.from_xy_assert_on_curve(cs, &x, &y)?;
 
         Ok(CircuitTwistedEdwardsPoint { x, y })
+    }
+
+    pub fn alloc_point_unchecked<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+        p: Option<TwistedEdwardsPoint<E>>,
+    ) -> Result<CircuitTwistedEdwardsPoint<E>, SynthesisError> {
+        let p = p.map(|p| p.into_xy());
+
+        let x_witness = p.map(|p| p.0);
+        let y_witness = p.map(|p| p.1);
+
+        let x = Num::Variable(AllocatedNum::alloc(cs, || Ok(*x_witness.get()?))?);
+        let y = Num::Variable(AllocatedNum::alloc(cs, || Ok(*y_witness.get()?))?);
+
+        Ok(CircuitTwistedEdwardsPoint { x, y })
+    }
+
+    // TODO: optimize using terms
+    pub fn check_is_on_curve<CS: ConstraintSystem<E>>(&self, cs: &mut CS, p: &CircuitTwistedEdwardsPoint<E>) -> Result<Boolean, SynthesisError> {
+        if !self.implementor.curve_params.is_param_a_equals_minus_one() {
+            unimplemented!("not yet implemented for a != -1");
+        }
+
+        let x = p.x;
+        let y = p.y;
+        
+        // x^2
+        let x2 = x.mul(cs, &x)?;
+
+        // y^2
+        let y2 = y.mul(cs, &y)?;
+
+        // x^2*y^2
+        let x2y2 = x2.mul(cs, &y2)?;
+
+        // y^2 - x^2 == 1 + d*x^2*y^2
+        let lhs = y2.sub(cs, &x2)?;
+        let param_d = Num::Constant(self.implementor.curve_params.param_d());
+        let tmp = param_d.mul(cs, &x2y2)?;
+        let rhs = Num::Constant(E::Fr::one()).add(cs, &tmp)?;
+
+        Num::equals(cs, &lhs, &rhs)
     }
 
     pub fn generator(&self) -> CircuitTwistedEdwardsPoint<E>
@@ -264,10 +334,10 @@ pub struct CircuitTwistedEdwardsPoint<E: Engine> {
 impl<E: Engine> Copy for CircuitTwistedEdwardsPoint<E> {}
 
 impl<E: Engine> CircuitTwistedEdwardsPoint<E> {
-    pub fn zero<CS: ConstraintSystem<E>>(cs: &mut CS) -> Self {
+    pub fn zero() -> Self {
         Self {
-            x: Num::Variable(AllocatedNum::zero(cs)),
-            y: Num::Variable(AllocatedNum::one(cs)),
+            x: Num::zero(),
+            y: Num::one(),
         }
     }
 
@@ -281,5 +351,16 @@ impl<E: Engine> CircuitTwistedEdwardsPoint<E> {
         let y = Num::conditionally_select(cs, flag, &first.y, &second.y)?;
 
         Ok(Self { x, y })
+    }
+
+    pub fn equals<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        first: &Self,
+        second: &Self
+    ) -> Result<Boolean, SynthesisError> {
+        let a = Num::equals(cs, &first.x, &second.x)?;
+        let b = Num::equals(cs, &first.y, &second.y)?;
+
+        Boolean::and(cs, &a, &b)
     }
 }

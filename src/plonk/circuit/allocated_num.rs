@@ -1003,6 +1003,45 @@ impl<E: Engine> Num<E> {
     
         Some(result)
     }
+
+    pub fn into_bits_le<CS>(
+        &self,
+        cs: &mut CS,
+        bit_length: Option<usize>,
+    ) -> Result<Vec<Boolean>, SynthesisError>
+    where
+        CS: ConstraintSystem<E>,
+    {
+        if let Some(bit_length) = bit_length {
+            assert!(bit_length <= E::Fr::NUM_BITS as usize);
+        }
+
+        match self {
+            Num::Variable(ref var) => {
+                var.into_bits_le(cs, bit_length)
+            },
+            Num::Constant(c) => {
+                use crate::plonk::circuit::utils::fe_to_lsb_first_bits;
+                if let Some(bit_length) = bit_length {
+                    assert!(c.into_repr().num_bits() as usize <= bit_length);
+                }
+
+                let bits = fe_to_lsb_first_bits(c);
+
+                let mut result = vec![];
+                for b in bits.into_iter() {
+                    result.push(Boolean::constant(b));
+                }
+
+                if let Some(bit_length) = bit_length {
+                    assert!(result.len() >= bit_length);
+                    result.truncate(bit_length);
+                }
+
+                Ok(result)
+            }
+        }
+    }
 }
 
 #[derive(Debug)]

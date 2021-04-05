@@ -5,4 +5,4 @@ pub mod bn256;
 #[cfg(test)]
 pub mod tests;
 
-pub use self::edwards::{GenericTwistedEdwardsCurveParams, TwistedEdwardsCurveImplementor, TwistedEdwardsPoint};
+pub use self::edwards::{GenericTwistedEdwardsCurveParams, TwistedEdwardsCurveImplementor, TwistedEdwardsPoint, TwistedEdwardsCurveParams};
