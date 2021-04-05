@@ -1482,7 +1482,7 @@ impl<E: Engine> Blake2sGadget<E> {
         
         let mut padded = vec![];
         padded.extend(bytes.iter().cloned());
-        padded.extend(iter::repeat(Byte::from_cnst(cs, E::Fr::zero())).take(num_of_zero_bytes));
+        padded.extend(iter::repeat(Byte::from_cnst(E::Fr::zero())).take(num_of_zero_bytes));
 
         assert_eq!(padded.len() % 64, 0);
 

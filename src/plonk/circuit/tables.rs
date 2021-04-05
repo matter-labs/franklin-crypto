@@ -43,12 +43,15 @@ use crate::plonk::circuit::allocated_num::{AllocatedNum, Num};
 use crate::plonk::circuit::simple_term::{Term};
 use crate::plonk::circuit::linear_combination::LinearCombination;
 
+pub use crate::bellman::plonk::better_better_cs::lookup_tables::RANGE_CHECK_SINGLE_APPLICATION_TABLE_NAME;
+
 const DEFAULT_RANGE_TABLE_NAME_PREFIX: &'static str = "Range check table over 3 columns for";
 
 pub fn inscribe_default_range_table_for_bit_width_over_first_three_columns<E: Engine, CS: ConstraintSystem<E>>(
     cs: &mut CS,
     width: usize
 ) -> Result<(), SynthesisError> {
+    // inscribe_range_table_for_bit_width_over_first_three_columns(cs, width).map(|_| ())
     let over = vec![PolyIdentifier::VariablesPolynomial(0), PolyIdentifier::VariablesPolynomial(1), PolyIdentifier::VariablesPolynomial(2)];
     let table = LookupTableApplication::new_range_table_of_width_3(width, over)?;
     cs.add_table(table)?;

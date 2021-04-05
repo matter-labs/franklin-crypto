@@ -1723,12 +1723,12 @@ impl<E: Engine> Sha256Gadget<E> {
         
         let mut padded = vec![];
         padded.extend(bytes.iter().cloned());
-        padded.push(Byte::from_cnst(cs, u64_to_ff(1 << 7)));
-        padded.extend(iter::repeat(Byte::from_cnst(cs, E::Fr::zero())).take(num_of_zero_bytes));
+        padded.push(Byte::from_cnst(u64_to_ff(1 << 7)));
+        padded.extend(iter::repeat(Byte::from_cnst(E::Fr::zero())).take(num_of_zero_bytes));
 
         // represent L as big integer number:
         let repr = message_bitlen.to_be_bytes();
-        padded.extend(repr.iter().map(|num| { Byte::from_cnst(cs, u64_to_ff(*num as u64)) }));
+        padded.extend(repr.iter().map(|num| { Byte::from_cnst(u64_to_ff(*num as u64)) }));
 
         assert_eq!(padded.len() % 64, 0);
 

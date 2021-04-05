@@ -54,7 +54,7 @@ mod test {
                 }
             }
 
-            let keccak_gadget = KeccakGadget::new(cs, None, None, None, None, false, "")?;
+            let keccak_gadget = Keccak256Gadget::new(cs, None, None, None, None, false, "")?;
             
             let supposed_output_vars = if !self.is_byte_test {    
                 let mut input_vars = Vec::with_capacity(self.input.len());
@@ -78,7 +78,7 @@ mod test {
                         input_vars.push(byte);
                     }
                     else {
-                        let byte = Byte::from_cnst(cs, value.clone());
+                        let byte = Byte::from_cnst(value.clone());
                         input_vars.push(byte);
                     }
                 }
@@ -112,12 +112,12 @@ mod test {
         *(input.last_mut().unwrap()) = 0b10000001 as u8;
         let mut output: [u8; DEFAULT_KECCAK_DIGEST_WORDS_SIZE * 8] = [0; DEFAULT_KECCAK_DIGEST_WORDS_SIZE * 8];
 
-        let mut hasher = Keccak::keccak256(&input[0..(input.len() - 1)], &mut output);
+        Keccak::keccak256(&input[0..(input.len() - 1)], &mut output);
     
         let mut input_fr_arr = Vec::with_capacity(KECCAK_RATE_WORDS_SIZE * NUM_OF_BLOCKS);
         let mut output_fr_arr = [Fr::zero(); DEFAULT_KECCAK_DIGEST_WORDS_SIZE];
 
-        for (i, block) in input.chunks(8).enumerate() {
+        for (_i, block) in input.chunks(8).enumerate() {
             input_fr_arr.push(slice_to_ff::<Fr>(block));
         }
 
@@ -151,9 +151,18 @@ mod test {
     } 
 
     #[test]
-    fn keccak_gadget_bytes_test() 
+    fn keccak_gadget_bytes_test() {
+        keccak_gadget_bytes_test_impl::<777>();
+    }
+
+    #[test]
+    fn keccak_gadget_short_bytes_test() 
     {
-        const NUM_OF_BYTES: usize = 777;
+        keccak_gadget_bytes_test_impl::<64>();
+    }
+
+    fn keccak_gadget_bytes_test_impl<const NUM_OF_BYTES: usize>()
+    {
         const IS_CONST_TEST: bool = false;
 
         let mut rng = rand::thread_rng();
@@ -163,7 +172,7 @@ mod test {
         }
 
         let mut output: [u8; DEFAULT_KECCAK_DIGEST_WORDS_SIZE * 8] = [0; DEFAULT_KECCAK_DIGEST_WORDS_SIZE * 8];
-        let mut hasher = Keccak::keccak256(&input[0..input.len() ], &mut output);
+        Keccak::keccak256(&input[0..input.len() ], &mut output);
     
         let mut input_fr_arr : Vec<<Bn256 as ScalarEngine>::Fr> = Vec::with_capacity(NUM_OF_BYTES);
         let mut output_fr_arr = [Fr::zero(); DEFAULT_KECCAK_DIGEST_WORDS_SIZE];

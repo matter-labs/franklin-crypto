@@ -43,7 +43,7 @@ use num_integer::Integer;
 use num_traits::Zero;
 
 // Parameters of the representation
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RnsParameters<E: Engine, F: PrimeField>{
     // this is kind-of normal UintX limbs
     pub binary_limbs_params: LimbedRepresentationParameters<E>,

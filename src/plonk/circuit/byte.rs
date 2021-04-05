@@ -98,7 +98,7 @@ impl<E: Engine> Byte<E> {
         }
     }
 
-    pub fn from_cnst<CS: ConstraintSystem<E>>(_cs: &mut CS, value: E::Fr) -> Self {
+    pub fn from_cnst(value: E::Fr) -> Self {
         let bits = value.into_repr().num_bits();
         if bits > 8 {
             panic!("Invalid bit length of Byte constant");

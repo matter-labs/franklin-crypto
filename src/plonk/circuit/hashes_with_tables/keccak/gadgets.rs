@@ -93,7 +93,7 @@ enum KeccakBase {
 }
 
 
-pub struct KeccakGadget<E: Engine> {
+pub struct Keccak256Gadget<E: Engine> {
     // table used to convert binary register into first_sparse_base and second sparse base
     from_binary_converter_table: Arc<LookupTableApplication<E>>,
     // tables used to convert elements from first_sparse base into second - standard and overflow cognizant
@@ -114,7 +114,7 @@ pub struct KeccakGadget<E: Engine> {
     digest_size: usize,
 }
 
-impl<E: Engine> KeccakGadget<E> {
+impl<E: Engine> Keccak256Gadget<E> {
     pub fn new<CS: ConstraintSystem<E>>(
         cs: &mut CS, 
         binary_base_num_of_chunks: Option<usize>,
@@ -253,7 +253,10 @@ impl<E: Engine> KeccakGadget<E> {
         };
 
         let range_table = match use_global_range_table {
-            true => cs.get_table(global_range_table_name)?,
+            true => {
+                let table = cs.get_table(global_range_table_name);
+                table.expect("Existing range constraint table not found")
+            },
             false => {
                 let range_table = LookupTableApplication::new_range_table_of_width_3(range_table_bitlen, columns3)?;
                 cs.add_table(range_table)?
@@ -280,7 +283,7 @@ impl<E: Engine> KeccakGadget<E> {
             f(0x8000000080008081, r), f(0x8000000000008080, r), f(0x0000000080000001, r), f(0x8000000080008008, r),
         ];
 
-        Ok(KeccakGadget {
+        Ok(Keccak256Gadget {
             from_binary_converter_table,
             first_to_second_base_converter_table,
             of_first_to_second_base_converter_table,
@@ -806,7 +809,7 @@ impl<E: Engine> KeccakGadget<E> {
         }
         
         let mut new_state = KeccakState::default();
-        let iter_count = 0;
+        let mut iter_count = 0;
         let coeffs = [u64_to_ff(2), E::Fr::one(), u64_to_ff(3), u64_to_ff(2)];
         let mut squeezed = Vec::with_capacity(elems_to_squeeze);
         
@@ -926,6 +929,8 @@ impl<E: Engine> KeccakGadget<E> {
 
                 AllocatedNum::long_weighted_sum_eq(cs, &output2_slices[..], &output2_slice_modulus_fr, &output2_total, false)?;
                 squeezed.push(Num::Variable(output2_total));
+
+                iter_count += 1;
             }
         }
        
@@ -1022,12 +1027,12 @@ impl<E: Engine> KeccakGadget<E> {
         let last_block_size = bytes.len() % block_size;
         let padlen = block_size - last_block_size;
         if padlen == 1{
-            padded.push(Byte::from_cnst(cs, u64_to_ff(0x81)));
+            padded.push(Byte::from_cnst(u64_to_ff(0x81)));
         }
         else {
-            padded.push(Byte::from_cnst(cs, u64_to_ff(0x01)));
-            padded.extend(iter::repeat(Byte::from_cnst(cs, E::Fr::zero())).take(padlen - 2));
-            padded.push(Byte::from_cnst(cs, u64_to_ff(0x80)));
+            padded.push(Byte::from_cnst(u64_to_ff(0x01)));
+            padded.extend(iter::repeat(Byte::from_cnst(E::Fr::zero())).take(padlen - 2));
+            padded.push(Byte::from_cnst(u64_to_ff(0x80)));
         }
        
         assert_eq!(padded.len() % block_size, 0);
