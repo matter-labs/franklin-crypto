@@ -325,16 +325,16 @@ impl<E: Engine> Keccak256Gadget<E> {
     {
         let (f_key, g_key) = match key.get_value() {
             None => {
-                (
-                    AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?, 
-                    AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?,
-                )
-            },
+                (None, None)
+            }
             Some(val) => {
                 let vals = table.query(&[val])?;
-                (AllocatedNum::alloc(cs, || Ok(vals[0]))?, AllocatedNum::alloc(cs, || Ok(vals[1]))?)
+                (Some(vals[0]), Some(vals[1]))
             },     
         };
+
+        let f_key = AllocatedNum::alloc(cs, || f_key.grab())?;
+        let g_key = AllocatedNum::alloc(cs, || g_key.grab())?;
 
         let lambda = || {
             let mut res = prev_acc.get_value().grab()?;
@@ -472,14 +472,12 @@ impl<E: Engine> Keccak256Gadget<E> {
                 let input_slice_modulus_fr = u64_exp_to_ff(BINARY_BASE, num_of_chunks as u64);
                 let output_slice_modulus_fr = u64_exp_to_ff(output_base, num_of_chunks as u64);
 
-                match var.get_value() {
+                let witnesses = match var.get_value() {
                     None => {
-                        for _ in 0..num_slices {
-                            let tmp = AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?;
-                            input_slices.push(tmp);
-                        }
+                        vec![None; num_slices]
                     },
                     Some(f) => {
+                        let mut result = vec![];
                         // here we have to operate on row biguint number
                         let mut big_f = BigUint::default();
                         let f_repr = f.into_repr();
@@ -492,12 +490,18 @@ impl<E: Engine> Keccak256Gadget<E> {
                             let remainder = (big_f.clone() % BigUint::from(input_slice_modulus)).to_u64().unwrap();
                             let new_val = u64_to_ff(remainder);
                             big_f /= input_slice_modulus;
-                            let tmp = AllocatedNum::alloc(cs, || Ok(new_val))?;
-                            input_slices.push(tmp);
+                            result.push(Some(new_val));
                         }
 
                         assert!(big_f.is_zero());
+
+                        result
                     }
+                };
+
+                for w in witnesses.into_iter() {
+                    let tmp = AllocatedNum::alloc(cs, || w.grab())?;
+                    input_slices.push(tmp);
                 }
 
                 let mut coef = E::Fr::one();
@@ -654,10 +658,15 @@ impl<E: Engine> Keccak256Gadget<E> {
             let mut cur_output_coef : E::Fr = u64_exp_to_ff(KECCAK_SECOND_SPARSE_BASE, (KECCAK_LANE_WIDTH - offset) as u64);
             let mut acc = var;
 
-            let mut has_value = false;
+            let has_value;
             let mut raw_value = BigUint::default();
+            
             let output_total = match var.get_value() {
-                None => AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?,
+                None => {
+                    has_value = false;
+
+                    None
+                },
                 Some(fr) => {
                     let fr_repr = fr.into_repr();
                     for n in fr_repr.as_ref().iter().rev() {
@@ -665,9 +674,13 @@ impl<E: Engine> Keccak256Gadget<E> {
                         raw_value += *n;
                     }
                     has_value = true;
-                    AllocatedNum::alloc(cs, || Ok(self.cnst_rotate_and_convert(&fr, offset)))?
+                    let value = self.cnst_rotate_and_convert(&fr, offset);
+
+                    Some(value)
                 },
             };
+
+            let output_total = AllocatedNum::alloc(cs, || output_total.grab())?;
 
             // first iteration is somehow special and distinct from all other
             // prepare half of the coefficient
@@ -676,6 +689,7 @@ impl<E: Engine> Keccak256Gadget<E> {
                 let remainder = (raw_value.clone() % BigUint::from(divider)).to_u64().unwrap();
                 let new_val = u64_to_ff(remainder);
                 raw_value /= divider;
+
                 new_val
             }
             else {
@@ -703,11 +717,14 @@ impl<E: Engine> Keccak256Gadget<E> {
                     let remainder = (raw_value.clone() % BigUint::from(divider)).to_u64().unwrap();
                     let new_val = u64_to_ff(remainder);
                     raw_value /= divider;
-                    AllocatedNum::alloc(cs, || Ok(new_val))?
+
+                    Some(new_val)
                 }
                 else {
-                    AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?    
+                    None
                 };
+
+                let input_slice = AllocatedNum::alloc(cs, || input_slice.grab())?;
 
                 let (g_chunk, output_slice, new_acc) = self.query_table_accumulate(
                     cs, table, &input_slice, &acc, &cur_input_coef, false,
@@ -767,11 +784,12 @@ impl<E: Engine> Keccak256Gadget<E> {
             last_chunk_value.add_assign(&last_chunk_low_value);
 
             let last_chunk = if has_value {
-                AllocatedNum::alloc(cs, || Ok(last_chunk_value))?
+                Some(last_chunk_value)     
             }
             else {
-                AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?    
+                None
             };
+            let last_chunk = AllocatedNum::alloc(cs, || last_chunk.grab())?;
 
             let (_, output_slice, _) = self.query_table_accumulate(
                 cs, &self.of_first_to_second_base_converter_table, &last_chunk, &acc, &E::Fr::one(), true,
@@ -868,14 +886,12 @@ impl<E: Engine> Keccak256Gadget<E> {
             let mut output1_slices : Vec<AllocatedNum<E>> = Vec::with_capacity(num_slices);
             let mut output2_slices : Vec<AllocatedNum<E>> = Vec::with_capacity(num_slices);
 
-            match var.get_value() {
+            let witness = match var.get_value() {
                 None => {
-                    for _ in 0..num_slices {
-                        let tmp = AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?;
-                        input_slices.push(tmp);
-                    }
+                    vec![None; num_slices]
                 },
                 Some(f) => {
+                    let mut result = vec![];
                     // here we have to operate on row biguint number
                     let mut big_f = BigUint::default();
                     let f_repr = f.into_repr();
@@ -888,12 +904,19 @@ impl<E: Engine> Keccak256Gadget<E> {
                         let remainder = (big_f.clone() % BigUint::from(input_slice_modulus)).to_u64().unwrap();
                         let new_val = u64_to_ff(remainder);
                         big_f /= input_slice_modulus;
-                        let tmp = AllocatedNum::alloc(cs, || Ok(new_val))?;
-                        input_slices.push(tmp);
+
+                        result.push(Some(new_val));
                     }
 
                     assert!(big_f.is_zero());
+
+                    result
                 }
+            };
+
+            for w in witness.into_iter() {
+                let tmp = AllocatedNum::alloc(cs, || w.grab())?;
+                input_slices.push(tmp);
             }
 
             let mut coef = E::Fr::one();

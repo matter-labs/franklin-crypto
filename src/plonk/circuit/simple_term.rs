@@ -345,7 +345,7 @@ impl<E: Engine> Term<E> {
         return Ok(Self::from_num(num));
     }
 
-    pub(crate) fn mul<CS: ConstraintSystem<E>>(
+    pub fn mul<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,
         other: &Self
@@ -353,7 +353,7 @@ impl<E: Engine> Term<E> {
         Self::fma(cs, self, other, &Self::zero())
     }
 
-    pub(crate) fn fma<CS: ConstraintSystem<E>>(
+    pub fn fma<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         mul_x: &Self,
         mul_y: &Self,

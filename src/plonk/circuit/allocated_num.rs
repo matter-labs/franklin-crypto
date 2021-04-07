@@ -672,6 +672,24 @@ impl<E: Engine> Num<E> {
         Ok(())
     }
 
+    pub fn assert_is_zero<CS>(
+        &self,
+        cs: &mut CS,
+    ) -> Result<(), SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        match self {
+            Num::Constant(c) => {
+                assert!(c.is_zero());
+            },
+            Num::Variable(var) => {
+                var.assert_is_zero(cs)?;
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn inverse<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS
