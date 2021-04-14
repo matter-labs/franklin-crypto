@@ -743,6 +743,7 @@ impl<E: Engine> Num<E> {
         }
     }
 
+    // returns 0 if condition == `false` and `a` if condition == `true`
     pub fn mask<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         a: &Self,
@@ -1059,6 +1060,21 @@ impl<E: Engine> Num<E> {
                 Ok(result)
             }
         }
+    }
+
+    pub fn conditionally_select_multiple<CS: ConstraintSystem<E>, const N: usize>(
+        cs: &mut CS,
+        flag: &Boolean,
+        a: &[Self; N],
+        b: &[Self; N]
+    ) -> Result<[Self; N], SynthesisError> {
+        let mut result = [Num::zero(); N];
+
+        for ((a, b), r) in (a.iter().zip(b.iter())).zip(result.iter_mut()) {
+            *r = Num::conditionally_select(cs, flag, a, b)?;
+        }
+
+        Ok(result)
     }
 }
 
@@ -1422,7 +1438,7 @@ impl<E: Engine> AllocatedNum<E> {
 
         match condition {
             Boolean::Constant(..) => {
-                unreachable!("constant is already handles")
+                unreachable!("constant is already handled")
             },
             Boolean::Is(condition_var) => {
                 // no modifications

@@ -1241,6 +1241,50 @@ impl Boolean {
             variable: maj
         }.into())
     }
+
+
+    pub fn alloc_multiple<E: Engine, CS: ConstraintSystem<E>, const N: usize>(
+        cs: &mut CS,
+        witness: Option<[bool; N]>
+    ) -> Result<[Self; N], SynthesisError> {
+        let mut result = [Boolean::constant(false); N];
+        for (idx, r) in result.iter_mut().enumerate() {
+            let witness = witness.map(|el| el[idx]);
+            *r = Self::alloc(cs, witness)?;
+        }
+    
+        Ok(result)
+    }
+
+    pub fn get_value_multiple<const N: usize>(
+        els: &[Self; N]
+    ) -> Option<[bool; N]> {
+        let mut result = [false; N];
+        for (r, el) in result.iter_mut().zip(els.iter()) {
+            if let Some(value) = el.get_value() {
+                *r = value;
+            } else {
+                return None
+            }
+        }
+    
+        Some(result)
+    }
+
+    pub fn conditionally_select_multiple<E: Engine, CS: ConstraintSystem<E>, const N: usize>(
+        cs: &mut CS,
+        flag: &Boolean,
+        a: &[Self; N],
+        b: &[Self; N]
+    ) -> Result<[Self; N], SynthesisError> {
+        let mut result = [Boolean::constant(false); N];
+
+        for ((a, b), r) in (a.iter().zip(b.iter())).zip(result.iter_mut()) {
+            *r = Self::conditionally_select(cs, flag, a, b)?;
+        }
+
+        Ok(result)
+    }
 }
 
 impl From<AllocatedBit> for Boolean {
