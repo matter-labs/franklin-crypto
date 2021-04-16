@@ -196,6 +196,18 @@ impl<E: Engine> Num<E> {
             }
         }
 
+        use bellman::plonk::better_better_cs::cs::GateInternal;
+        use bellman::plonk::better_better_cs::gates::selector_optimized_with_d_next::SelectorOptimizedWidth4MainGateWithDNext;
+
+        let used_gate = SelectorOptimizedWidth4MainGateWithDNext;
+
+        if CS::MainGate::default().name() == <SelectorOptimizedWidth4MainGateWithDNext as GateInternal<E>>::name(&used_gate) {
+            let c = Num::conditionally_select(cs, &condition, &b, &a)?;
+            let d = Num::conditionally_select(cs, &condition, &a, &b)?;
+
+            return Ok((c, d));
+        }
+
         match (a, b) {
             (Num::Variable(a), Num::Variable(b)) => {
                 let (c, d) = AllocatedNum::conditionally_reverse(cs, a, b, condition)?;
@@ -864,7 +876,6 @@ impl<E: Engine> Num<E> {
                         main_term.sub_assign(ArithmeticTerm::from_variable(c.get_variable()));
                         main_term.add_assign(ArithmeticTerm::constant(*constant));
 
-
                         cs.allocate_main_gate(main_term)?;
         
                         Ok(Num::Variable(c))
@@ -1407,6 +1418,18 @@ impl<E: Engine> AllocatedNum<E> {
             }
         }
 
+        use bellman::plonk::better_better_cs::cs::GateInternal;
+        use bellman::plonk::better_better_cs::gates::selector_optimized_with_d_next::SelectorOptimizedWidth4MainGateWithDNext;
+
+        let used_gate = SelectorOptimizedWidth4MainGateWithDNext;
+
+        if CS::MainGate::default().name() == <SelectorOptimizedWidth4MainGateWithDNext as GateInternal<E>>::name(&used_gate) {
+            let c = Self::conditionally_select(cs, &b, &a, &condition)?;
+            let d = Self::conditionally_select(cs, &a, &b, &condition)?;
+
+            return Ok((c, d));
+        }
+
         let c = Self::alloc(
             cs,
             || {
@@ -1903,6 +1926,15 @@ impl<E: Engine> AllocatedNum<E> {
         if a.get_variable() == b.get_variable() {
             return Ok(a.clone());
         }
+        use bellman::plonk::better_better_cs::cs::GateInternal;
+        use bellman::plonk::better_better_cs::gates::selector_optimized_with_d_next::SelectorOptimizedWidth4MainGateWithDNext;
+
+        let used_gate = SelectorOptimizedWidth4MainGateWithDNext;
+
+        if CS::MainGate::default().name() == <SelectorOptimizedWidth4MainGateWithDNext as GateInternal<E>>::name(&used_gate) {
+            return Self::conditionally_select_for_special_main_gate(cs, a, b, condition);
+        }
+
         // code below is valid if a variable != b variable
         let res = match condition {
             Boolean::Constant(flag) => if *flag { a.clone() } else { b.clone() },
@@ -1963,6 +1995,137 @@ impl<E: Engine> AllocatedNum<E> {
                 cs.allocate_main_gate(main_term)?;
 
                 self::stats::increment_counter();
+
+                c
+            }
+        };
+        
+        Ok(res)
+    }
+
+    fn conditionally_select_for_special_main_gate<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        a: &Self,
+        b: &Self,
+        condition: &Boolean
+    ) -> Result<Self, SynthesisError> {
+        use bellman::plonk::better_better_cs::cs::GateInternal;
+        use bellman::plonk::better_better_cs::gates::selector_optimized_with_d_next::SelectorOptimizedWidth4MainGateWithDNext;
+
+        let mg = CS::MainGate::default();
+        let used_gate = SelectorOptimizedWidth4MainGateWithDNext;
+        assert_eq!(mg.name(), <SelectorOptimizedWidth4MainGateWithDNext as GateInternal<E>>::name(&used_gate));
+
+        // we can have a relationship as a + b + c + d + ab + ac + const + d_next = 0
+
+        // code below is valid if a variable != b variable
+        let res = match condition {
+            Boolean::Constant(flag) => if *flag { a.clone() } else { b.clone() },
+            
+            Boolean::Is(cond) => {
+
+                let c = Self::alloc(
+                    cs,
+                    || {
+                        if *cond.get_value().get()? {
+                            Ok(*a.value.get()?)
+                        } else {
+                            Ok(*b.value.get()?)
+                        }
+                    }
+                )?;
+
+                // a * condition + b*(1-condition) = c ->
+                // (a - b) *condition - c + b = 0
+
+                // that has to be formatted as 
+                // A (var) = condition
+                // B = a
+                // C = b
+                // D = c
+
+                // coefficients
+                // [0, 0, 1, -1, 1, -1, 0, 0]
+
+                // so AB - AC => condition * a - condition * b
+                // then we make +b and -c
+
+                let dummy = CS::get_dummy_variable();
+
+                let mut vars = CS::MainGate::dummy_vars_to_inscribe(dummy);
+                let mut coeffs = CS::MainGate::empty_coefficients();
+
+                let mut minus_one = E::Fr::one();
+                minus_one.negate();
+
+                coeffs[2] = E::Fr::one();
+                coeffs[3] = minus_one;
+                coeffs[SelectorOptimizedWidth4MainGateWithDNext::AB_MULTIPLICATION_TERM_COEFF_INDEX] = E::Fr::one();
+                coeffs[SelectorOptimizedWidth4MainGateWithDNext::AC_MULTIPLICATION_TERM_COEFF_INDEX] = minus_one;
+
+                vars[0] = cond.get_variable();
+                vars[1] = a.get_variable();
+                vars[2] = b.get_variable();
+                vars[3] = c.get_variable();
+
+                cs.new_single_gate_for_trace_step(
+                    &mg, 
+                    &coeffs, 
+                    &vars,
+                    &[]
+                )?;
+
+                c
+            },
+
+            Boolean::Not(cond) => {
+                let c = Self::alloc(
+                    cs,
+                    || {
+                        if *cond.get_value().get()? {
+                            Ok(*b.value.get()?)
+                        } else {
+                            Ok(*a.value.get()?)
+                        }
+                    }
+                )?;
+
+                // b * condition + a*(1-condition) = c ->
+                // (b - a) * condition - c + a = 0
+
+                // that has to be formatted as 
+                // A (var) = condition
+                // B = a
+                // C = b
+                // D = c
+
+                // coefficients
+                // [0, 1, 0, -1, -1, 1, 0, 0]
+
+                let dummy = CS::get_dummy_variable();
+
+                let mut vars = CS::MainGate::dummy_vars_to_inscribe(dummy);
+                let mut coeffs = CS::MainGate::empty_coefficients();
+
+                let mut minus_one = E::Fr::one();
+                minus_one.negate();
+
+                coeffs[1] = E::Fr::one();
+                coeffs[3] = minus_one;
+                coeffs[SelectorOptimizedWidth4MainGateWithDNext::AB_MULTIPLICATION_TERM_COEFF_INDEX] = minus_one;
+                coeffs[SelectorOptimizedWidth4MainGateWithDNext::AC_MULTIPLICATION_TERM_COEFF_INDEX] = E::Fr::one();
+
+                vars[0] = cond.get_variable();
+                vars[1] = a.get_variable();
+                vars[2] = b.get_variable();
+                vars[3] = c.get_variable();
+
+                cs.new_single_gate_for_trace_step(
+                    &mg, 
+                    &coeffs, 
+                    &vars,
+                    &[]
+                )?;
 
                 c
             }
@@ -2235,7 +2398,7 @@ mod test {
         let crs_mons =
             Crs::<Bn256, CrsForMonomialForm>::crs_42(setup.permutation_monomials[0].size(), &worker);
 
-        let proof = assembly.create_proof::<_, RollingKeccakTranscript<Fr>>(
+        let _proof = assembly.create_proof::<_, RollingKeccakTranscript<Fr>>(
             &worker, 
             &setup, 
             &crs_mons,
