@@ -117,10 +117,6 @@ impl<E: Engine> Num<E> {
         }
     }
 
-    pub fn zero() -> Self {
-        Num::Constant(E::Fr::zero())
-    }
-
     pub fn is_zero<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Boolean, SynthesisError> {
         let flag = match self {
             Num::Constant(c) => Ok(Boolean::constant(c.is_zero())),
