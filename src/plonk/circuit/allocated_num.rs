@@ -23,6 +23,8 @@ use crate::bellman::plonk::better_better_cs::cs::{
     MainGate,
 };
 
+use super::utils::is_selector_specialized_gate;
+
 use super::boolean::{self, AllocatedBit, Boolean};
 use super::linear_combination::*;
 
@@ -196,12 +198,7 @@ impl<E: Engine> Num<E> {
             }
         }
 
-        use bellman::plonk::better_better_cs::cs::GateInternal;
-        use bellman::plonk::better_better_cs::gates::selector_optimized_with_d_next::SelectorOptimizedWidth4MainGateWithDNext;
-
-        let used_gate = SelectorOptimizedWidth4MainGateWithDNext;
-
-        if CS::MainGate::default().name() == <SelectorOptimizedWidth4MainGateWithDNext as GateInternal<E>>::name(&used_gate) {
+        if is_selector_specialized_gate::<E, CS>() {
             let c = Num::conditionally_select(cs, &condition, &b, &a)?;
             let d = Num::conditionally_select(cs, &condition, &a, &b)?;
 
@@ -1418,12 +1415,7 @@ impl<E: Engine> AllocatedNum<E> {
             }
         }
 
-        use bellman::plonk::better_better_cs::cs::GateInternal;
-        use bellman::plonk::better_better_cs::gates::selector_optimized_with_d_next::SelectorOptimizedWidth4MainGateWithDNext;
-
-        let used_gate = SelectorOptimizedWidth4MainGateWithDNext;
-
-        if CS::MainGate::default().name() == <SelectorOptimizedWidth4MainGateWithDNext as GateInternal<E>>::name(&used_gate) {
+        if is_selector_specialized_gate::<E, CS>() {
             let c = Self::conditionally_select(cs, &b, &a, &condition)?;
             let d = Self::conditionally_select(cs, &a, &b, &condition)?;
 
@@ -1926,12 +1918,8 @@ impl<E: Engine> AllocatedNum<E> {
         if a.get_variable() == b.get_variable() {
             return Ok(a.clone());
         }
-        use bellman::plonk::better_better_cs::cs::GateInternal;
-        use bellman::plonk::better_better_cs::gates::selector_optimized_with_d_next::SelectorOptimizedWidth4MainGateWithDNext;
 
-        let used_gate = SelectorOptimizedWidth4MainGateWithDNext;
-
-        if CS::MainGate::default().name() == <SelectorOptimizedWidth4MainGateWithDNext as GateInternal<E>>::name(&used_gate) {
+        if is_selector_specialized_gate::<E, CS>() {
             return Self::conditionally_select_for_special_main_gate(cs, a, b, condition);
         }
 
@@ -2012,9 +2000,9 @@ impl<E: Engine> AllocatedNum<E> {
         use bellman::plonk::better_better_cs::cs::GateInternal;
         use bellman::plonk::better_better_cs::gates::selector_optimized_with_d_next::SelectorOptimizedWidth4MainGateWithDNext;
 
+        assert!(is_selector_specialized_gate::<E, CS>());
+
         let mg = CS::MainGate::default();
-        let used_gate = SelectorOptimizedWidth4MainGateWithDNext;
-        assert_eq!(mg.name(), <SelectorOptimizedWidth4MainGateWithDNext as GateInternal<E>>::name(&used_gate));
 
         // we can have a relationship as a + b + c + d + ab + ac + const + d_next = 0
 

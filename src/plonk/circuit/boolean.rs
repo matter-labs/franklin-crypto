@@ -29,7 +29,6 @@ use crate::bellman::plonk::better_better_cs::cs::{
     Coefficient,
 };
 
-
 use crate::plonk::circuit::Assignment;
 
 use super::allocated_num::{
@@ -39,6 +38,8 @@ use super::allocated_num::{
 use super::linear_combination::{
     LinearCombination
 };
+
+use super::utils::is_selector_specialized_gate;
 
 pub fn field_into_allocated_bits_le_fixed<E: Engine, CS: ConstraintSystem<E>, F: PrimeField>(
     cs: &mut CS,
@@ -906,6 +907,20 @@ impl Boolean {
             => {}
         }
 
+        assert!(!a.is_constant());
+
+        // all cases below require 2 gates if we do not use a specialized one,
+        // so check and use a specialized one may be
+
+        if is_selector_specialized_gate::<E, CS>() {
+            return Self::conditionally_select_for_special_main_gate(
+                cs,
+                a,
+                b,
+                c
+            );
+        }
+
         let ch = cs.alloc(|| {
             ch_value.get().map(|v| {
                 if *v {
@@ -915,6 +930,10 @@ impl Boolean {
                 }
             })
         })?;
+
+        // a, b and c are not constant here, so
+        // all constraints below are live and can not be optimized away
+        // using constant propagation
 
         // a(b - c) = ch - c
 
@@ -927,7 +946,7 @@ impl Boolean {
         let mut tmp_lc = LinearCombination::zero();
         tmp_lc.add_assign_boolean_with_coeff(&b, E::Fr::one());
         tmp_lc.add_assign_boolean_with_coeff(&c, minus_one);
-        let tmp = tmp_lc.into_allocated_num(cs)?;
+        let tmp = tmp_lc.into_num(cs)?.get_variable();
 
         // here we have to branch over `a` due wrapping
         match (a, c) {
@@ -994,60 +1013,60 @@ impl Boolean {
 
                 cs.allocate_main_gate(gate_term)?;
             },
-            (Boolean::Constant(true), Boolean::Is(ref c)) => {
-                // a = 1
-                // c = c
-                // a * tmp - ch + c = 0 -> 
-                // tmp - ch + c = 0
-                let mut gate_term = MainGateTerm::new();
+            // (Boolean::Constant(true), Boolean::Is(ref c)) => {
+            //     // a = 1
+            //     // c = c
+            //     // a * tmp - ch + c = 0 -> 
+            //     // tmp - ch + c = 0
+            //     let mut gate_term = MainGateTerm::new();
 
-                gate_term.add_assign(ArithmeticTerm::from_variable(tmp.get_variable()));
-                gate_term.sub_assign(ArithmeticTerm::from_variable(ch));
-                gate_term.add_assign(ArithmeticTerm::from_variable(c.get_variable()));
+            //     gate_term.add_assign(ArithmeticTerm::from_variable(tmp.get_variable()));
+            //     gate_term.sub_assign(ArithmeticTerm::from_variable(ch));
+            //     gate_term.add_assign(ArithmeticTerm::from_variable(c.get_variable()));
 
-                cs.allocate_main_gate(gate_term)?;
-            },
-            (Boolean::Constant(true), Boolean::Not(ref c)) => {
-                // a = 1
-                // c = 1 - c
-                // a * tmp - ch + c = 0 -> 
-                // tmp - ch - c + 1 = 0
-                let mut gate_term = MainGateTerm::new();
+            //     cs.allocate_main_gate(gate_term)?;
+            // },
+            // (Boolean::Constant(true), Boolean::Not(ref c)) => {
+            //     // a = 1
+            //     // c = 1 - c
+            //     // a * tmp - ch + c = 0 -> 
+            //     // tmp - ch - c + 1 = 0
+            //     let mut gate_term = MainGateTerm::new();
 
-                gate_term.add_assign(ArithmeticTerm::from_variable(tmp.get_variable()));
-                gate_term.sub_assign(ArithmeticTerm::from_variable(ch));
-                gate_term.sub_assign(ArithmeticTerm::from_variable(c.get_variable()));
-                gate_term.add_assign(ArithmeticTerm::constant(E::Fr::one()));
+            //     gate_term.add_assign(ArithmeticTerm::from_variable(tmp.get_variable()));
+            //     gate_term.sub_assign(ArithmeticTerm::from_variable(ch));
+            //     gate_term.sub_assign(ArithmeticTerm::from_variable(c.get_variable()));
+            //     gate_term.add_assign(ArithmeticTerm::constant(E::Fr::one()));
 
-                cs.allocate_main_gate(gate_term)?;
-            },
-            (Boolean::Constant(false), Boolean::Is(ref c)) => {
-                // a = 0
-                // c = c
-                // a * tmp - ch + c = 0 -> 
-                // - ch + c = 0
-                let mut gate_term = MainGateTerm::new();
+            //     cs.allocate_main_gate(gate_term)?;
+            // },
+            // (Boolean::Constant(false), Boolean::Is(ref c)) => {
+            //     // a = 0
+            //     // c = c
+            //     // a * tmp - ch + c = 0 -> 
+            //     // - ch + c = 0
+            //     let mut gate_term = MainGateTerm::new();
 
-                gate_term.sub_assign(ArithmeticTerm::from_variable(ch));
-                gate_term.add_assign(ArithmeticTerm::from_variable(c.get_variable()));
+            //     gate_term.sub_assign(ArithmeticTerm::from_variable(ch));
+            //     gate_term.add_assign(ArithmeticTerm::from_variable(c.get_variable()));
 
-                cs.allocate_main_gate(gate_term)?;
-            },
-            (Boolean::Constant(false), Boolean::Not(ref c)) => {
-                // a = 0
-                // c = 1 - c
-                // a * tmp - ch + c = 0 -> 
-                // - ch - c + 1 = 0
-                let mut gate_term = MainGateTerm::new();
+            //     cs.allocate_main_gate(gate_term)?;
+            // },
+            // (Boolean::Constant(false), Boolean::Not(ref c)) => {
+            //     // a = 0
+            //     // c = 1 - c
+            //     // a * tmp - ch + c = 0 -> 
+            //     // - ch - c + 1 = 0
+            //     let mut gate_term = MainGateTerm::new();
 
-                gate_term.sub_assign(ArithmeticTerm::from_variable(ch));
-                gate_term.sub_assign(ArithmeticTerm::from_variable(c.get_variable()));
-                gate_term.add_assign(ArithmeticTerm::constant(E::Fr::one()));
+            //     gate_term.sub_assign(ArithmeticTerm::from_variable(ch));
+            //     gate_term.sub_assign(ArithmeticTerm::from_variable(c.get_variable()));
+            //     gate_term.add_assign(ArithmeticTerm::constant(E::Fr::one()));
 
-                cs.allocate_main_gate(gate_term)?;
-            },
+            //     cs.allocate_main_gate(gate_term)?;
+            // },
             _ => {
-                unreachable!("Boolean `c` is not a constant here");
+                unreachable!("Booleans `a` and `c` are not a constant here");
             }
         }
 
@@ -1284,6 +1303,191 @@ impl Boolean {
         }
 
         Ok(result)
+    }
+
+    fn conditionally_select_for_special_main_gate<E: Engine, CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        flag: &Boolean,
+        a: &Self,
+        b: &Self
+    ) -> Result<Self, SynthesisError> {
+        use bellman::plonk::better_better_cs::cs::GateInternal;
+        use bellman::plonk::better_better_cs::gates::selector_optimized_with_d_next::SelectorOptimizedWidth4MainGateWithDNext;
+
+        assert!(is_selector_specialized_gate::<E, CS>());
+        assert!(!flag.is_constant());
+        assert!(!a.is_constant());
+        assert!(!b.is_constant());
+
+        match flag {
+            Boolean::Not(ref not_flag) => {
+                // avoid manual work, just swap variables and manually negate the flag 
+                let not_flag = Boolean::from(*not_flag);
+                return Self::conditionally_select_for_special_main_gate(
+                    cs, 
+                    &not_flag, 
+                    &b, 
+                    &a
+                );
+            },
+            _ => {}
+        }
+
+        let ch_value = match (flag.get_value(), a.get_value(), b.get_value()) {
+            (Some(a), Some(b), Some(c)) => {
+                // (a and b) xor ((not a) and c)
+                Some((a & b) ^ ((!a) & c))
+            },
+            _ => None
+        };
+
+        let ch = cs.alloc(|| {
+            ch_value.get().map(|v| {
+                if *v {
+                    E::Fr::one()
+                } else {
+                    E::Fr::zero()
+                }
+            })
+        })?;
+
+        let mg = CS::MainGate::default();
+
+        let dummy = CS::get_dummy_variable();
+
+        let mut vars = CS::MainGate::dummy_vars_to_inscribe(dummy);
+        let mut coeffs = CS::MainGate::empty_coefficients();
+
+        let mut minus_one = E::Fr::one();
+        minus_one.negate();
+
+        // flag * a + (1 - flag) * b - ch = 0
+
+        match (flag, a, b) {
+            (Boolean::Is(ref flag), Boolean::Is(ref a), Boolean::Is(ref b)) => {
+                // flag * a + (1 - flag) * b - ch = 0
+                // flag = flag
+                // a = a
+                // b = b
+                // flag * a - flag * b + b - ch = 0
+
+                // coefficients
+                // [0, 0, 1, -1, 1, -1, 0, 0]
+
+                coeffs[2] = E::Fr::one();
+                coeffs[3] = minus_one;
+                coeffs[SelectorOptimizedWidth4MainGateWithDNext::AB_MULTIPLICATION_TERM_COEFF_INDEX] = E::Fr::one();
+                coeffs[SelectorOptimizedWidth4MainGateWithDNext::AC_MULTIPLICATION_TERM_COEFF_INDEX] = minus_one;
+
+                vars[0] = flag.get_variable();
+                vars[1] = a.get_variable();
+                vars[2] = b.get_variable();
+                vars[3] = ch;
+
+                cs.new_single_gate_for_trace_step(
+                    &mg, 
+                    &coeffs, 
+                    &vars,
+                    &[]
+                )?;
+            },
+            (Boolean::Is(ref flag), Boolean::Is(ref a), Boolean::Not(ref b)) => {
+                // flag * a + (1 - flag) * b - ch = 0
+                // flag = flag
+                // a = a
+                // b = 1 - b
+                // flag * a + (1 - flag) * (1 - b) - ch = 0 =
+                // flag * a + flag * b - flag - b - ch + 1 = 0
+
+                // coefficients
+                // [-1, 0, -1, -1, 1, 1, 1, 0]
+
+                coeffs[0] = minus_one;
+                coeffs[2] = minus_one;
+                coeffs[3] = minus_one;
+                coeffs[SelectorOptimizedWidth4MainGateWithDNext::AB_MULTIPLICATION_TERM_COEFF_INDEX] = E::Fr::one();
+                coeffs[SelectorOptimizedWidth4MainGateWithDNext::AC_MULTIPLICATION_TERM_COEFF_INDEX] = E::Fr::one();
+                coeffs[SelectorOptimizedWidth4MainGateWithDNext::CONSTANT_TERM_COEFF_INDEX] = E::Fr::one();
+
+                vars[0] = flag.get_variable();
+                vars[1] = a.get_variable();
+                vars[2] = b.get_variable();
+                vars[3] = ch;
+
+                cs.new_single_gate_for_trace_step(
+                    &mg, 
+                    &coeffs, 
+                    &vars,
+                    &[]
+                )?;
+            },
+            (Boolean::Is(ref flag), Boolean::Not(ref a), Boolean::Is(ref b)) => {
+                // flag * a + (1 - flag) * b - ch = 0
+                // flag = flag
+                // a = 1 - a
+                // b = b
+                // flag * (1 - a) + (1 - flag) * b - ch = 0 =
+                // -flag * a - flag * b + flag - b - ch = 0
+
+                // coefficients
+                // [1, 0, -1, -1, -1, -1, 0, 0]
+
+                coeffs[0] = E::Fr::one();
+                coeffs[2] = minus_one;
+                coeffs[3] = minus_one;
+                coeffs[SelectorOptimizedWidth4MainGateWithDNext::AB_MULTIPLICATION_TERM_COEFF_INDEX] = E::Fr::one();
+                coeffs[SelectorOptimizedWidth4MainGateWithDNext::AC_MULTIPLICATION_TERM_COEFF_INDEX] = E::Fr::one();
+
+                vars[0] = flag.get_variable();
+                vars[1] = a.get_variable();
+                vars[2] = b.get_variable();
+                vars[3] = ch;
+
+                cs.new_single_gate_for_trace_step(
+                    &mg, 
+                    &coeffs, 
+                    &vars,
+                    &[]
+                )?;
+            },
+            (Boolean::Is(ref flag), Boolean::Not(ref a), Boolean::Not(ref b)) => {
+                // flag * a + (1 - flag) * b - ch = 0
+                // flag = flag
+                // a = 1 - a
+                // b = 1 - b
+                // flag * (1 - a) + (1 - flag) * (1 - b) - ch = 0 =
+                // -flag * a + flag * b - b - ch + 1 = 0
+
+                // coefficients
+                // [0, 0, -1, -1, -1, 1, 1, 0]
+
+                coeffs[2] = minus_one;
+                coeffs[3] = minus_one;
+                coeffs[SelectorOptimizedWidth4MainGateWithDNext::AB_MULTIPLICATION_TERM_COEFF_INDEX] = minus_one;
+                coeffs[SelectorOptimizedWidth4MainGateWithDNext::AC_MULTIPLICATION_TERM_COEFF_INDEX] = E::Fr::one();
+                coeffs[SelectorOptimizedWidth4MainGateWithDNext::CONSTANT_TERM_COEFF_INDEX] = E::Fr::one();
+
+                vars[0] = flag.get_variable();
+                vars[1] = a.get_variable();
+                vars[2] = b.get_variable();
+                vars[3] = ch;
+
+                cs.new_single_gate_for_trace_step(
+                    &mg, 
+                    &coeffs, 
+                    &vars,
+                    &[]
+                )?;
+            },
+            _ => {
+                unreachable!("Neither `flag`, `a` nor `b` are constants here");
+            }
+        }
+
+        Ok(AllocatedBit {
+            value: ch_value,
+            variable: ch
+        }.into())
     }
 }
 

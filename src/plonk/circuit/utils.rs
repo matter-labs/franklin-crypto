@@ -208,3 +208,14 @@ pub fn fe_to_lsb_first_bits<F: PrimeField>(el: &F) -> Vec<bool> {
 
     result
 }
+
+use crate::bellman::pairing::Engine;
+use crate::bellman::plonk::better_better_cs::cs::ConstraintSystem;
+
+pub fn is_selector_specialized_gate<E: Engine, CS: ConstraintSystem<E>>() -> bool {
+    use bellman::plonk::better_better_cs::cs::GateInternal;
+    use bellman::plonk::better_better_cs::gates::selector_optimized_with_d_next::SelectorOptimizedWidth4MainGateWithDNext;
+    use std::any::Any;
+
+    Any::type_id(&CS::MainGate::default()) == Any::type_id(&SelectorOptimizedWidth4MainGateWithDNext)
+}
