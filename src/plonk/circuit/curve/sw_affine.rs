@@ -1490,12 +1490,6 @@ mod test {
                 &params
             ).unwrap();
 
-            let (x, y) = b_f.into_xy_unchecked();
-
-            let mut x_negated = x;
-            x_negated.negate();
-            println!("X negated = {}", x_negated);
-
             let b = AffinePoint::alloc(
                 &mut cs, 
                 Some(b_f), 
@@ -1745,7 +1739,7 @@ mod test {
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
-        for i in 0..100 {
+        for _i in 0..100 {
             let a_f: Fr = rng.gen();
 
             let _ = compute_skewed_naf_table(&Some(a_f), None);
@@ -2782,7 +2776,7 @@ mod test {
 
         let base = cs.n();
 
-        let result = AffinePoint::multiexp(&mut cs, &b_n, &a_p, None).unwrap();
+        let _result = AffinePoint::multiexp(&mut cs, &b_n, &a_p, None).unwrap();
 
         println!("10 points multiexp with 16 bit range tables taken {} gates", cs.n() - base);
 
@@ -2793,7 +2787,7 @@ mod test {
             result_recalculated.add_assign(&tmp);
         }
 
-        let result_recalculated = result_recalculated.into_affine();
+        let _result_recalculated = result_recalculated.into_affine();
 
         assert!(cs.is_satisfied());
     }

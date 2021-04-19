@@ -665,7 +665,7 @@ mod test {
                 Width4MainGateWithDNext
             >::new();
 
-            let input_words: Vec<AllocatedNum<Bn256>> = input.iter().enumerate().map(|(i, b)| {
+            let input_words: Vec<AllocatedNum<Bn256>> = input.iter().enumerate().map(|(_i, b)| {
                 AllocatedNum::alloc(
                     &mut cs,
                     || {
@@ -732,7 +732,7 @@ mod test {
                 Width4MainGateWithDNext
             >::new();
 
-            let input_words: Vec<AllocatedNum<Bn256>> = input.iter().enumerate().map(|(i, b)| {
+            let input_words: Vec<AllocatedNum<Bn256>> = input.iter().enumerate().map(|(_i, b)| {
                 AllocatedNum::alloc(
                     &mut cs,
                     || {

@@ -96,7 +96,7 @@ fn test_interpolation_1(){
         println!("Coeff {} = {}", i, c);
     }
 
-    for (i, p) in points.iter().enumerate() {
+    for (_i, p) in points.iter().enumerate() {
         let (x, y) = p;
         let val = evaluate_at_x::<Bn256>(&interpolation_res[..], &x);
         assert_eq!(*y, val);
@@ -124,7 +124,7 @@ fn test_interpolation_powers_of_2(){
     assert_eq!(interpolation_res.len(), points.len(), "array sized must match");
     assert_eq!(interpolation_res.len(), MAX_POWER as usize, "array size must be equal to the max power");
 
-    for (i, p) in points.iter().enumerate() {
+    for (_i, p) in points.iter().enumerate() {
         let (x, y) = p;
         let val = evaluate_at_x::<Bn256>(&interpolation_res[..], &x);
         // println!("Eval at {} = {}, original value = {}", x, val, y);

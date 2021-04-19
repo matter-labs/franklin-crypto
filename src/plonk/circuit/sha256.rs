@@ -393,7 +393,7 @@ mod test {
         let iv = get_sha256_iv();
 
         let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
-        let input_bits: Vec<_> = (0..512).map(|i| {
+        let input_bits: Vec<_> = (0..512).map(|_i| {
             Boolean::from(
                 AllocatedBit::alloc(
                     &mut cs,
@@ -429,7 +429,7 @@ mod test {
             let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
             let mut input_bits = vec![];
 
-            for (byte_i, input_byte) in data.into_iter().enumerate() {
+            for (_byte_i, input_byte) in data.into_iter().enumerate() {
                 for bit_i in (0..8).rev() {
                     let cs = &mut cs;
 

@@ -254,7 +254,7 @@ mod test {
 
     #[test]
     fn test_generate_bn256_rescue_params() {
-        let params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
+        let _params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
     }
 
     #[test]

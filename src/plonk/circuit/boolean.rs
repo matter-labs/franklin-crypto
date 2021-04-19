@@ -1761,7 +1761,7 @@ mod test {
                 let b;
 
                 {
-                    let mut dyn_construct = |operand, name| {
+                    let mut dyn_construct = |operand, _name| {
                         match operand {
                             OperandType::True => Boolean::constant(true),
                             OperandType::False => Boolean::constant(false),
@@ -1880,7 +1880,7 @@ mod test {
                 let b;
 
                 {
-                    let mut dyn_construct = |operand, name| {
+                    let mut dyn_construct = |operand, _name| {
 
                         match operand {
                             OperandType::True => Boolean::constant(true),
@@ -2056,7 +2056,7 @@ mod test {
                                    ((!first_operand.val()) & third_operand.val());
 
                     {
-                        let mut dyn_construct = |operand, name| {
+                        let mut dyn_construct = |operand, _name| {
 
                             match operand {
                                 OperandType::True => Boolean::constant(true),
@@ -2125,7 +2125,7 @@ mod test {
                                    (second_operand.val() & third_operand.val());
 
                     {
-                        let mut dyn_construct = |operand, name| {
+                        let mut dyn_construct = |operand, _name| {
 
                             match operand {
                                 OperandType::True => Boolean::constant(true),
