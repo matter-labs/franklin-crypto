@@ -495,8 +495,6 @@ impl<E: Engine> Num<E> {
         }
     }
 
-
-    // compute coeff_ab * A * B + coeff_c * C
     pub fn mask_by_boolean_into_accumulator<CS: ConstraintSystem<E>>(&self, cs: &mut CS, boolean: &Boolean, accumulator: &Self) -> Result<Self, SynthesisError>
     {   
         match (self, accumulator) {
@@ -1711,7 +1709,6 @@ impl<E: Engine> AllocatedNum<E> {
         })
     }
 
-    // compute coeff_ab * A * B + coeff_c * C
     pub fn mask_by_boolean_into_accumulator<CS: ConstraintSystem<E>>(&self, cs: &mut CS, boolean: &Boolean, accumulator: &Self) -> Result<Self, SynthesisError>
     {   
         match boolean {

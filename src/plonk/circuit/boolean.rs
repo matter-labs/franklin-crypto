@@ -542,6 +542,7 @@ pub enum Boolean {
     Constant(bool)
 }
 
+
 impl Boolean {
     pub fn is_constant(&self) -> bool {
         match *self {

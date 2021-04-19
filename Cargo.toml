@@ -31,7 +31,7 @@ itertools = "0.9"
 splitmut = "0.2"
 blake2 = "0.9"
 
-bellman = { package = "bellman_ce", path = "../bellman" }
+bellman = { package = "bellman_ce", path = "../../bellman/plonk" }
 # bellman = { package = "bellman_ce", git = "https://github.com/matter-labs/bellman", branch = "dev" }
 blake2-rfc_bellman_edition = "0.0.1"
 #poseidon_hash = { path = "../poseidon_hash" }
