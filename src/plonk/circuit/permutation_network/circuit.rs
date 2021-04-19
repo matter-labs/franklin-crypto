@@ -136,6 +136,8 @@ pub fn prove_permutation_using_switches_witness<E, CS>(
 
     // let mut permutation: Vec<Option<AllocatedNum<E>>> = permuted.iter().map(|e| Some(e.clone())).collect();
 
+    let mut switch_count = 0;
+
     for column_idx in 0..num_columns {
         // this is just a bookkeeping variable and is deterministic
         let mut result_of_this_column: Vec<Option<AllocatedNum<E>>> = vec![None; topology.size];
@@ -201,6 +203,7 @@ pub fn prove_permutation_using_switches_witness<E, CS>(
                     &previous_level_pair,
                     &boolean_switch
                 )?;
+                switch_count += 1;
 
                 result_of_this_column[routed_into_straght] = Some(next_level_straight);
                 result_of_this_column[routed_into_cross] = Some(next_level_cross);
@@ -217,6 +220,8 @@ pub fn prove_permutation_using_switches_witness<E, CS>(
         let routed = routed.expect("must be some");
         routed.enforce_equal(cs, &claimed)?;
     }
+
+    println!("switch count: {}", switch_count);
 
 
     Ok(())
@@ -496,9 +501,9 @@ mod test {
     #[test]
     fn test_permutation_positive() {
         let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-        for size in 3..128 {
+        for size in 3..10 {
             println!("Size = {}", size);
-            for _ in 0..10 {
+            for _ in 0..1 {
                 let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
                 let mut permutation = IntegerPermutation::new(size);

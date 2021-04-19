@@ -79,6 +79,10 @@ impl<E: Engine> Num<E> {
         }
     }
 
+    pub fn zero() -> Self {
+        Num::Constant(E::Fr::zero())
+    }
+
     pub fn is_zero<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Boolean, SynthesisError> {
         let flag = match self {
             Num::Constant(c) => Ok(Boolean::constant(c.is_zero())),
@@ -448,8 +452,6 @@ impl<E: Engine> Num<E> {
         }
     }
 
-
-    // compute coeff_ab * A * B + coeff_c * C
     pub fn mask_by_boolean_into_accumulator<CS: ConstraintSystem<E>>(&self, cs: &mut CS, boolean: &Boolean, accumulator: &Self) -> Result<Self, SynthesisError>
     {   
         match (self, accumulator) {
@@ -761,7 +763,7 @@ impl<E: Engine> Num<E> {
                         let mut main_term = MainGateTerm::<E>::new();
                         let term = ArithmeticTerm::from_variable(cond.get_variable()).mul_by_variable(var.get_variable());
                         main_term.sub_assign(term);
-                        main_term.sub_assign(ArithmeticTerm::from_variable_and_coeff(cond.get_variable(), *constant));
+                        main_term.add_assign(ArithmeticTerm::from_variable_and_coeff(cond.get_variable(), *constant));
                         main_term.sub_assign(ArithmeticTerm::from_variable(c.get_variable()));
                         main_term.add_assign(ArithmeticTerm::from_variable(var.get_variable()));
 
@@ -1601,7 +1603,6 @@ impl<E: Engine> AllocatedNum<E> {
         })
     }
 
-    // compute coeff_ab * A * B + coeff_c * C
     pub fn mask_by_boolean_into_accumulator<CS: ConstraintSystem<E>>(&self, cs: &mut CS, boolean: &Boolean, accumulator: &Self) -> Result<Self, SynthesisError>
     {   
         match boolean {

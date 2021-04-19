@@ -387,7 +387,7 @@ enum RescueOpMode<E: RescueEngine> {
 #[derive(Clone, Debug)]
 pub struct StatefulRescue<'a, E: RescueEngine> {
     params: &'a E::Params,
-    internal_state: Vec<E::Fr>,
+    pub internal_state: Vec<E::Fr>,
     mode: RescueOpMode<E>
 }
 

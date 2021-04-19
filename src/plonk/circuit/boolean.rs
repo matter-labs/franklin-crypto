@@ -543,12 +543,17 @@ pub enum Boolean {
     Constant(bool)
 }
 
+
 impl Boolean {
     pub fn is_constant(&self) -> bool {
         match *self {
             Boolean::Constant(_) => true,
             _ => false
         }
+    }
+
+    pub fn zero() -> Self {
+        Boolean::Constant(false)
     }
 
     pub fn get_variable(&self) -> Option<&AllocatedBit> {

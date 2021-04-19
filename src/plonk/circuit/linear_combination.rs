@@ -446,7 +446,9 @@ impl<E: Engine> LinearCombination<E> {
 
         // trivial case - single variable
 
-        assert!(terms.len() > 0);
+        if terms.len() == 0 {
+            return Ok(());
+        }
 
         let num_terms = terms.len();
 
