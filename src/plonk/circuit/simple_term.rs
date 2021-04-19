@@ -20,9 +20,7 @@ use crate::bellman::plonk::better_better_cs::cs::{
     MainGateTerm
 };
 
-use crate::circuit::{
-    Assignment
-};
+use crate::plonk::circuit::Assignment;
 
 use super::allocated_num::*;
 use super::linear_combination::*;
@@ -78,6 +76,12 @@ impl<E: Engine> Term<E> {
             coeff: E::Fr::one(),
             constant_term: E::Fr::zero()
         }
+    }
+
+    pub fn allocate<CS: ConstraintSystem<E>>(cs: &mut CS, witness: Option<E::Fr>) -> Result<Self, SynthesisError> {
+        let num = Num::alloc(cs, witness)?;
+
+        Ok(Self::from_num(num))
     }
 
     pub fn zero() -> Self {
@@ -305,6 +309,17 @@ impl<E: Engine> Term<E> {
         }
     }
 
+    pub fn sub<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+        other: &Self
+    ) -> Result<Self, SynthesisError> {
+        let mut other = other.clone();
+        other.negate();
+
+        self.add(cs, &other)
+    }
+
     pub fn add_multiple<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,
@@ -330,7 +345,7 @@ impl<E: Engine> Term<E> {
         return Ok(Self::from_num(num));
     }
 
-    pub(crate) fn mul<CS: ConstraintSystem<E>>(
+    pub fn mul<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,
         other: &Self
@@ -338,7 +353,7 @@ impl<E: Engine> Term<E> {
         Self::fma(cs, self, other, &Self::zero())
     }
 
-    pub(crate) fn fma<CS: ConstraintSystem<E>>(
+    pub fn fma<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         mul_x: &Self,
         mul_y: &Self,
@@ -697,6 +712,86 @@ impl<E: Engine> Term<E> {
         let new = Term::<E>::fma(cs, &flag_as_term, &a_minus_b, &second)?;
 
         Ok(new)
+    }
+
+    pub fn inverse<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+    ) -> Result<Self, SynthesisError> {
+        if self.is_constant() {
+            let new_value = self.into_constant_value().inverse().expect("inverse must exist");
+            
+            let new = Self::from_constant(new_value);
+
+            return Ok(new)
+        }
+
+        let new_value = self.get_value().map(|el| el.inverse().expect("inverse must exist"));
+        let new = Self::allocate(cs, new_value)?;
+
+        // (a*X + b) * Y - 1 = 0
+        // a * X * Y + b * Y - 1 = 0
+        let mut term = MainGateTerm::<E>::new();
+        let mul_term = ArithmeticTerm::<E>::from_variable_and_coeff(self.num.get_variable().get_variable(), self.coeff).mul_by_variable(new.num.get_variable().get_variable());
+        let y_term = ArithmeticTerm::<E>::from_variable_and_coeff(new.num.get_variable().get_variable(), self.constant_term);
+        let const_term = ArithmeticTerm::constant(E::Fr::one());
+
+        term.add_assign(mul_term);
+        term.add_assign(y_term);
+        term.sub_assign(const_term);
+
+        cs.allocate_main_gate(term)?;
+        
+        Ok(new)
+    }
+
+    pub fn div<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+        other: &Self
+    ) -> Result<Self, SynthesisError> {
+        match (self.is_constant(), other.is_constant()) {
+            (true, true) => {
+                let mut new_value = other.into_constant_value().inverse().expect("inverse must exist");
+                new_value.mul_assign(&self.into_constant_value());
+                let new = Self::from_constant(new_value);
+    
+                return Ok(new)
+            },
+            (false, false) => {
+                let new_value = match (self.get_value(), other.get_value()) {
+                    (Some(this), Some(other)) => {
+                        let mut new_value = other.inverse().expect("inverse must exist");
+                        new_value.mul_assign(&this);
+
+                        Some(new_value)
+                    }
+                    _ => None
+                };
+
+                // (a * X + b) / (c * Y + d) = Z
+                // a * X + b - c * Y * Z - d * Z = 0
+                let z = Self::allocate(cs, new_value)?;
+
+                let mut term = MainGateTerm::<E>::new();
+                let x_term = ArithmeticTerm::<E>::from_variable_and_coeff(self.num.get_variable().get_variable(), self.coeff);
+                let yz_term = ArithmeticTerm::<E>::from_variable_and_coeff(other.num.get_variable().get_variable(), other.coeff).mul_by_variable(z.num.get_variable().get_variable());
+                let z_term = ArithmeticTerm::<E>::from_variable_and_coeff(z.num.get_variable().get_variable(), other.constant_term);
+                let b_term = ArithmeticTerm::constant(self.constant_term);
+        
+                term.add_assign(x_term);
+                term.add_assign(b_term);
+                term.sub_assign(yz_term);
+                term.sub_assign(z_term);
+        
+                cs.allocate_main_gate(term)?;
+
+                return Ok(z)
+            },
+            _ => {
+                unimplemented!()
+            }
+        }
     }
 }
 

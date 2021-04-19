@@ -4,7 +4,7 @@ use sha2::{Sha256, Digest};
 
 use jubjub::{JubjubEngine, ToUniform};
 use rescue::{self, RescueEngine};
-use circuit::multipack;
+use crate::plonk::circuit::multieq;
 
 pub fn hash_to_scalar<E: JubjubEngine>(persona: &[u8], a: &[u8], b: &[u8]) -> E::Fs {
     let mut hasher = Blake2b::with_params(64, &[], &[], persona);
@@ -51,11 +51,11 @@ pub fn rescue_hash_to_scalar<E: RescueEngine + JubjubEngine>(
 
     let mut input_bools = Vec::with_capacity((persona.len() + a.len() + b.len()) * 8);
 
-    input_bools.extend(multipack::bytes_to_bits(&persona));
-    input_bools.extend(multipack::bytes_to_bits(&a));
-    input_bools.extend(multipack::bytes_to_bits(&b));
+    input_bools.extend(multieq::bytes_to_bits(&persona));
+    input_bools.extend(multieq::bytes_to_bits(&a));
+    input_bools.extend(multieq::bytes_to_bits(&b));
 
-    let inputs = multipack::compute_multipacking::<E>(&input_bools);
+    let inputs = multieq::compute_multipacking::<E>(&input_bools);
 
     let mut sponge = rescue::StatefulRescue::<E>::new(&params);
     sponge.specialize(inputs.len() as u8);

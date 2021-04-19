@@ -6,7 +6,7 @@ use crate::rescue::*;
 use crate::plonk::circuit::bigint::field::*;
 use crate::plonk::circuit::bigint::bigint::*;
 
-use crate::bellman::pairing::{Engine, CurveAffine};
+use crate::bellman::pairing::{Engine, GenericCurveAffine};
 use crate::bellman::pairing::ff::PrimeField;
 
 use crate::bellman::plonk::better_cs::keys::{Proof, VerificationKey};
@@ -19,8 +19,8 @@ use crate::bellman::plonk::domains::*;
 
 pub fn verification_key_into_allocated_limb_witnesses<E: Engine, P: OldCSParams<E>>(
     vk: &VerificationKey<E, P>,
-    params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base>) -> Vec<E::Fr> 
-        // where <E::G1Affine as CurveAffine>::Base: PrimeField 
+    params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>) -> Vec<E::Fr> 
+        // where <E::G1Affine as GenericCurveAffine>::Base: PrimeField 
     {
     // we encode
     // domain size
@@ -77,7 +77,7 @@ pub fn verification_key_into_allocated_limb_witnesses<E: Engine, P: OldCSParams<
 
 pub fn proof_into_allocated_limb_witnesses<E: Engine, P: OldCSParams<E>>(
     proof: &Proof<E, P>,
-    params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base>) -> Vec<E::Fr> 
+    params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>) -> Vec<E::Fr> 
     {
     // we encode
     // inputs
@@ -116,7 +116,7 @@ pub fn proof_into_allocated_limb_witnesses<E: Engine, P: OldCSParams<E>>(
 
 pub fn proof_into_single_limb_witness<E: Engine, P: OldCSParams<E>>(
     proof: &Proof<E, P>,
-    params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base>) -> Vec<E::Fr> 
+    params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>) -> Vec<E::Fr> 
 {
     // change the params
 
@@ -194,7 +194,7 @@ pub fn field_to_witness<E: Engine, F: PrimeField>(element: &F, params: &RnsParam
     }
 }
 
-pub fn add_point<E: Engine>(src: &E::G1Affine, dst: &mut Vec<E::Fr>, params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base>) {
+pub fn add_point<E: Engine>(src: &E::G1Affine, dst: &mut Vec<E::Fr>, params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>) {
     assert!(!src.is_zero());
     let (x, y) = src.into_xy_unchecked();
 
@@ -204,7 +204,7 @@ pub fn add_point<E: Engine>(src: &E::G1Affine, dst: &mut Vec<E::Fr>, params: &Rn
     }
 }
 
-pub fn add_points<E: Engine>(src: &[E::G1Affine], dst: &mut Vec<E::Fr>, params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base>) {
+pub fn add_points<E: Engine>(src: &[E::G1Affine], dst: &mut Vec<E::Fr>, params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>) {
     for s in src.iter() {
         add_point(s, dst, params);
     }

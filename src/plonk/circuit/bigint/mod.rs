@@ -32,7 +32,7 @@ use crate::bellman::plonk::better_better_cs::cs::{
     TrivialAssembly
 };
 
-use crate::circuit::Assignment;
+use crate::plonk::circuit::Assignment;
 
 use super::allocated_num::*;
 
@@ -42,6 +42,9 @@ pub mod range_constraint_gate;
 pub mod range_constraint_functions;
 pub mod range_constraint_with_two_bit_gate;
 pub mod single_table_range_constraint;
+
+pub use self::bigint::*;
+pub use self::field::*;
 
 use self::range_constraint_gate::TwoBitDecompositionRangecheckCustomGate;
 
@@ -236,7 +239,7 @@ pub fn create_range_constraint_chain<E: Engine, CS: ConstraintSystem<E>>(
 
         let four = Some(four);
 
-        use crate::circuit::SomeField;
+        use crate::plonk::circuit::SomeField;
 
         let mut previous_value = to_constraint.get_value();
 

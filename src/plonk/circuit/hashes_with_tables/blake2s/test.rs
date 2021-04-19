@@ -75,7 +75,7 @@ mod test {
                         input_vars.push(byte);
                     }
                     else {
-                        let byte = Byte::from_cnst(cs, value.clone());
+                        let byte = Byte::from_cnst(value.clone());
                         input_vars.push(byte);
                     }
                 }

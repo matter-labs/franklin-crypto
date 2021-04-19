@@ -1,6 +1,6 @@
 use crate::bellman::pairing::{
     Engine,
-    CurveAffine,
+    GenericCurveAffine,
 };
 
 use crate::bellman::pairing::ff::{
@@ -46,7 +46,7 @@ pub fn aggregate_proof<'a, E, CS, T, P, OldP, AD, WP>(
     vk: &VerificationKeyGagdet<'a, E, WP>,
     proof: &ProofGadget<'a, E, WP>,
     aux_data: &AD,
-    params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+    params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
 ) -> Result<[WP; 2], SynthesisError>
     where 
     E: Engine, CS: ConstraintSystem<E>, T: ChannelGadget<E>, AD: AuxData<E>, OldP: OldCSParams<E>, 
@@ -323,7 +323,7 @@ pub fn aggregate_proof<'a, E, CS, T, P, OldP, AD, WP>(
                             .zip(Some(E::Fr::one()).iter().chain(&vk.non_residues)).enumerate() 
             {
                 // tmp = non_res * z * beta + wire
-                use crate::circuit::Assignment;
+                use crate::plonk::circuit::Assignment;
 
                 let mut tmp = AllocatedNum::alloc(
                     cs,
@@ -399,7 +399,7 @@ pub fn aggregate_proof<'a, E, CS, T, P, OldP, AD, WP>(
                             .zip(&proof.permutation_polynomials_at_z).enumerate() 
             {
                 // tmp = perm_at_z * beta + wire
-                use crate::circuit::Assignment;
+                use crate::plonk::circuit::Assignment;
 
                 let mut tmp = AllocatedNum::alloc(
                     cs,
@@ -633,7 +633,7 @@ P: PlonkConstraintSystemParams<E>, WP: WrappedAffinePoint<'a, E>,
     proof: Cell<Option<Proof<E, OldP>>>,
     vk: Cell<Option<VerificationKey<E, OldP>>>,
     aux_data: AD,
-    params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+    params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
 }
 
 
@@ -649,7 +649,7 @@ OldP: OldCSParams<E>, WP: WrappedAffinePoint<'a, E>,
         proof: Proof<E, OldP>,
         vk: VerificationKey<E, OldP>,
         aux_data: AD,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
     ) -> Self 
     {
 

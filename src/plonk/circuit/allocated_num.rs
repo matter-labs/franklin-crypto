@@ -26,12 +26,31 @@ use crate::bellman::plonk::better_better_cs::cs::{
 use super::boolean::{self, AllocatedBit, Boolean};
 use super::linear_combination::*;
 
-use crate::circuit::{
-    Assignment
-};
+use crate::plonk::circuit::Assignment;
 
 pub const STATE_WIDTH : usize = 4;
 
+pub mod stats {
+    use std::sync::atomic::*;
+
+    pub static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    pub fn reset_counter() {
+        COUNTER.store(0, Ordering::Relaxed);
+    }
+
+    pub fn increment_counter() {
+        COUNTER.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub fn increment_counter_by(val: usize) {
+        COUNTER.fetch_add(val, Ordering::SeqCst);
+    }
+
+    pub fn output_counter() -> usize {
+        COUNTER.load(Ordering::Relaxed)
+    }
+}
 
 #[derive(Debug)]
 pub enum Num<E: Engine> {
@@ -72,6 +91,25 @@ impl<E: Engine> std::fmt::Display for Num<E> {
 }
 
 impl<E: Engine> Num<E> {
+    pub fn zero() -> Self {
+        Num::Constant(E::Fr::zero())
+    }
+
+    pub fn one() -> Self {
+        Num::Constant(E::Fr::one())
+    }
+
+    pub fn alloc<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        witness: Option<E::Fr>
+    ) -> Result<Self, SynthesisError> {
+        let new = Num::Variable(
+            AllocatedNum::alloc(cs, || Ok(*witness.get()?))?
+        );
+
+        Ok(new)
+    }
+    
     pub fn get_value(&self) -> Option<E::Fr> {
         match self {
             Num::Variable(v) => v.get_value(),
@@ -160,6 +198,18 @@ impl<E: Engine> Num<E> {
             } else {
                 return Ok((a.clone(), b.clone()))
             }
+        }
+
+        use bellman::plonk::better_better_cs::cs::GateInternal;
+        use bellman::plonk::better_better_cs::gates::selector_optimized_with_d_next::SelectorOptimizedWidth4MainGateWithDNext;
+
+        let used_gate = SelectorOptimizedWidth4MainGateWithDNext;
+
+        if CS::MainGate::default().name() == <SelectorOptimizedWidth4MainGateWithDNext as GateInternal<E>>::name(&used_gate) {
+            let c = Num::conditionally_select(cs, &condition, &b, &a)?;
+            let d = Num::conditionally_select(cs, &condition, &a, &b)?;
+
+            return Ok((c, d));
         }
 
         match (a, b) {
@@ -618,6 +668,96 @@ impl<E: Engine> Num<E> {
         }
     }
 
+    pub fn assert_not_zero<CS>(
+        &self,
+        cs: &mut CS,
+    ) -> Result<(), SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        match self {
+            Num::Constant(c) => {
+                assert!(!c.is_zero());
+            },
+            Num::Variable(var) => {
+                var.assert_not_zero(cs)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn assert_is_zero<CS>(
+        &self,
+        cs: &mut CS,
+    ) -> Result<(), SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        match self {
+            Num::Constant(c) => {
+                assert!(c.is_zero());
+            },
+            Num::Variable(var) => {
+                var.assert_is_zero(cs)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn inverse<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS
+    ) -> Result<Self, SynthesisError> {
+        match self {
+            Num::Constant(c) => {
+                assert!(!c.is_zero());
+                Ok(Num::Constant(c.inverse().expect("inverse must exist")))
+            },
+            Num::Variable(var) => {
+                let result = var.inverse(cs)?;
+
+                Ok(Num::Variable(result))
+            }
+        }
+    }
+
+    pub fn div<CS>(
+        &self,
+        cs: &mut CS,
+        other: &Self
+    ) -> Result<Self, SynthesisError>
+        where CS: ConstraintSystem<E>
+    {
+        match (self, other) {
+            (Num::Constant(a), Num::Constant(b)) => {
+                let b_inv = b.inverse().expect("inverse must exist");
+
+                let mut result = *a;
+                result.mul_assign(&b_inv);
+
+                Ok(Num::Constant(result))
+            },
+            (Num::Variable(a), Num::Variable(b)) => {
+                let result =  a.div(cs, b)?;
+
+                Ok(Num::Variable(result))
+            },
+            (Num::Variable(a), Num::Constant(b)) => {
+                let b_inv = b.inverse().expect("inverse must exist");
+                let result = Num::Variable(*a).mul(cs, &Num::Constant(b_inv))?;
+
+                Ok(result)
+            },
+            (Num::Constant(a), Num::Variable(b)) => {
+                let b_inv = b.inverse(cs)?;
+                let result = Num::Variable(b_inv).mul(cs, &Num::Constant(*a))?;
+
+                Ok(result)
+            }
+        }
+    }
+
+    // returns 0 if condition == `false` and `a` if condition == `true`
     pub fn mask<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         a: &Self,
@@ -738,7 +878,6 @@ impl<E: Engine> Num<E> {
                         main_term.sub_assign(ArithmeticTerm::from_variable(c.get_variable()));
                         main_term.add_assign(ArithmeticTerm::constant(*constant));
 
-
                         cs.allocate_main_gate(main_term)?;
         
                         Ok(Num::Variable(c))
@@ -778,6 +917,9 @@ impl<E: Engine> Num<E> {
                 Self::conditionally_select(cs, &condition_flag.not(), b, a)
             },
             (&Num::Constant(a), &Num::Constant(b)) => {
+                if a == b {
+                    return Ok(Num::Constant(a));
+                }
                 match condition_flag {
                     Boolean::Constant(flag) => {
                         let result_value = if *flag { 
@@ -851,118 +993,103 @@ impl<E: Engine> Num<E> {
         }
     }
 
-    pub fn lc<CS: ConstraintSystem<E>>(cs: &mut CS, input_coeffs: &[E::Fr], inputs: &[Num<E>]) -> Result<Self, SynthesisError>
+    pub fn alloc_multiple<CS: ConstraintSystem<E>, const N: usize>(
+        cs: &mut CS,
+        witness: Option<[E::Fr; N]>
+    ) -> Result<[Self; N], SynthesisError> {
+        let mut result = [Num::Constant(E::Fr::zero()); N];
+        for (idx, r) in result.iter_mut().enumerate() {
+            let witness = witness.map(|el| el[idx]);
+            *r = Num::alloc(cs, witness)?;
+        }
+    
+        Ok(result)
+    }
+
+    pub fn get_value_multiple<const N: usize>(
+        els: &[Self; N]
+    ) -> Option<[E::Fr; N]> {
+        let mut result = [E::Fr::zero(); N];
+        for (r, el) in result.iter_mut().zip(els.iter()) {
+            if let Some(value) = el.get_value() {
+                *r = value;
+            } else {
+                return None
+            }
+        }
+    
+        Some(result)
+    }
+
+    pub fn get_value_for_slice(
+        els: &[Self]
+    ) -> Option<Vec<E::Fr>> {
+        let mut result = vec![];
+        for el in els.iter() {
+            if let Some(value) = el.get_value() {
+                result.push(value);
+            } else {
+                return None;
+            }
+        }
+    
+        Some(result)
+    }
+
+    pub fn into_bits_le<CS>(
+        &self,
+        cs: &mut CS,
+        bit_length: Option<usize>,
+    ) -> Result<Vec<Boolean>, SynthesisError>
+    where
+        CS: ConstraintSystem<E>,
     {
-        assert_eq!(input_coeffs.len(), inputs.len());
-
-        // corner case: all our values are actually constants
-        if inputs.iter().all(| x | x.is_constant()) {
-            let value = inputs.iter().zip(input_coeffs.iter()).fold(E::Fr::zero(), |acc, (x, coef)| {
-                let mut temp = x.get_value().unwrap();
-                temp.mul_assign(&coef);
-                temp.add_assign(&acc);
-                temp
-            });
-
-            return Ok(Num::Constant(value));
+        if let Some(bit_length) = bit_length {
+            assert!(bit_length <= E::Fr::NUM_BITS as usize);
         }
 
-        // okay, from now one we may be sure that we have at least one allocated term
-        let mut constant_term = E::Fr::zero();
-        let mut vars = Vec::with_capacity(STATE_WIDTH);
-        let mut coeffs = Vec::with_capacity(STATE_WIDTH);
-
-        // Note: the whole thing may be a little more efficient with the use of custom gates
-        // exploiting (d_next)
-        let mut minus_one = E::Fr::one();
-        minus_one.negate();
-        let dummy = AllocatedNum::zero(cs);
-
-        for (x, coef) in inputs.iter().zip(input_coeffs.iter()) {
-            match x {
-                Num::Constant(x) => {
-                    let mut temp = x.clone();
-                    temp.mul_assign(&coef);
-                    constant_term.add_assign(&temp);
-                },
-                Num::Variable(x) => {
-                    if vars.len() < STATE_WIDTH
-                    {
-                        vars.push(x.clone());
-                        coeffs.push(coef.clone());
-                    }
-                    else {
-                        coeffs.reverse();
-                        vars.reverse();
-                        let tmp = AllocatedNum::quartic_lc_with_cnst(cs, &coeffs[..], &vars[..], &constant_term)?;
-
-                        constant_term = E::Fr::zero();
-                        vars = vec![tmp, x.clone()];
-                        coeffs = vec![E::Fr::one(), coef.clone()];
-                    }
+        match self {
+            Num::Variable(ref var) => {
+                var.into_bits_le(cs, bit_length)
+            },
+            Num::Constant(c) => {
+                use crate::plonk::circuit::utils::fe_to_lsb_first_bits;
+                if let Some(bit_length) = bit_length {
+                    assert!(c.into_repr().num_bits() as usize <= bit_length);
                 }
+
+                let bits = fe_to_lsb_first_bits(c);
+
+                let mut result = vec![];
+                for b in bits.into_iter() {
+                    result.push(Boolean::constant(b));
+                }
+
+                if let Some(bit_length) = bit_length {
+                    assert!(result.len() >= bit_length);
+                    result.truncate(bit_length);
+                }
+
+                Ok(result)
             }
         }
-
-        if vars.len() == STATE_WIDTH {
-            coeffs.reverse();
-            vars.reverse();
-            let tmp = AllocatedNum::quartic_lc_with_cnst(cs, &coeffs[..], &vars[..], &constant_term)?;
-
-            constant_term = E::Fr::zero();
-            vars = vec![tmp];
-            coeffs = vec![E::Fr::one()];
-        }
-
-        // pad with dummy variables
-        for _i in vars.len()..(STATE_WIDTH-1) {
-            vars.push(AllocatedNum::zero(cs));
-            coeffs.push(E::Fr::zero());
-        }
-
-        let res_var = AllocatedNum::alloc(cs, || {
-            let mut cur = E::Fr::zero();
-            for (elem, coef) in inputs.iter().zip(input_coeffs.iter()) {
-                let mut tmp = elem.get_value().grab()?;
-                tmp.mul_assign(coef);
-                cur.add_assign(&tmp);
-            }
-            Ok(cur)
-        })?;
-
-        vars.push(res_var.clone());
-        coeffs.push(minus_one);
-        coeffs.reverse();
-        vars.reverse();
-        
-        AllocatedNum::general_lc_gate(cs, &coeffs[..], &vars[..], &constant_term, &E::Fr::zero(), &dummy)?;
-        Ok(Num::Variable(res_var))
     }
 
-    // same as lc but with all the coefficients set to be 1
-    pub fn sum<CS: ConstraintSystem<E>>(cs: &mut CS, nums: &[Num<E>]) -> Result<Self, SynthesisError>
-    {
-        let coeffs = vec![E::Fr::one(); nums.len()];
-        Self::lc(cs, &coeffs[..], &nums[..])
-    }
+    pub fn conditionally_select_multiple<CS: ConstraintSystem<E>, const N: usize>(
+        cs: &mut CS,
+        flag: &Boolean,
+        a: &[Self; N],
+        b: &[Self; N]
+    ) -> Result<[Self; N], SynthesisError> {
+        let mut result = [Num::zero(); N];
 
-    // for given array of slices : [x0, x1, x2, ..., xn] of arbitrary length, base n and total accumulated x
-    // validates that x = x0 + x1 * base + x2 * base^2 + ... + xn * base^n
-    pub fn long_weighted_sum<CS>(cs: &mut CS, vars: &[Self], base: &E::Fr) -> Result<Self, SynthesisError>
-    where CS: ConstraintSystem<E>
-    {
-        let mut coeffs = Vec::with_capacity(vars.len());
-        let mut acc = E::Fr::one();
-
-        for _ in 0..vars.len() {
-            coeffs.push(acc.clone());
-            acc.mul_assign(&base);
+        for ((a, b), r) in (a.iter().zip(b.iter())).zip(result.iter_mut()) {
+            *r = Num::conditionally_select(cs, flag, a, b)?;
         }
 
-        Self::lc(cs, &coeffs[..], vars)
+        Ok(result)
     }
 }
-
 
 #[derive(Debug)]
 pub struct AllocatedNum<E: Engine> {
@@ -1073,31 +1200,6 @@ impl<E: Engine> AllocatedNum<E> {
         })
     }
 
-    pub fn alloc_from_lc<CS: ConstraintSystem<E>>(
-        cs: &mut CS, 
-        coefs: &[E::Fr],
-        vars: &[Self],
-        cnst: &E::Fr
-    ) -> Result<Self, SynthesisError>
-    {
-        assert_eq!(coefs.len(), vars.len());
-        
-        let new_value = match vars.iter().all(|x| x.get_value().is_some()) {
-            false => None,
-            true => {
-                let mut res = cnst.clone();
-                for (var, coef) in vars.iter().zip(coefs.iter()) {
-                    let mut tmp = var.get_value().unwrap();
-                    tmp.mul_assign(coef);
-                    res.add_assign(&tmp);
-                }
-                Some(res)
-            },
-        };
-
-        Self::alloc(cs, || new_value.grab())
-    }
-
     pub fn inputize<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<(), SynthesisError> {
         let input = Self::alloc_input(
             cs,
@@ -1180,9 +1282,13 @@ impl<E: Engine> AllocatedNum<E> {
             }
         )?;
 
-        let r = self.mul(cs, &new_allocated)?;
+        let self_by_inv = ArithmeticTerm::from_variable(self.variable).mul_by_variable(new_allocated.variable);
+        let constant_term = ArithmeticTerm::constant(E::Fr::one());
+        let mut term = MainGateTerm::new();
+        term.add_assign(self_by_inv);
+        term.sub_assign(constant_term);
 
-        r.assert_equal_to_constant(cs, E::Fr::one())?;
+        cs.allocate_main_gate(term)?;
 
         Ok(new_allocated)
     }
@@ -1314,6 +1420,18 @@ impl<E: Engine> AllocatedNum<E> {
             }
         }
 
+        use bellman::plonk::better_better_cs::cs::GateInternal;
+        use bellman::plonk::better_better_cs::gates::selector_optimized_with_d_next::SelectorOptimizedWidth4MainGateWithDNext;
+
+        let used_gate = SelectorOptimizedWidth4MainGateWithDNext;
+
+        if CS::MainGate::default().name() == <SelectorOptimizedWidth4MainGateWithDNext as GateInternal<E>>::name(&used_gate) {
+            let c = Self::conditionally_select(cs, &b, &a, &condition)?;
+            let d = Self::conditionally_select(cs, &a, &b, &condition)?;
+
+            return Ok((c, d));
+        }
+
         let c = Self::alloc(
             cs,
             || {
@@ -1345,7 +1463,7 @@ impl<E: Engine> AllocatedNum<E> {
 
         match condition {
             Boolean::Constant(..) => {
-                unreachable!("constant is already handles")
+                unreachable!("constant is already handled")
             },
             Boolean::Is(condition_var) => {
                 // no modifications
@@ -1809,6 +1927,15 @@ impl<E: Engine> AllocatedNum<E> {
         if a.get_variable() == b.get_variable() {
             return Ok(a.clone());
         }
+        use bellman::plonk::better_better_cs::cs::GateInternal;
+        use bellman::plonk::better_better_cs::gates::selector_optimized_with_d_next::SelectorOptimizedWidth4MainGateWithDNext;
+
+        let used_gate = SelectorOptimizedWidth4MainGateWithDNext;
+
+        if CS::MainGate::default().name() == <SelectorOptimizedWidth4MainGateWithDNext as GateInternal<E>>::name(&used_gate) {
+            return Self::conditionally_select_for_special_main_gate(cs, a, b, condition);
+        }
+
         // code below is valid if a variable != b variable
         let res = match condition {
             Boolean::Constant(flag) => if *flag { a.clone() } else { b.clone() },
@@ -1838,6 +1965,8 @@ impl<E: Engine> AllocatedNum<E> {
 
                 cs.allocate_main_gate(main_term)?;
 
+                self::stats::increment_counter();
+
                 c
             },
 
@@ -1865,6 +1994,139 @@ impl<E: Engine> AllocatedNum<E> {
                 main_term.add_assign(ArithmeticTerm::from_variable(a.get_variable()));
 
                 cs.allocate_main_gate(main_term)?;
+
+                self::stats::increment_counter();
+
+                c
+            }
+        };
+        
+        Ok(res)
+    }
+
+    fn conditionally_select_for_special_main_gate<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        a: &Self,
+        b: &Self,
+        condition: &Boolean
+    ) -> Result<Self, SynthesisError> {
+        use bellman::plonk::better_better_cs::cs::GateInternal;
+        use bellman::plonk::better_better_cs::gates::selector_optimized_with_d_next::SelectorOptimizedWidth4MainGateWithDNext;
+
+        let mg = CS::MainGate::default();
+        let used_gate = SelectorOptimizedWidth4MainGateWithDNext;
+        assert_eq!(mg.name(), <SelectorOptimizedWidth4MainGateWithDNext as GateInternal<E>>::name(&used_gate));
+
+        // we can have a relationship as a + b + c + d + ab + ac + const + d_next = 0
+
+        // code below is valid if a variable != b variable
+        let res = match condition {
+            Boolean::Constant(flag) => if *flag { a.clone() } else { b.clone() },
+            
+            Boolean::Is(cond) => {
+
+                let c = Self::alloc(
+                    cs,
+                    || {
+                        if *cond.get_value().get()? {
+                            Ok(*a.value.get()?)
+                        } else {
+                            Ok(*b.value.get()?)
+                        }
+                    }
+                )?;
+
+                // a * condition + b*(1-condition) = c ->
+                // (a - b) *condition - c + b = 0
+
+                // that has to be formatted as 
+                // A (var) = condition
+                // B = a
+                // C = b
+                // D = c
+
+                // coefficients
+                // [0, 0, 1, -1, 1, -1, 0, 0]
+
+                // so AB - AC => condition * a - condition * b
+                // then we make +b and -c
+
+                let dummy = CS::get_dummy_variable();
+
+                let mut vars = CS::MainGate::dummy_vars_to_inscribe(dummy);
+                let mut coeffs = CS::MainGate::empty_coefficients();
+
+                let mut minus_one = E::Fr::one();
+                minus_one.negate();
+
+                coeffs[2] = E::Fr::one();
+                coeffs[3] = minus_one;
+                coeffs[SelectorOptimizedWidth4MainGateWithDNext::AB_MULTIPLICATION_TERM_COEFF_INDEX] = E::Fr::one();
+                coeffs[SelectorOptimizedWidth4MainGateWithDNext::AC_MULTIPLICATION_TERM_COEFF_INDEX] = minus_one;
+
+                vars[0] = cond.get_variable();
+                vars[1] = a.get_variable();
+                vars[2] = b.get_variable();
+                vars[3] = c.get_variable();
+
+                cs.new_single_gate_for_trace_step(
+                    &mg, 
+                    &coeffs, 
+                    &vars,
+                    &[]
+                )?;
+
+                c
+            },
+
+            Boolean::Not(cond) => {
+                let c = Self::alloc(
+                    cs,
+                    || {
+                        if *cond.get_value().get()? {
+                            Ok(*b.value.get()?)
+                        } else {
+                            Ok(*a.value.get()?)
+                        }
+                    }
+                )?;
+
+                // b * condition + a*(1-condition) = c ->
+                // (b - a) * condition - c + a = 0
+
+                // that has to be formatted as 
+                // A (var) = condition
+                // B = a
+                // C = b
+                // D = c
+
+                // coefficients
+                // [0, 1, 0, -1, -1, 1, 0, 0]
+
+                let dummy = CS::get_dummy_variable();
+
+                let mut vars = CS::MainGate::dummy_vars_to_inscribe(dummy);
+                let mut coeffs = CS::MainGate::empty_coefficients();
+
+                let mut minus_one = E::Fr::one();
+                minus_one.negate();
+
+                coeffs[1] = E::Fr::one();
+                coeffs[3] = minus_one;
+                coeffs[SelectorOptimizedWidth4MainGateWithDNext::AB_MULTIPLICATION_TERM_COEFF_INDEX] = minus_one;
+                coeffs[SelectorOptimizedWidth4MainGateWithDNext::AC_MULTIPLICATION_TERM_COEFF_INDEX] = E::Fr::one();
+
+                vars[0] = cond.get_variable();
+                vars[1] = a.get_variable();
+                vars[2] = b.get_variable();
+                vars[3] = c.get_variable();
+
+                cs.new_single_gate_for_trace_step(
+                    &mg, 
+                    &coeffs, 
+                    &vars,
+                    &[]
+                )?;
 
                 c
             }
@@ -2042,259 +2304,6 @@ impl<E: Engine> AllocatedNum<E> {
 
         Ok(bits.into_iter().map(|b| Boolean::from(b)).collect())
     }
-
-    // given vector of coefs: [c0, c1, c2, c3],
-    // vector of vars: [var0, var1, var2, var3],
-    // next row var and coef: c4 and var4
-    // and additional constant: cnst
-    // constrcut the gate asserting that: 
-    // c0 * var0 + c1 * var1 + c2 * var3 + c4 * var4 + cnst = 0
-    // here the state is [var0, var1, var2, var3]
-    // and var4 should be placed on the next row with the help of d_next
-    pub fn general_lc_gate<CS: ConstraintSystem<E>>(
-        cs: &mut CS,
-        coefs: &[E::Fr],
-        vars: &[Self],
-        cnst: &E::Fr,
-        next_row_coef: &E::Fr,
-        next_row_var: &Self,
-    ) -> Result<(), SynthesisError>
-    {
-        assert_eq!(coefs.len(), vars.len());
-        assert_eq!(coefs.len(), STATE_WIDTH);
-        
-        // check if equality indeed holds
-        // TODO: do it only in debug mde!
-        match (vars[0].get_value(), vars[1].get_value(), vars[2].get_value(), vars[3].get_value(), next_row_var.get_value()) {
-            (Some(val0), Some(val1), Some(val2), Some(val3), Some(val4)) => {
-                let mut running_sum = val0;
-                running_sum.mul_assign(&coefs[0]);
-
-                let mut tmp = val1;
-                tmp.mul_assign(&coefs[1]);
-                running_sum.add_assign(&tmp);
-
-                let mut tmp = val2;
-                tmp.mul_assign(&coefs[2]);
-                running_sum.add_assign(&tmp);
-
-                let mut tmp = val3;
-                tmp.mul_assign(&coefs[3]);
-                running_sum.add_assign(&tmp);
-
-                let mut tmp = val4;
-                tmp.mul_assign(&next_row_coef);
-                running_sum.add_assign(&tmp);
-
-                running_sum.add_assign(&cnst);
-                assert_eq!(running_sum, E::Fr::zero())
-            }
-            _ => {},
-        };
-
-        let dummy = Self::zero(cs);
-        let range_of_linear_terms = CS::MainGate::range_of_linear_terms();
-        let gate_term = MainGateTerm::new();
-        let (_, mut local_coeffs) = CS::MainGate::format_term(gate_term, dummy.variable)?;
-        for (i, idx) in range_of_linear_terms.enumerate() {
-            local_coeffs[idx] = coefs[i].clone();
-        }
-  
-        let cnst_index = CS::MainGate::index_for_constant_term();
-        local_coeffs[cnst_index] = *cnst;
-
-        let next_row_term_idx = CS::MainGate::range_of_next_step_linear_terms().last().unwrap();
-        local_coeffs[next_row_term_idx] = next_row_coef.clone();
-
-        let mg = CS::MainGate::default();
-        let local_vars = vec![vars[0].get_variable(), vars[1].get_variable(), vars[2].get_variable(), vars[3].get_variable()];
-
-        cs.new_single_gate_for_trace_step(
-            &mg,
-            &local_coeffs,
-            &local_vars,
-            &[]
-        )?;
-
-        Ok(())
-    }
-
-    // given vector of coefs: [c0, c1, c2, c3],
-    // vector of vars: [var0, var1, var2, var3, var4],
-    // and additional constant: cnst
-    // allocate new variable res equal to c0 * var0 + c1 * var1 + c2 * var2 + c3 * var3
-    // assuming res is placed in d register of the next row
-    pub fn quartic_lc_with_cnst<CS: ConstraintSystem<E>>(
-        cs: &mut CS,
-        coefs: &[E::Fr],
-        vars: &[Self],
-        cnst: &E::Fr,
-    ) -> Result<Self, SynthesisError>
-    {
-        let res = AllocatedNum::alloc_from_lc(cs, coefs, vars, cnst)?;
-        let mut minus_one = E::Fr::one();
-        minus_one.negate();
-
-        AllocatedNum::general_lc_gate(cs, coefs, vars, cnst, &minus_one, &res)?;
-        Ok(res)
-    }
-
-    pub fn quartic_lc<CS: ConstraintSystem<E>>(
-        cs: &mut CS,
-        coefs: &[E::Fr],
-        vars: &[Self],
-    ) -> Result<Self, SynthesisError>
-    {
-        let zero = E::Fr::zero();
-        let res = AllocatedNum::alloc_from_lc(cs, coefs, vars, &zero)?;
-        let mut minus_one = E::Fr::one();
-        minus_one.negate();
-
-        AllocatedNum::general_lc_gate(cs, coefs, vars, &zero, &minus_one, &res)?;
-        Ok(res)
-    }
-
-    pub fn quartic_lc_eq<CS: ConstraintSystem<E>>(
-        cs: &mut CS,
-        coefs: &[E::Fr],
-        vars: &[Self],
-        total: &Self,
-    ) -> Result<(), SynthesisError>
-    {
-        let mut minus_one = E::Fr::one();
-        minus_one.negate();
-        AllocatedNum::general_lc_gate(cs, coefs, vars, &E::Fr::zero(), &minus_one, &total)
-    }
-
-    pub fn ternary_lc_eq<CS: ConstraintSystem<E>>(
-        cs: &mut CS,
-        coefs: &[E::Fr],
-        vars: &[Self],
-        total: &Self,
-    ) -> Result<(), SynthesisError>
-    {
-        assert_eq!(coefs.len(), vars.len());
-        assert_eq!(coefs.len(), STATE_WIDTH-1);
-
-        let mut minus_one = E::Fr::one();
-        minus_one.negate();
-
-        let mut local_coefs = vec![];
-        local_coefs.extend_from_slice(coefs);
-        local_coefs.push(minus_one);
-        
-        let mut local_vars = vec![];
-        local_vars.extend_from_slice(vars);
-        local_vars.push(total.clone());
-
-        let dummy = AllocatedNum::zero(cs);
-        AllocatedNum::general_lc_gate(
-            cs, &local_coefs[..], &local_vars[..], &E::Fr::zero(), &E::Fr::zero(), &dummy,
-        )
-    }
-
-    pub fn ternary_lc_with_cnst<CS: ConstraintSystem<E>>(
-        cs: &mut CS,
-        coefs: &[E::Fr],
-        vars: &[Self],
-        cnst: &E::Fr,
-    ) -> Result<Self, SynthesisError>
-    {
-        assert_eq!(coefs.len(), vars.len());
-        assert_eq!(coefs.len(), STATE_WIDTH-1);
-
-        let res = AllocatedNum::alloc_from_lc(cs, coefs, vars, cnst)?;
-        let mut minus_one = E::Fr::one();
-        minus_one.negate();
-
-        let mut local_coefs = vec![];
-        local_coefs.extend_from_slice(coefs);
-        local_coefs.push(minus_one);
-
-        let mut local_vars = vec![];
-        local_vars.extend_from_slice(vars);
-        local_vars.push(res.clone());
-
-        let dummy = AllocatedNum::zero(cs);
-        AllocatedNum::general_lc_gate(
-            cs, &local_coefs[..], &local_vars[..], &E::Fr::zero(), &E::Fr::zero(), &dummy
-        )?;
-
-        Ok(res)
-    }
-
-    // for given array of slices : [x0, x1, x2, ..., xn] of arbitrary length, base n and total accumulated x
-    // validates that x = x0 + x1 * base + x2 * base^2 + ... + xn * base^n
-    // use_d_next flag allows to place total on the next row, without expicitely constraiting it and leaving
-    // is as a job for the next gate allocation.
-    pub fn long_weighted_sum_eq<CS: ConstraintSystem<E>>(
-        cs: &mut CS, 
-        vars: &[Self], 
-        base: &E::Fr, 
-        total: &Self, 
-        use_d_next: bool
-    ) -> Result<bool, SynthesisError>
-    {
-        let mut acc_fr = E::Fr::one();
-        let mut loc_coefs = Vec::with_capacity(STATE_WIDTH);
-        let mut loc_vars = Vec::with_capacity(STATE_WIDTH);
-        
-        let mut minus_one = E::Fr::one();
-        minus_one.negate();
-        let dummy = AllocatedNum::zero(cs);
-
-        for var in vars.iter() {
-            if loc_vars.len() < STATE_WIDTH {
-                loc_coefs.push(acc_fr.clone());
-                acc_fr.mul_assign(&base);
-                loc_vars.push(var.clone());
-            }
-            else {
-                // we have filled in the whole vector!
-                loc_coefs.reverse();
-                loc_vars.reverse();
-
-                let temp = AllocatedNum::quartic_lc(cs, &loc_coefs[..], &loc_vars[..])?;
-                loc_coefs = vec![E::Fr::one(), acc_fr.clone()];
-                loc_vars = vec![temp, var.clone()];
-                
-                acc_fr.mul_assign(&base);
-            }
-        }
-
-        if loc_vars.len() == STATE_WIDTH {
-            loc_coefs.reverse();
-            loc_vars.reverse();
-            
-            match use_d_next {
-                true => {
-                    AllocatedNum::quartic_lc_eq(cs, &loc_coefs[..], &loc_vars[..], &total)?;
-                    return Ok(true)
-                },
-                false => {
-                    // we have filled in the whole vector again!
-                    let temp = AllocatedNum::quartic_lc(cs, &loc_coefs[..], &loc_vars[..])?;
-                    loc_coefs = vec![E::Fr::one()];
-                    loc_vars = vec![temp];
-                }
-            }
-
-        }
-        
-        // pad with dummy variables
-        for _i in loc_vars.len()..(STATE_WIDTH-1) {
-            loc_vars.push(dummy.clone());
-            loc_coefs.push(E::Fr::zero());
-        }
-
-        loc_vars.push(total.clone());
-        loc_coefs.push(minus_one);
-        loc_coefs.reverse();
-        loc_vars.reverse();
-
-        AllocatedNum::general_lc_gate(cs, &loc_coefs[..], &loc_vars[..], &E::Fr::zero(), &E::Fr::zero(), &dummy)?;
-        Ok(false)
-    }
 }
 
 
@@ -2390,7 +2399,7 @@ mod test {
         let crs_mons =
             Crs::<Bn256, CrsForMonomialForm>::crs_42(setup.permutation_monomials[0].size(), &worker);
 
-        let proof = assembly.create_proof::<_, RollingKeccakTranscript<Fr>>(
+        let _proof = assembly.create_proof::<_, RollingKeccakTranscript<Fr>>(
             &worker, 
             &setup, 
             &crs_mons,

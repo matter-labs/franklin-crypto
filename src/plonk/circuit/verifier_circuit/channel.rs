@@ -103,7 +103,7 @@ where <<E as RescueEngine>::Params as RescueHashParams<E>>::SBox0: PlonkCsSBox<E
             let x = &point.x;
             let y = &point.y;
 
-            use circuit::Assignment;
+            use crate::plonk::circuit::Assignment;
 
             let zero = AllocatedNum::zero(cs);
 

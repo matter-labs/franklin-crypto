@@ -42,7 +42,7 @@ use super::constraint_num_bits;
 // when we represent some (field) element as a set of limbs
 // that are power of two, or if it's a single element as in RNS
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LimbedRepresentationParameters<E: Engine> {
     pub limb_size_bits: usize,
     pub limb_max_value: BigUint,

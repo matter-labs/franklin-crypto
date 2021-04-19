@@ -18,7 +18,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
     fn alloc<CS: ConstraintSystem<E>, AD: aux_data::AuxData<E>>(
         cs: &mut CS,
         value: Option<E::G1Affine>,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
         aux_data: &AD,
     ) -> Result<Self, SynthesisError> 
     {
@@ -46,7 +46,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
     fn alloc_unchecked<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         value: Option<E::G1Affine>,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
     ) -> Result<Self, SynthesisError> 
     {
         let res = WrapperUnchecked { 
@@ -59,7 +59,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
     fn from_allocated_limb_witness<'b, CS: ConstraintSystem<E>, AD: aux_data::AuxData<E>>(
         cs: &mut CS,
         witnesses: &'b [AllocatedNum<E>],
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
         aux_data: &AD,
     ) -> Result<(Self, &'b [AllocatedNum<E>]), SynthesisError> {
         let (x, rest) = allocate_coordinate_from_limb_witness(cs, witnesses, params)?;
@@ -99,7 +99,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         Ok((res, rest))
     }
 
-    fn zero(_params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>) -> Self 
+    fn zero(_params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>) -> Self 
     {
         unimplemented!();
     }
@@ -107,7 +107,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
     #[track_caller]
     fn constant(
         value: E::G1Affine,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>
+        params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>
     ) -> Self
     {
         let res = WrapperUnchecked { 
@@ -121,7 +121,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         &self,
         cs: &mut CS,
         other: &Self,
-        _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        _params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
     ) -> Result<Boolean, SynthesisError>
     {
         let (eq, _) = AffinePoint::equals(cs, self.point.clone(), other.point.clone())?;
@@ -134,7 +134,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         &mut self,
         cs: &mut CS,
         other: &mut Self,
-        _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        _params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
     ) -> Result<Self, SynthesisError>
     {
         let res = WrapperUnchecked { 
@@ -148,7 +148,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         &mut self,
         cs: &mut CS,
         other: &mut Self,
-        _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        _params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
     ) -> Result<Self, SynthesisError>
     {
         let res = WrapperUnchecked { 
@@ -161,7 +161,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
     fn double<CS: ConstraintSystem<E>>(
         &mut self,
         cs: &mut CS,
-        _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        _params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
     ) -> Result<Self, SynthesisError>
     {
         let res = WrapperUnchecked { 
@@ -174,7 +174,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
     fn negate<CS: ConstraintSystem<E>>(
         &mut self,
         cs: &mut CS,
-        _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        _params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
     ) -> Result<Self, SynthesisError>
     {
         let (negated, _) = self.point.clone().negate(cs)?;
@@ -205,7 +205,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
     fn is_on_curve<CS: ConstraintSystem<E>, AD: aux_data::AuxData<E>>(
         &self,
         cs: &mut CS,
-        params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
         aux_data: &AD,
     ) -> Result<Boolean, SynthesisError>
     {
@@ -226,7 +226,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
     fn subgroup_check<CS: ConstraintSystem<E>, AD: aux_data::AuxData<E>>(
         &self,
         _cs: &mut CS,
-        _params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        _params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
         _aux_data: &AD,
     ) -> Result<Boolean, SynthesisError>
     {
@@ -248,7 +248,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         cs: &mut CS,
         scalar: &AllocatedNum::<E>,
         bit_limit: Option<usize>,
-        _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        _params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
         _aux_data: &AD,
     ) -> Result<Self, SynthesisError>
     {
@@ -265,7 +265,7 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
         scalars: &[AllocatedNum::<E>],
         points: &[Self],
         bit_limit: Option<usize>,
-        _params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        _params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
         _aux_data: &AD,
     ) -> Result<Self, SynthesisError>
     {
@@ -281,8 +281,8 @@ impl<'a, E: Engine> WrappedAffinePoint<'a, E> for WrapperUnchecked<'a, E> {
 fn allocate_coordinate_from_limb_witness<'a, 'b, E: Engine, CS: ConstraintSystem<E>>(
     cs: &mut CS,
     witness: &'b [AllocatedNum<E>],
-    params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
-) -> Result<(FieldElement<'a, E, <E::G1Affine as CurveAffine>::Base>, &'b [AllocatedNum<E>]), SynthesisError> {
+    params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
+) -> Result<(FieldElement<'a, E, <E::G1Affine as GenericCurveAffine>::Base>, &'b [AllocatedNum<E>]), SynthesisError> {
     if params.can_allocate_from_double_limb_witness() {
         let mut num_witness = params.num_limbs_for_in_field_representation / 2;
         if params.num_limbs_for_in_field_representation % 2 != 0 {

@@ -7,7 +7,7 @@ use super::allocated_num::*;
 use super::linear_combination::*;
 use super::boolean::Boolean;
 use super::utils::*;
-use crate::circuit::Assignment;
+use crate::plonk::circuit::Assignment;
 
 use crate::bellman::plonk::better_better_cs::cs::{
     Variable, 
@@ -28,6 +28,10 @@ impl<E: Engine> Byte<E> {
         Self {
             inner: Num::Constant(E::Fr::zero())
         }
+    }
+
+    pub fn zero() -> Self {
+        Self {inner: Num::Constant(E::Fr::zero())}
     }
 
     pub fn into_num(&self) -> Num<E> {
@@ -87,7 +91,14 @@ impl<E: Engine> Byte<E> {
         }
     }
 
-    pub fn from_cnst<CS: ConstraintSystem<E>>(_cs: &mut CS, value: E::Fr) -> Self {
+    pub fn constant(value: u8) -> Self {
+        let value = E::Fr::from_str(&value.to_string()).expect("must convert constant u8");
+        Self {
+            inner : Num::Constant(value)
+        }
+    }
+
+    pub fn from_cnst(value: E::Fr) -> Self {
         let bits = value.into_repr().num_bits();
         if bits > 8 {
             panic!("Invalid bit length of Byte constant");
@@ -109,6 +120,13 @@ impl<E: Engine> Byte<E> {
         };
 
         Ok(new)
+    }
+
+    pub fn is_zero<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS
+    ) -> Result<Boolean, SynthesisError> {
+        self.inner.is_zero(cs)
     }
 }
 
@@ -266,5 +284,73 @@ impl<E: Engine> IntoBytes<E> for Num<E> {
         tmp.reverse();
 
         Ok(tmp)
+    }
+}
+
+
+impl<E: Engine> IntoBytes<E> for Boolean {
+    fn into_le_bytes<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Vec<Byte<E>>, SynthesisError> {
+        let num_bytes = 1;
+
+        let result = match self {
+            Boolean::Is(bit) => {
+                let fe_value = bit.get_value().map(|el| {
+                    if el {
+                        E::Fr::one()
+                    } else {
+                        E::Fr::zero()
+                    }
+                });
+                let as_num = Num::Variable(
+                    AllocatedNum {
+                        variable: bit.get_variable(),
+                        value: fe_value
+                    }
+                );
+                
+                let byte = Byte {
+                    inner: as_num
+                };
+
+                vec![byte]
+            },
+            s @ Boolean::Not(..) => {
+                let fe_value = s.get_value().map(|el| {
+                    if el {
+                        E::Fr::one()
+                    } else {
+                        E::Fr::zero()
+                    }
+                });
+                let as_num = Num::Variable(
+                    AllocatedNum::alloc(cs, || Ok(*fe_value.get()?))?
+                );
+
+                let mut minus_one = E::Fr::one();
+                minus_one.negate();
+
+                let mut lc = LinearCombination::zero();
+                lc.add_assign_number_with_coeff(&as_num, minus_one);
+                lc.add_assign_boolean_with_coeff(&s, E::Fr::one());
+                lc.enforce_zero(cs)?;
+                
+                let byte = Byte {
+                    inner: as_num
+                };
+
+                vec![byte]
+            }
+            Boolean::Constant(bit) => {
+                vec![Byte::<E>::constant(*bit as u8)]
+            }
+        };
+
+        assert_eq!(result.len(), num_bytes);
+        
+        Ok(result)
+    }
+
+    fn into_be_bytes<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Vec<Byte<E>>, SynthesisError> {
+        self.into_le_bytes(cs)
     }
 }

@@ -15,9 +15,7 @@ use crate::bellman::plonk::better_better_cs::cs::*;
 use crate::bellman::plonk::polynomials::*;
 use crate::bellman::plonk::fft::cooley_tukey_ntt::*;
 
-use crate::circuit::{
-    Assignment
-};
+use crate::plonk::circuit::Assignment;
 
 use super::allocated_num::{
     AllocatedNum

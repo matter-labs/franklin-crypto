@@ -32,7 +32,7 @@ use crate::bellman::plonk::better_better_cs::cs::{
     TrivialAssembly
 };
 
-use crate::circuit::Assignment;
+use crate::plonk::circuit::Assignment;
 use super::*;
 use super::bigint::*;
 
@@ -103,7 +103,7 @@ pub fn coarsely_enforce_using_multitable<E: Engine, CS: ConstraintSystem<E>>(
 
     let mut it = slices.into_iter();
 
-    use crate::circuit::SomeField;
+    use crate::plonk::circuit::SomeField;
 
     let mut next_step_variable_from_previous_gate: Option<AllocatedNum<E>> = None;
     let mut next_step_value = None;
@@ -271,7 +271,7 @@ pub fn coarsely_enforce_using_multitable_into_single_gate<E: Engine, CS: Constra
     let slices = split_some_into_slices(to_constraint.get_value(), minimal_per_gate, num_terms);
     assert_eq!(slices.len(), num_terms);
 
-    use crate::circuit::SomeField;
+    use crate::plonk::circuit::SomeField;
 
     let mut term = MainGateTerm::<E>::new();
     for value in slices.into_iter() {

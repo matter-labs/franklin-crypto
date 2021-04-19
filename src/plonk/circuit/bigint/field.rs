@@ -34,7 +34,7 @@ use super::super::allocated_num::{AllocatedNum, Num};
 use super::super::linear_combination::LinearCombination;
 use super::super::simple_term::Term;
 use super::super::boolean::{Boolean, AllocatedBit};
-use crate::circuit::SomeField;
+use crate::plonk::circuit::SomeField;
 
 use super::*;
 use super::bigint::*;
@@ -43,7 +43,7 @@ use num_integer::Integer;
 use num_traits::Zero;
 
 // Parameters of the representation
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RnsParameters<E: Engine, F: PrimeField>{
     // this is kind-of normal UintX limbs
     pub binary_limbs_params: LimbedRepresentationParameters<E>,
@@ -500,6 +500,110 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
                             let _ = create_range_constraint_chain(cs, var, expected_width)?;
                         }
                         _ => {unimplemented!("range constraint strategies other than multitable, single table or custom gate are not yet handled")}
+                    }
+
+                    let term = Term::<E>::from_allocated_num(var.clone());
+
+                    let limb = Limb::<E>::new( 
+                        term,
+                        expected_max_value,
+                    );
+
+                    binary_limbs_allocated.push(limb);
+                }
+            }
+
+            // keep track of base field limb
+            base_field_lc.add_assign_number_with_coeff(&w, current_constant);
+            current_constant.mul_assign(&shift_constant);
+        }
+
+        // add to full number of binary limbs
+        binary_limbs_allocated.resize(params.num_binary_limbs, Self::zero_limb());
+
+        let base_field_limb_num = base_field_lc.into_num(cs)?;
+
+        let base_field_term = Term::<E>::from_num(base_field_limb_num);
+
+        let this_value = if value_is_none {
+            None
+        } else {
+            Some(this_value)
+        };
+
+        let this_value = some_biguint_to_fe::<F>(&this_value);
+
+        let new = Self {
+            binary_limbs: binary_limbs_allocated,
+            base_field_limb: base_field_term,
+            representation_params: params,
+            value: this_value,
+        };
+
+        assert!(new.needs_reduction() == false);
+
+        Ok(new)
+    }
+
+    /// Use limb witnesses from some other source to cast them into field element.
+    /// Caller must ensure that witnesses are properly range constrainted
+    #[track_caller]
+    pub fn from_single_limb_witnesses_unchecked<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        witnesses: &[Num<E>],
+        params: &'a RnsParameters<E, F>
+    ) -> Result<Self, SynthesisError> {
+        assert_eq!(params.num_limbs_for_in_field_representation, witnesses.len());
+        assert!(params.binary_limbs_params.limb_size_bits % params.range_check_info.minimal_multiple == 0, 
+            "limb size must be divisible by range constraint strategy granularity");
+
+        let mut binary_limbs_allocated = Vec::with_capacity(params.num_binary_limbs);
+
+        let mut base_field_lc = LinearCombination::<E>::zero();
+
+        let shift_constant = params.binary_limbs_params.shift_left_by_limb_constant;
+        let mut current_constant = E::Fr::one();
+
+        let mut this_value = BigUint::from(0u64);
+        let mut value_is_none = false;
+
+        for (witness_idx, w) in witnesses.iter().enumerate() {
+            match w {
+                Num::Constant(value) => {
+                    let v = fe_to_biguint(value);
+                    this_value += v.clone() << (witness_idx*params.binary_limbs_params.limb_size_bits);
+
+                    let (expected_width, expected_max_value) = 
+                        (params.binary_limbs_bit_widths[witness_idx], params.binary_limbs_max_values[witness_idx].clone());
+
+                    assert!(expected_width > 0);
+                    assert!(v.bits() as usize <= expected_width);
+                    assert!(v <= expected_max_value);
+
+                    let limb = Limb::<E>::new_constant(
+                        v
+                    );
+
+                    binary_limbs_allocated.push(limb);
+                },
+                Num::Variable(var) => {
+                    let limb_value = if let Some(v) = var.get_value() {
+                        let v = fe_to_biguint(&v);
+                        this_value += v.clone() << (witness_idx*params.binary_limbs_params.limb_size_bits);
+
+                        Some(v)
+                    } else {
+                        value_is_none = true;
+
+                        None
+                    };
+
+                    let (expected_width, expected_max_value) = 
+                        (params.binary_limbs_bit_widths[witness_idx], params.binary_limbs_max_values[witness_idx].clone());
+
+                    assert!(expected_width > 0);
+                    if let Some(v) = limb_value.as_ref() {
+                        assert!(v <= &expected_max_value, "limb is {}, max value is {}", v.to_str_radix(16), expected_max_value.to_str_radix(16));
                     }
 
                     let term = Term::<E>::from_allocated_num(var.clone());

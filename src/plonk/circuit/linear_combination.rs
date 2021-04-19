@@ -20,9 +20,7 @@ use crate::bellman::plonk::better_better_cs::cs::{
     MainGateTerm
 };
 
-use crate::circuit::{
-    Assignment
-};
+use crate::plonk::circuit::Assignment;
 
 use super::allocated_num::{
     AllocatedNum,
@@ -59,6 +57,23 @@ impl<E: Engine> From<AllocatedNum<E>> for LinearCombination<E> {
             value: num.value,
             terms: vec![(E::Fr::one(), num.variable)],
             constant: E::Fr::zero()
+        }
+    }
+}
+
+impl<E: Engine> From<Num<E>> for LinearCombination<E> {
+    fn from(num: Num<E>) -> LinearCombination<E> {
+        match num {
+            Num::Variable(allocated) => {
+                Self::from(allocated)
+            },
+            Num::Constant(constant) => {
+                Self {
+                    value: Some(constant),
+                    terms: vec![],
+                    constant: constant
+                }
+            }
         }
     }
 }
@@ -674,6 +689,21 @@ impl<E: Engine> LinearCombination<E> {
         let num = lc.into_num(cs)?;
 
         Ok(num)
+    }
+
+    pub fn uniquely_pack_booleans_into_nums<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        bools: &[Boolean],
+    ) -> Result<Vec<Num<E>>, SynthesisError> {
+        let mut result = vec![];
+
+        let chunk_size = E::Fr::CAPACITY as usize;
+        for chunk in bools.chunks(chunk_size) {
+            let el = Self::uniquely_pack_booleans_into_single_num(cs, chunk)?;
+            result.push(el);
+        }
+
+        Ok(result)
     }
 }
 

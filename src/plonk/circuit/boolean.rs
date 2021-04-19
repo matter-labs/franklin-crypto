@@ -30,9 +30,7 @@ use crate::bellman::plonk::better_better_cs::cs::{
 };
 
 
-use crate::circuit::{
-    Assignment
-};
+use crate::plonk::circuit::Assignment;
 
 use super::allocated_num::{
     AllocatedNum
@@ -564,6 +562,17 @@ impl Boolean {
         }
     }
 
+    pub fn alloc<E: Engine, CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        witness: Option<bool>
+    ) -> Result<Self, SynthesisError> {
+        let new = Boolean::from(
+            AllocatedBit::alloc(cs, witness)?
+        );
+
+        Ok(new)
+    }
+
     #[track_caller]
     pub fn enforce_equal<E, CS>(
         cs: &mut CS,
@@ -805,6 +814,22 @@ impl Boolean {
 
                 return Ok(Boolean::Constant(ch_value.expect("they're all constants")));
             },
+            (_, &Boolean::Constant(false), &Boolean::Constant(false)) => {
+                // Regardless of a we have
+                // (a and b) xor ((not a) and c)
+                // equals
+                // false xor false
+                // that is always false
+                return Ok(Boolean::Constant(false))
+            },
+            (_, &Boolean::Constant(true), &Boolean::Constant(true)) => {
+                // Regardless of a we have
+                // (a and b) xor ((not a) and c)
+                // equals
+                // a xor (not (a))
+                // that is always true
+                return Ok(Boolean::Constant(true))
+            },
             (&Boolean::Constant(false), _, c) => {
                 // If a is false
                 // (a and b) xor ((not a) and c)
@@ -862,12 +887,14 @@ impl Boolean {
                     &c.not()
                 )?.not());
             },
-            (&Boolean::Constant(true), _, _) => {
+            (&Boolean::Constant(true), b, _) => {
                 // If a is true
                 // (a and b) xor ((not a) and c)
                 // equals
-                // b xor ((not a) and c)
-                // So we just continue!
+                // b xor false
+                // equals
+                // b
+                return Ok(b.clone())
             },
             (&Boolean::Is(_), &Boolean::Is(_), &Boolean::Is(_)) |
             (&Boolean::Is(_), &Boolean::Is(_), &Boolean::Not(_)) |
@@ -1215,6 +1242,50 @@ impl Boolean {
             variable: maj
         }.into())
     }
+
+
+    pub fn alloc_multiple<E: Engine, CS: ConstraintSystem<E>, const N: usize>(
+        cs: &mut CS,
+        witness: Option<[bool; N]>
+    ) -> Result<[Self; N], SynthesisError> {
+        let mut result = [Boolean::constant(false); N];
+        for (idx, r) in result.iter_mut().enumerate() {
+            let witness = witness.map(|el| el[idx]);
+            *r = Self::alloc(cs, witness)?;
+        }
+    
+        Ok(result)
+    }
+
+    pub fn get_value_multiple<const N: usize>(
+        els: &[Self; N]
+    ) -> Option<[bool; N]> {
+        let mut result = [false; N];
+        for (r, el) in result.iter_mut().zip(els.iter()) {
+            if let Some(value) = el.get_value() {
+                *r = value;
+            } else {
+                return None
+            }
+        }
+    
+        Some(result)
+    }
+
+    pub fn conditionally_select_multiple<E: Engine, CS: ConstraintSystem<E>, const N: usize>(
+        cs: &mut CS,
+        flag: &Boolean,
+        a: &[Self; N],
+        b: &[Self; N]
+    ) -> Result<[Self; N], SynthesisError> {
+        let mut result = [Boolean::constant(false); N];
+
+        for ((a, b), r) in (a.iter().zip(b.iter())).zip(result.iter_mut()) {
+            *r = Self::conditionally_select(cs, flag, a, b)?;
+        }
+
+        Ok(result)
+    }
 }
 
 impl From<AllocatedBit> for Boolean {
@@ -1228,7 +1299,6 @@ mod test {
     use super::*;
     use bellman::pairing::bn256::{Bn256, Fr};
     use bellman::pairing::ff::{Field, PrimeField};
-    use ::circuit::test::*;
 
     use crate::bellman::plonk::better_better_cs::cs::*;
 

@@ -8,8 +8,8 @@ use super::affine_point_wrapper::aux_data::AuxData;
 
 use crate::bellman::pairing::{
     Engine,
-    CurveAffine,
-    CurveProjective,
+    GenericCurveAffine,
+    GenericCurveProjective,
 };
 
 use crate::bellman::pairing::ff::{
@@ -58,7 +58,7 @@ impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> ProofGadget<'a, E, WP> {
     pub fn alloc<CS: ConstraintSystem<E>, P: OldCSParams<E>, AD: AuxData<E>>(
         cs: &mut CS,
         proof: Proof<E, P>,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
         aux_data: &AD,
     ) -> Result<Self, SynthesisError> {
         
@@ -120,11 +120,11 @@ impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> ProofGadget<'a, E, WP> {
         cs: &mut CS,
         num_inputs: usize,
         proof: &Option<Proof<E, P>>,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
         aux_data: &AD,
     ) -> Result<Self, SynthesisError> {
 
-        use crate::circuit::Assignment;
+        use crate::plonk::circuit::Assignment;
 
         let state_width = P::STATE_WIDTH;
         let num_quotient_commitments = P::STATE_WIDTH;
@@ -240,7 +240,7 @@ impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> VerificationKeyGagdet<'a, E, 
     pub fn alloc<CS: ConstraintSystem<E>, P: OldCSParams<E>, AD: AuxData<E>>(
         cs: &mut CS,
         vk:  VerificationKey<E, P>,
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
         aux_data: &AD,
     ) -> Result<Self, SynthesisError> {
 
@@ -276,7 +276,7 @@ impl<'a, E: Engine, WP: WrappedAffinePoint<'a, E>> VerificationKeyGagdet<'a, E, 
         domain_size: &AllocatedNum<E>,
         omega: &AllocatedNum<E>,
         witness: &[AllocatedNum<E>],
-        params: &'a RnsParameters<E, <E::G1Affine as CurveAffine>::Base>,
+        params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
         non_residues: Vec<E::Fr>,
         aux_data: &AD,
     ) -> Result<Self, SynthesisError> {
@@ -339,14 +339,14 @@ pub trait IntoLimbedWitness<E: Engine> {
     fn into_witness(&self) -> Result<Vec<E::Fr>, SynthesisError> {
         unimplemented!()
     }
-    fn witness_size_for_params(params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base >) -> usize;
-    fn into_witness_for_params(&self, _params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base >) -> Result<Vec<E::Fr>, SynthesisError> {
+    fn witness_size_for_params(params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base >) -> usize;
+    fn into_witness_for_params(&self, _params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base >) -> Result<Vec<E::Fr>, SynthesisError> {
         unimplemented!()
     }
 }
 
 impl<E: Engine, P: OldCSParams<E>> IntoLimbedWitness<E> for VerificationKey<E, P> {
-    fn witness_size_for_params(params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base >) -> usize {
+    fn witness_size_for_params(params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base >) -> usize {
         let mut base = 2;
 
         let per_coord = if params.can_allocate_from_double_limb_witness() {
@@ -375,7 +375,7 @@ impl<E: Engine, P: OldCSParams<E>> IntoLimbedWitness<E> for VerificationKey<E, P
         base
     }
 
-    fn into_witness_for_params(&self, params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base>) -> Result<Vec<E::Fr>, SynthesisError> {
+    fn into_witness_for_params(&self, params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>) -> Result<Vec<E::Fr>, SynthesisError> {
         use super::utils::verification_key_into_allocated_limb_witnesses;
 
         let as_limbs = verification_key_into_allocated_limb_witnesses(&self, params);
@@ -386,7 +386,7 @@ impl<E: Engine, P: OldCSParams<E>> IntoLimbedWitness<E> for VerificationKey<E, P
 
 
 impl<E: Engine, P: OldCSParams<E>> IntoLimbedWitness<E> for Proof<E, P> {
-    fn witness_size_for_params(_params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base >) -> usize {
+    fn witness_size_for_params(_params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base >) -> usize {
         unimplemented!();
         // let mut base = 2;
 
@@ -416,7 +416,7 @@ impl<E: Engine, P: OldCSParams<E>> IntoLimbedWitness<E> for Proof<E, P> {
         // base
     }
 
-    fn into_witness_for_params(&self, params: &RnsParameters<E, <E::G1Affine as CurveAffine>::Base>) -> Result<Vec<E::Fr>, SynthesisError> {
+    fn into_witness_for_params(&self, params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>) -> Result<Vec<E::Fr>, SynthesisError> {
         use super::utils::proof_into_single_limb_witness;
 
         let as_limbs = proof_into_single_limb_witness(&self, params);

@@ -22,7 +22,7 @@ pub fn order_into_switches_set<E: Engine, CS: ConstraintSystem<E>>(
 
     // now route elements through the network. Deterministically do the bookkeeping of the variables in a plain array
 
-    let num_columns = AsWaksmanTopology::num_colunms(topology.size);
+    let num_columns = AsWaksmanTopology::num_columns(topology.size);
     let mut routed_packages = std::collections::HashSet::new();
 
     for column_idx in 0..num_columns {
@@ -129,7 +129,7 @@ pub fn prove_permutation_using_switches_witness<E, CS>(
 
     // now route elements through the network. Deterministically do the bookkeeping of the variables in a plain array
 
-    let num_columns = AsWaksmanTopology::num_colunms(topology.size);
+    let num_columns = AsWaksmanTopology::num_columns(topology.size);
     assert_eq!(num_columns, switches_layes.len());
 
     let mut permutation: Vec<Option<AllocatedNum<E>>> = original.iter().map(|e| Some(e.clone())).collect();
@@ -250,7 +250,7 @@ pub fn prove_permutation_of_nums_using_switches_witness<E, CS>(
 
     // now route elements through the network. Deterministically do the bookkeeping of the variables in a plain array
 
-    let num_columns = AsWaksmanTopology::num_colunms(topology.size);
+    let num_columns = AsWaksmanTopology::num_columns(topology.size);
     assert_eq!(num_columns, switches_layes.len());
 
     let mut permutation: Vec<Option<Num<E>>> = original.iter().map(|e| Some(e.clone())).collect();
@@ -494,7 +494,6 @@ mod test {
     use rand::{XorShiftRng, SeedableRng, Rand, Rng};
     use bellman::pairing::bn256::{Bn256, Fr};
     use bellman::pairing::ff::{BitIterator, Field, PrimeField};
-    use ::circuit::test::*;
 
     use super::{AsWaksmanRoute, AsWaksmanTopology, IntegerPermutation, prove_shuffle};
 

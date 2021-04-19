@@ -168,3 +168,43 @@ pub fn fe_to_le_bytes<F: PrimeField>(el: &F) -> Result<Vec<u8>, SynthesisError> 
 
     Ok(buffer)
 }
+
+pub fn words_to_msb_first_bits(el: &[u64]) -> Vec<bool> {
+    use crate::bellman::pairing::ff::BitIterator;
+    let mut result: Vec<_> = BitIterator::new(el).collect();
+
+    let mut first_true_index = 0;
+    for (i, b) in result.iter().enumerate() {
+        if *b {
+            first_true_index = i;
+            break;
+        }
+    }
+    let _ = result.drain(0..first_true_index);
+
+    result
+}
+
+pub fn words_to_lsb_first_bits(el: &[u64]) -> Vec<bool> {
+    let mut result = words_to_msb_first_bits(el);
+    result.reverse();
+
+    result
+}
+
+pub fn fe_to_msb_first_bits<F: PrimeField>(el: &F) -> Vec<bool> {
+    use crate::bellman::pairing::ff::BitIterator;
+    let repr = el.into_repr();
+    let mut result: Vec<_> = BitIterator::new(repr.as_ref()).collect();
+    let skip = result.len() - (F::NUM_BITS as usize);
+    let _ = result.drain(0..skip);
+
+    result
+}
+
+pub fn fe_to_lsb_first_bits<F: PrimeField>(el: &F) -> Vec<bool> {
+    let mut result = fe_to_msb_first_bits(el);
+    result.reverse();
+
+    result
+}

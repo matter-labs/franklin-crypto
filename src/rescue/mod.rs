@@ -33,6 +33,14 @@ pub struct QuinticSBox<E: Engine> {
     pub _marker: PhantomData<E>
 }
 
+impl<E: Engine> PartialEq for QuinticSBox<E> {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl<E: Engine> Eq for QuinticSBox<E> {}
+
 impl<E: Engine>SBox<E> for QuinticSBox<E> {
     fn apply(&self, elements: &mut [E::Fr]) {
         for element in elements.iter_mut() {
@@ -49,6 +57,15 @@ pub struct PowerSBox<E: Engine> {
     pub power: <E::Fr as PrimeField>::Repr,
     pub inv: u64,
 }
+
+impl<E: Engine> PartialEq for PowerSBox<E> {
+    fn eq(&self, other: &Self) -> bool {
+        self.power.eq(&other.power) &&
+        self.inv.eq(&other.inv)
+    }
+}
+
+impl<E: Engine> Eq for PowerSBox<E> {}
 
 impl<E: Engine>SBox<E> for PowerSBox<E> {
     fn apply(&self, elements: &mut [E::Fr]) {
@@ -106,11 +123,11 @@ impl<E: Engine>SBox<E> for InversionSBox<E> {
     }
 }
 
-use crate::circuit::rescue::CsSBox;
+use crate::plonk::circuit::rescue::PlonkCsSBox;
 
 pub trait RescueHashParams<E: Engine>: RescueParamsInternal<E> {
-    type SBox0: CsSBox<E>;
-    type SBox1: CsSBox<E>;
+    type SBox0: PlonkCsSBox<E>;
+    type SBox1: PlonkCsSBox<E>;
     fn capacity(&self) -> u32;
     fn rate(&self) -> u32;
     fn state_width(&self) -> u32 {
@@ -137,7 +154,7 @@ pub trait RescueHashParams<E: Engine>: RescueParamsInternal<E> {
     }
 }
 
-pub trait RescueParamsInternal<E: Engine>: Send + Sync + Sized + Clone + std::fmt::Debug {
+pub trait RescueParamsInternal<E: Engine>: Send + Sync + Sized + Clone + std::fmt::Debug + Eq{
     fn set_round_constants(&mut self, to: Vec<E::Fr>);
 }
 
@@ -379,16 +396,16 @@ pub fn make_keyed_params<E: RescueEngine>(
     new_params
 }
 #[derive(Clone, Debug)]
-enum RescueOpMode<E: RescueEngine> {
+pub enum RescueOpMode<E: RescueEngine> {
     AccumulatingToAbsorb(Vec<E::Fr>),
     SqueezedInto(Vec<E::Fr>)
 }
 
 #[derive(Clone, Debug)]
 pub struct StatefulRescue<'a, E: RescueEngine> {
-    params: &'a E::Params,
+    pub params: &'a E::Params,
     pub internal_state: Vec<E::Fr>,
-    mode: RescueOpMode<E>
+    pub mode: RescueOpMode<E>
 }
 
 impl<'a, E: RescueEngine> StatefulRescue<'a, E> {

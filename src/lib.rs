@@ -30,7 +30,6 @@ pub mod jubjub;
 pub mod alt_babyjubjub;
 pub mod baby_group_hash;
 pub mod group_hash;
-pub mod circuit;
 pub mod baby_pedersen_hash;
 pub mod pedersen_hash;
 pub mod primitives;
@@ -43,7 +42,7 @@ pub mod eddsa;
 pub mod interpolation;
 pub mod as_waksman;
 pub mod rescue;
-
+pub mod generic_twisted_edwards;
 pub mod plonk;
 
 extern crate serde;

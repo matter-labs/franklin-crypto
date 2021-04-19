@@ -7,7 +7,7 @@ use crate::plonk::circuit::simple_term::*;
 
 use crate::bellman::pairing::{
     Engine,
-    CurveAffine,
+    GenericCurveAffine,
 };
 
 use crate::bellman::pairing::ff::{
