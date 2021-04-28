@@ -18,6 +18,7 @@ pub mod byte;
 pub mod utils;
 pub mod permutation_network;
 pub mod edwards;
+pub mod custom_5th_degree_gate_optimized;
 
 pub mod assignment;
 pub mod hashes_with_tables;
