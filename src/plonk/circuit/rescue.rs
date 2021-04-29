@@ -178,6 +178,7 @@ impl<E: Engine> PlonkCsSBox<E> for PowerSBox<E> {
                 let el_term = ArithmeticTerm::from_variable(el.get_variable());
                 term.add_assign(fifth_term);
                 term.sub_assign(el_term);
+                cs.allocate_main_gate(term)?;
 
                 Ok(Num::Variable(out))
             }
