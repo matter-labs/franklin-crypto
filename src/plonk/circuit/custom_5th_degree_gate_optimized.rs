@@ -274,7 +274,7 @@ pub fn apply_5th_power<E: Engine, CS: ConstraintSystem<E>>(
     let third = AllocatedNum::alloc(
         cs, 
         || {
-            let mut val = *el.get_value().get()?;
+            let val = *el.get_value().get()?;
             let mut tmp = val;
             tmp.square();
             tmp.mul_assign(&val);
