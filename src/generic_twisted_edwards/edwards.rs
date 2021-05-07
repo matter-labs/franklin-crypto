@@ -266,7 +266,7 @@ impl<E: Engine, C: TwistedEdwardsCurveParams<E>> TwistedEdwardsCurveImplementor<
         // iterate and select from table
         let mut q = TwistedEdwardsPoint::identity();
 
-        for i in (0..64).rev(){            
+        for i in (0..scalar_in_base_16.len()).rev(){            
             let s_i = scalar_in_base_16[i];
             let t = table.select(s_i, self);
 
@@ -279,7 +279,6 @@ impl<E: Engine, C: TwistedEdwardsCurveParams<E>> TwistedEdwardsCurveImplementor<
 
         q
     }
-
 
     // The negative of (X:Y:T:Z) is (-X:Y:-T:Z)
     pub fn negate(&self, p: &TwistedEdwardsPoint<E>) -> TwistedEdwardsPoint<E> {
@@ -295,6 +294,25 @@ impl<E: Engine, C: TwistedEdwardsCurveParams<E>> TwistedEdwardsCurveImplementor<
         scalar: S,
     ) -> TwistedEdwardsPoint<E> {
         self.mul(&self.curve_params.generator(), scalar)
+    }
+
+    pub fn is_in_main_subgroup(
+        &self,
+        p: &TwistedEdwardsPoint<E>
+    ) -> bool {
+        use crate::plonk::circuit::utils::words_to_msb_first_bits;
+
+        let mut tmp = p.clone();
+
+        let msb_bits = words_to_msb_first_bits(C::Fs::char().as_ref());
+        for b in msb_bits.into_iter().skip(1) {
+            tmp = self.double(&tmp);
+            if b {
+                tmp = self.add(&tmp, p);
+            }
+        }
+
+        tmp.eq(&TwistedEdwardsPoint::identity())
     }
 }
 
@@ -443,10 +461,10 @@ impl<E: Engine> TwistedEdwardsPoint<E> {
             let second_repr = second.into_raw_repr();
             let mut result_repr = <E::Fr as PrimeField>::Repr::default();
             
-            result_repr.as_mut()[0] =  u64::conditional_select(flag, first_repr.as_ref()[0], second_repr.as_ref()[0]);
-            result_repr.as_mut()[1] =  u64::conditional_select(flag, first_repr.as_ref()[1], second_repr.as_ref()[1]);
-            result_repr.as_mut()[2] =  u64::conditional_select(flag, first_repr.as_ref()[2], second_repr.as_ref()[2]);
-            result_repr.as_mut()[3] =  u64::conditional_select(flag, first_repr.as_ref()[3], second_repr.as_ref()[3]);
+            result_repr.as_mut()[0] = u64::conditional_select(flag, first_repr.as_ref()[0], second_repr.as_ref()[0]);
+            result_repr.as_mut()[1] = u64::conditional_select(flag, first_repr.as_ref()[1], second_repr.as_ref()[1]);
+            result_repr.as_mut()[2] = u64::conditional_select(flag, first_repr.as_ref()[2], second_repr.as_ref()[2]);
+            result_repr.as_mut()[3] = u64::conditional_select(flag, first_repr.as_ref()[3], second_repr.as_ref()[3]);
 
             // first and second are valid field elements so we can unwrap
             let result = E::Fr::from_raw_repr(result_repr).unwrap();

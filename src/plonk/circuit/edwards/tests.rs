@@ -139,7 +139,7 @@ mod tests {
             let s_bits = s_bits
                 .into_iter()
                 .enumerate()
-                .map(|(i, b)| AllocatedBit::alloc(&mut cs, Some(b)).unwrap())
+                .map(|(_i, b)| AllocatedBit::alloc(&mut cs, Some(b)).unwrap())
                 .map(|v| Boolean::from(v))
                 .collect::<Vec<_>>();
 
@@ -182,7 +182,7 @@ mod tests {
 
             let p_x_num = Num::Variable(AllocatedNum::alloc(&mut cs, || Ok(p_x)).unwrap());
             let p_y_num = Num::Variable(AllocatedNum::alloc(&mut cs, || Ok(p_y)).unwrap());
-            let p_allocated = CircuitTwistedEdwardsPoint {
+            let _p_allocated = CircuitTwistedEdwardsPoint {
                 x: p_x_num,
                 y: p_y_num,
             };
@@ -258,7 +258,7 @@ mod tests {
             let s_bits = s_bits
                 .into_iter()
                 .enumerate()
-                .map(|(i, b)| AllocatedBit::alloc(&mut cs, Some(b)).unwrap())
+                .map(|(_i, b)| AllocatedBit::alloc(&mut cs, Some(b)).unwrap())
                 .map(|v| Boolean::from(v))
                 .collect::<Vec<_>>();
 

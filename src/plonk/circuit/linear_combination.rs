@@ -717,7 +717,7 @@ mod test {
         use crate::bellman::pairing::bn256::{Bn256, Fr};
 
         let mut assembly = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
-        let before = assembly.n();
+        let _before = assembly.n();
 
         let variables: Vec<_> = (0..9).map(|_| AllocatedNum::alloc(
             &mut assembly, 
@@ -754,7 +754,7 @@ mod test {
         use crate::bellman::pairing::bn256::{Bn256, Fr};
 
         let mut assembly = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
-        let before = assembly.n();
+        let _before = assembly.n();
 
         let variables: Vec<_> = (0..5).map(|_| AllocatedNum::alloc(
             &mut assembly, 
@@ -850,7 +850,7 @@ mod test {
         let crs_mons =
             Crs::<Bn256, CrsForMonomialForm>::crs_42(setup.permutation_monomials[0].size(), &worker);
 
-        let proof = assembly.create_proof::<_, RollingKeccakTranscript<Fr>>(
+        let _proof = assembly.create_proof::<_, RollingKeccakTranscript<Fr>>(
             &worker, 
             &setup, 
             &crs_mons,

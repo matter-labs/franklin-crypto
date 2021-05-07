@@ -436,7 +436,7 @@ mod test {
                     current.double();
                 }
         
-                let result = lc.into_allocated_num(cs).unwrap();
+                let _result = lc.into_allocated_num(cs).unwrap();
             
                 let num = AllocatedNum::alloc(
                     cs,
@@ -474,7 +474,7 @@ mod test {
         let crs_mons =
             Crs::<Bn256, CrsForMonomialForm>::crs_42(setup.gate_selectors_monomials[0].size(), &worker);
 
-        let proof = assembly.create_proof::<_, RollingKeccakTranscript<Fr>>(
+        let _proof = assembly.create_proof::<_, RollingKeccakTranscript<Fr>>(
             &worker, 
             &setup, 
             &crs_mons,

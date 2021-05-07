@@ -178,6 +178,7 @@ impl<E: Engine> PlonkCsSBox<E> for PowerSBox<E> {
                 let el_term = ArithmeticTerm::from_variable(el.get_variable());
                 term.add_assign(fifth_term);
                 term.sub_assign(el_term);
+                cs.allocate_main_gate(term)?;
 
                 Ok(Num::Variable(out))
             }
@@ -665,7 +666,7 @@ mod test {
                 Width4MainGateWithDNext
             >::new();
 
-            let input_words: Vec<AllocatedNum<Bn256>> = input.iter().enumerate().map(|(i, b)| {
+            let input_words: Vec<AllocatedNum<Bn256>> = input.iter().enumerate().map(|(_i, b)| {
                 AllocatedNum::alloc(
                     &mut cs,
                     || {
@@ -732,7 +733,7 @@ mod test {
                 Width4MainGateWithDNext
             >::new();
 
-            let input_words: Vec<AllocatedNum<Bn256>> = input.iter().enumerate().map(|(i, b)| {
+            let input_words: Vec<AllocatedNum<Bn256>> = input.iter().enumerate().map(|(_i, b)| {
                 AllocatedNum::alloc(
                     &mut cs,
                     || {

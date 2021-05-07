@@ -370,7 +370,7 @@ mod test {
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
-        for i in 0..10 {
+        for _i in 0..10 {
             let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let input: Vec<Fr> = (0..2).map(|_| rng.gen()).collect();
@@ -405,7 +405,7 @@ mod test {
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
-        for i in 0..10 {
+        for _i in 0..10 {
             let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let input: Vec<Fr> = (0..4).map(|_| rng.gen()).collect();
@@ -462,7 +462,7 @@ mod test {
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
-        for i in 0..10 {
+        for _i in 0..10 {
             let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
 
             let input: Vec<Fr> = (0..8).map(|_| rng.gen()).collect();

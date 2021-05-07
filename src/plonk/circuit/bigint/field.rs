@@ -3475,7 +3475,7 @@ mod test {
         use crate::bellman::pairing::bn256::{Fq, Bn256, Fr};
 
         use rand::{XorShiftRng, SeedableRng, Rng};
-        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+        let _rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         use crate::bellman::plonk::better_better_cs::cs::*;
 
@@ -3606,7 +3606,7 @@ mod test {
 
             if i == 0 {
                 let a = a.reduce_if_necessary(&mut cs).unwrap();
-                let b = b.reduce_if_necessary(&mut cs).unwrap();
+                let _b = b.reduce_if_necessary(&mut cs).unwrap();
                 let base = cs.n();
                 use std::sync::atomic::Ordering;
                 let k = super::super::RANGE_GATES_COUNTER.load(Ordering::SeqCst);
@@ -3625,7 +3625,7 @@ mod test {
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
-        for i in 0..100 {
+        for _i in 0..100 {
             let mut cs = init();
 
             let a_f: F = rng.gen();
@@ -3658,7 +3658,7 @@ mod test {
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
-        for i in 0..100 {
+        for _i in 0..100 {
             let mut cs = init();
 
             let a_f: F = rng.gen();
@@ -3693,30 +3693,30 @@ mod test {
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
-        for i in 0..100 {
+        for _i in 0..100 {
             let mut cs = init();
 
             let a_f: F = rng.gen();
             let b_f: F = rng.gen();
 
-            let a = FieldElement::new_allocated(
+            let _a = FieldElement::new_allocated(
                 &mut cs, 
                 Some(a_f), 
                 &params
             ).unwrap();
 
-            let a_const = FieldElement::new_constant(
+            let _a_const = FieldElement::new_constant(
                 a_f, 
                 &params
             );
 
-            let b = FieldElement::new_allocated(
+            let _b = FieldElement::new_allocated(
                 &mut cs, 
                 Some(b_f), 
                 &params
             ).unwrap();
 
-            let b_const = FieldElement::new_constant(
+            let _b_const = FieldElement::new_constant(
                 b_f, 
                 &params
             );
@@ -3738,7 +3738,7 @@ mod test {
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
-        for i in 0..100 {
+        for _i in 0..100 {
             let mut cs = init();
 
             let a_f: F = rng.gen();
@@ -3759,7 +3759,7 @@ mod test {
             let n = n.reduction_impl(&mut cs).unwrap();
             let _ = FieldElement::enforce_equal(&mut cs, n.clone(), n_const.clone()).unwrap();
 
-            let (nn, n) = n.negated(&mut cs).unwrap();
+            let (nn, _n) = n.negated(&mut cs).unwrap();
             let nn = nn.reduction_impl(&mut cs).unwrap();
 
             let _ = FieldElement::enforce_equal(&mut cs, nn.clone(), a.clone()).unwrap();
@@ -3779,7 +3779,7 @@ mod test {
             let mut cs = init();
 
             let a_f: F = rng.gen();
-            let b_f: F = rng.gen();
+            let _b_f: F = rng.gen();
             let a = FieldElement::new_allocated(
                 &mut cs, 
                 Some(a_f), 
@@ -3850,7 +3850,7 @@ mod test {
             assert_eq!(a_base, a.base_field_limb.get_value().unwrap());
             assert_eq!(b_base, b.base_field_limb.get_value().unwrap());
     
-            let (result, (a, b)) = a.add(&mut cs, b).unwrap();
+            let (result, (a, _b)) = a.add(&mut cs, b).unwrap();
 
             assert!(cs.is_satisfied());
 
@@ -3887,11 +3887,11 @@ mod test {
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
-        for i in 0..10 {
+        for _i in 0..10 {
             let mut cs = init();
 
             let a_f: F = rng.gen();
-            let b_f: F = rng.gen();
+            let _b_f: F = rng.gen();
             let a = FieldElement::new_allocated(
                 &mut cs, 
                 Some(a_f), 
@@ -3924,11 +3924,11 @@ mod test {
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
-        for i in 0..10 {
+        for _i in 0..10 {
             let mut cs = init();
 
             let a_f: F = rng.gen();
-            let b_f: F = rng.gen();
+            let _b_f: F = rng.gen();
             let a = FieldElement::new_allocated(
                 &mut cs, 
                 Some(a_f), 
@@ -3961,11 +3961,11 @@ mod test {
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
-        for i in 0..10 {
+        for _i in 0..10 {
             let mut cs = init();
 
             let a_f: F = rng.gen();
-            let b_f: F = rng.gen();
+            let _b_f: F = rng.gen();
             let a = FieldElement::new_allocated(
                 &mut cs, 
                 Some(a_f), 
@@ -4033,13 +4033,13 @@ mod test {
 
             assert_eq!(result.value.unwrap(), m);
 
-            let (rr, (b, a)) = b.sub(&mut cs, a).unwrap();
+            let (rr, (_b, a)) = b.sub(&mut cs, a).unwrap();
 
             let (rrr, rr) = rr.negated(&mut cs).unwrap();
 
             let _ = FieldElement::enforce_equal(&mut cs, rrr.clone(), result.clone()).unwrap();
 
-            let (rrrr, rrr) = rrr.negated(&mut cs).unwrap();
+            let (rrrr, _rrr) = rrr.negated(&mut cs).unwrap();
 
             let _ = FieldElement::enforce_equal(&mut cs, rrrr, rr).unwrap();
 
@@ -4095,7 +4095,7 @@ mod test {
             assert_eq!(a_base, a.base_field_limb.get_value().unwrap());
             assert_eq!(b_base, b.base_field_limb.get_value().unwrap());
     
-            let (result, (a, b)) = FieldElement::select(&mut cs, &bit, a, b).unwrap();
+            let (result, (a, _)) = FieldElement::select(&mut cs, &bit, a, b).unwrap();
 
             assert!(cs.is_satisfied());
 
@@ -4193,7 +4193,7 @@ mod test {
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
-        for i in 0..100 {
+        for _i in 0..100 {
             let mut cs = init();
 
             let a_f: F = rng.gen();
@@ -4216,7 +4216,7 @@ mod test {
             let b_base = biguint_to_fe::<E::Fr>(fe_to_biguint(&b_f) % repr_to_biguint::<E::Fr>(&E::Fr::char()));
             assert_eq!(b_base, b.base_field_limb.get_value().unwrap());
     
-            let (result, (a, b)) = a.div(&mut cs, b).unwrap();
+            let (result, _) = a.div(&mut cs, b).unwrap();
 
             assert!(cs.is_satisfied());
 
@@ -4292,7 +4292,7 @@ mod test {
 
         let strategies = get_range_constraint_info(&cs);
 
-        let params = RnsParameters::<E, Fq>::new_for_field_with_strategy(
+        let _params = RnsParameters::<E, Fq>::new_for_field_with_strategy(
             68, 
             110,
             4,

@@ -11,6 +11,13 @@ pub struct CircuitTwistedEdwardsCurveImplementor<E: Engine, C: TwistedEdwardsCur
 }
 
 impl<E: Engine, C: TwistedEdwardsCurveParams<E>> CircuitTwistedEdwardsCurveImplementor<E, C> {
+    pub fn new_from_params(params: C) -> Self {
+        let out_of_circuit_implementor = TwistedEdwardsCurveImplementor::new_from_params(params);
+
+        Self {
+            implementor: out_of_circuit_implementor
+        }
+    }
     pub fn add<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,
@@ -221,7 +228,6 @@ impl<E: Engine, C: TwistedEdwardsCurveParams<E>> CircuitTwistedEdwardsCurveImple
 
         Ok(CircuitTwistedEdwardsPoint { x, y })
     }
-
     pub fn alloc_point_unchecked<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,
@@ -237,7 +243,6 @@ impl<E: Engine, C: TwistedEdwardsCurveParams<E>> CircuitTwistedEdwardsCurveImple
 
         Ok(CircuitTwistedEdwardsPoint { x, y })
     }
-
     // TODO: optimize using terms
     pub fn check_is_on_curve<CS: ConstraintSystem<E>>(&self, cs: &mut CS, p: &CircuitTwistedEdwardsPoint<E>) -> Result<Boolean, SynthesisError> {
         if !self.implementor.curve_params.is_param_a_equals_minus_one() {

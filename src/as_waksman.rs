@@ -687,12 +687,12 @@ fn test_aswaksman() {
     // println!("Permutation = {:?}", permutation);
     // println!("Inverse = {:?}", permutation.inverse());
     // println!("Permutation = {:?}", permutation.elements);
-    let no_permutation = IntegerPermutation::new(size);
+    let _no_permutation = IntegerPermutation::new(size);
     assert!(permutation.inverse().inverse().elements == permutation.elements);
 
     let router = AsWaksmanRoute::new(&permutation);
 
-    let is_valid = AsWaksmanRoute::validate_routing_for_permutation(&permutation, &router);
+    let _is_valid = AsWaksmanRoute::validate_routing_for_permutation(&permutation, &router);
 }
 
 #[test]
@@ -742,7 +742,7 @@ fn test_forward_pass() {
 fn test_trivial_permutations() {
     use rand::{Rand, thread_rng};
     let rng = &mut thread_rng();
-    let topology = AsWaksmanTopology::new(3);
+    let _topology = AsWaksmanTopology::new(3);
     // println!("Topology = {:?}", topology.topology);
     for _ in 0..100 {
         for size in 2..128 {
@@ -757,7 +757,7 @@ fn test_trivial_permutations() {
 fn test_routing_for_permutation() {
     use rand::{Rand, thread_rng};
     let rng = &mut thread_rng();
-    let topology = AsWaksmanTopology::new(3);
+    let _topology = AsWaksmanTopology::new(3);
     // println!("Topology = {:?}", topology.topology);
     for size in 2..128 {
         println!("size = {}", size);
