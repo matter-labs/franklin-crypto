@@ -347,71 +347,6 @@ impl<E: Engine> Num<E> {
             }
         }
 
-        // match condition {
-        //     Boolean::Constant(..) => {
-        //         unreachable!("constant is already handles")
-        //     },
-        //     Boolean::Is(condition_var) => {
-        //         // no modifications
-        //         // (a - b) * condition = a - c
-        //         // (b - a) * condition = b - d 
-        //         // if condition == 0, then a == c, b == d
-        //         // if condition == 1, then b == c, a == d
-
-        //         // (a-b) * condition - a + c = 0
-        //         // -(a-b) * condition - b + d = 0
-
-        //         let ab_condition_term = ArithmeticTerm::from_variable(a_minus_b.get_variable()).mul_by_variable(condition_var.get_variable());
-        //         let a_term = ArithmeticTerm::from_variable(a.get_variable());
-        //         let b_term = ArithmeticTerm::from_variable(b.get_variable());
-        //         let c_term = ArithmeticTerm::from_variable(c.get_variable());
-        //         let d_term = ArithmeticTerm::from_variable(d.get_variable());
-
-        //         let mut ac_term = MainGateTerm::new();
-        //         ac_term.add_assign(ab_condition_term.clone());
-        //         ac_term.sub_assign(a_term);
-        //         ac_term.add_assign(c_term);
-
-        //         cs.allocate_main_gate(ac_term)?;
-
-        //         let mut bd_term = MainGateTerm::new();
-        //         bd_term.sub_assign(ab_condition_term);
-        //         bd_term.sub_assign(b_term);
-        //         bd_term.add_assign(d_term);
-
-        //         cs.allocate_main_gate(bd_term)?;
-        //     },
-
-        //     Boolean::Not(condition_var) => {
-        //         // modifications
-        //         // (a - b) * (1 - condition) = a - c
-        //         // (b - a) * (1 - condition) = b - d 
-
-        //         // -(a-b) * condition - b + c = 0
-        //         // (a-b) * condition - a + d = 0
-
-        //         let ab_condition_term = ArithmeticTerm::from_variable(a_minus_b.get_variable()).mul_by_variable(condition_var.get_variable());
-        //         let a_term = ArithmeticTerm::from_variable(a.get_variable());
-        //         let b_term = ArithmeticTerm::from_variable(b.get_variable());
-        //         let c_term = ArithmeticTerm::from_variable(c.get_variable());
-        //         let d_term = ArithmeticTerm::from_variable(d.get_variable());
-
-        //         let mut ac_term = MainGateTerm::new();
-        //         ac_term.sub_assign(ab_condition_term.clone());
-        //         ac_term.sub_assign(b_term);
-        //         ac_term.add_assign(c_term);
-
-        //         cs.allocate_main_gate(ac_term)?;
-
-        //         let mut bd_term = MainGateTerm::new();
-        //         bd_term.add_assign(ab_condition_term);
-        //         bd_term.sub_assign(a_term);
-        //         bd_term.add_assign(d_term);
-
-        //         cs.allocate_main_gate(bd_term)?;
-        //     }
-        // }
-
         Ok((c, d))
     }
 
@@ -662,6 +597,76 @@ impl<E: Engine> Num<E> {
                 Ok(Num::Constant(result))
             }
         }
+    }
+
+    // compute coeff_ab * A * B + coeff_c * C
+    pub fn fma_with_coefficients<CS: ConstraintSystem<E>>(
+        cs: &mut CS, a: &Self, b: &Self, c: &Self, ab_coeff: E::Fr, c_coeff: E::Fr
+    ) -> Result<Self, SynthesisError>
+    {
+        let result_val = {
+            let a_val = a.get_value().grab()?;
+            let b_val = b.get_value().grab()?;
+            let c_val = c.get_value().grab()?;
+
+            let mut tmp : E::Fr = a_val;
+            tmp.mul_assign(&ab_coeff);
+            tmp.mul_assign(&b_val);
+
+            let mut tmp2 = c_val;
+            tmp2.mul_assign(&c_coeff);
+            
+            tmp.add_assign(&tmp2);
+            Ok(tmp)
+        };
+        
+        // if all of the variables are constant:
+        // return constant
+        if [a, b, c].iter().all(|x| x.is_constant()) {
+            return Ok(Num::Constant(result_val.unwrap()))
+        }
+        
+        let result = AllocatedNum::alloc(cs, || result_val)?;
+        let mut gate = MainGateTerm::new();
+        let mut cnst = E::Fr::zero();
+
+        // deal with main gate:
+        match (a, b) {
+            (Num::Constant(a_fr), Num::Constant(b_fr)) => {
+                let mut tmp = a_fr.clone();
+                tmp.mul_assign(&b_fr);
+                tmp.mul_assign(&ab_coeff);
+                cnst = tmp;
+            },
+            (Num::Constant(fr), Num::Variable(var)) | (Num::Variable(var), Num::Constant(fr)) => {
+                let mut tmp = fr.clone();
+                tmp.mul_assign(&ab_coeff);
+                let term = ArithmeticTerm::from_variable_and_coeff(var.get_variable(), tmp);
+                gate.add_assign(term);
+            },
+            (Num::Variable(a_var), Num::Variable(b_var)) => {
+                let term = ArithmeticTerm::from_variable_and_coeff(
+                    a_var.get_variable(), ab_coeff
+                ).mul_by_variable(b_var.get_variable());
+                gate.add_assign(term);
+            }
+        };
+
+        match c {
+            Num::Constant(fr) => cnst.add_assign(&fr),
+            Num::Variable(var) => {
+                let term = ArithmeticTerm::from_variable(var.get_variable());
+                gate.add_assign(term);
+            },
+        };
+
+        let term = ArithmeticTerm::constant(cnst);
+        gate.add_assign(term);
+        let term = ArithmeticTerm::from_variable(result.get_variable());
+        gate.sub_assign(term);
+        cs.allocate_main_gate(gate)?;
+        
+        Ok(Num::Variable(result))
     }
 
     pub fn assert_not_zero<CS>(
@@ -1086,6 +1091,26 @@ impl<E: Engine> Num<E> {
         Ok(result)
     }
 }
+
+impl<E: Engine> From<Boolean> for Num<E>  {
+    fn from(b: Boolean) -> Num<E> {
+        match b {
+            Boolean::Constant(cnst_flag) => {
+                let value = if cnst_flag {E::Fr::one()} else {E::Fr::zero()};
+                Num::Constant(value)
+            },
+            Boolean::Is(is) => {
+                let var = AllocatedNum {
+                    value : is.get_value_as_field_element::<E>(),
+                    variable : is.get_variable(),
+                };
+                Num::Variable(var)
+            },
+            Boolean::Not(_) => unimplemented!("convertion from Boolean::Not into Num is not supported yet"),
+        }
+    }
+}
+
 
 #[derive(Debug)]
 pub struct AllocatedNum<E: Engine> {
