@@ -75,6 +75,17 @@ impl<E: Engine> Byte<E> {
         )
     }
 
+    pub fn from_u8_witness_multiple<CS: ConstraintSystem<E>, const N: usize>(cs: &mut CS, value: Option<[u8; N]>) -> Result<[Self; N], SynthesisError> {
+        let mut result = [Self::zero(); N];
+
+        for i in 0..N {
+            let wit = value.as_ref().map(|el| el[i]);
+            result[i] = Self::from_u8_witness(cs, wit)?;
+        }
+
+        Ok(result)
+    }
+
     pub fn from_num<CS: ConstraintSystem<E>>(cs: &mut CS, value: Num<E>) -> Result<Self, SynthesisError> {
         constraint_num_bits(cs, &value, 8)?;
         
@@ -127,6 +138,32 @@ impl<E: Engine> Byte<E> {
         cs: &mut CS
     ) -> Result<Boolean, SynthesisError> {
         self.inner.is_zero(cs)
+    }
+
+    pub fn get_value_multiple<const N: usize>(els: &[Self; N]) -> Option<[E::Fr; N]> {
+        let mut tmp = [E::Fr::zero(); N];
+        for (el, v) in els.iter().zip(tmp.iter_mut()) {
+            if let Some(val) = el.get_value() {
+                *v = val;
+            } else {
+                return None;
+            }
+        }
+
+        Some(tmp)
+    }
+
+    pub fn get_byte_value_multiple<const N: usize>(els: &[Self; N]) -> Option<[u8; N]> {
+        let mut tmp = [0u8; N];
+        for (el, v) in els.iter().zip(tmp.iter_mut()) {
+            if let Some(val) = el.get_byte_value() {
+                *v = val;
+            } else {
+                return None;
+            }
+        }
+
+        Some(tmp)
     }
 }
 
