@@ -542,6 +542,11 @@ pub enum Boolean {
     Constant(bool)
 }
 
+impl Default for Boolean {
+    fn default() -> Self {
+        Boolean::Constant(false)
+    }
+}
 
 impl Boolean {
     pub fn is_constant(&self) -> bool {
