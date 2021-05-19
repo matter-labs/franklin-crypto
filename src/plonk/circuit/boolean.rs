@@ -548,7 +548,6 @@ impl Default for Boolean {
     }
 }
 
-
 impl Boolean {
     pub fn is_constant(&self) -> bool {
         match *self {
@@ -1434,16 +1433,16 @@ impl Boolean {
                 // a = 1 - a
                 // b = b
                 // flag * (1 - a) + (1 - flag) * b - ch = 0 =
-                // -flag * a - flag * b + flag - b - ch = 0
+                // -flag * a - flag * b + flag + b - ch = 0
 
                 // coefficients
                 // [1, 0, -1, -1, -1, -1, 0, 0]
 
                 coeffs[0] = E::Fr::one();
-                coeffs[2] = minus_one;
+                coeffs[2] = E::Fr::one();
                 coeffs[3] = minus_one;
-                coeffs[SelectorOptimizedWidth4MainGateWithDNext::AB_MULTIPLICATION_TERM_COEFF_INDEX] = E::Fr::one();
-                coeffs[SelectorOptimizedWidth4MainGateWithDNext::AC_MULTIPLICATION_TERM_COEFF_INDEX] = E::Fr::one();
+                coeffs[SelectorOptimizedWidth4MainGateWithDNext::AB_MULTIPLICATION_TERM_COEFF_INDEX] = minus_one;
+                coeffs[SelectorOptimizedWidth4MainGateWithDNext::AC_MULTIPLICATION_TERM_COEFF_INDEX] = minus_one;
 
                 vars[0] = flag.get_variable();
                 vars[1] = a.get_variable();
@@ -2052,6 +2051,8 @@ mod test {
             for second_operand in variants.iter().cloned() {
                 for third_operand in variants.iter().cloned() {
                     let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+                    // use bellman::plonk::better_better_cs::gates::selector_optimized_with_d_next::*;
+                    // let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, SelectorOptimizedWidth4MainGateWithDNext>::new();
 
                     let a;
                     let b;
@@ -2081,7 +2082,10 @@ mod test {
 
                     let ch = Boolean::sha256_ch(&mut cs, &a, &b, &c).unwrap();
 
-                    assert!(cs.is_satisfied());
+                    if !cs.is_satisfied() {
+                        let _ch = Boolean::sha256_ch(&mut cs, &a, &b, &c).unwrap();
+                        panic!("Failed on combination {:?} {:?} {:?}", a, b, c);
+                    }
 
                     assert_eq!(ch.get_value().unwrap(), expected);
 

@@ -30,9 +30,9 @@ use super::boolean::Boolean;
 // combination but allows to better work with constants and scaling
 #[derive(Clone, Debug)]
 pub struct Term<E: Engine> {
-    pub(crate) num: Num<E>,
-    pub(crate) coeff: E::Fr,
-    pub(crate) constant_term: E::Fr,
+    pub num: Num<E>,
+    pub coeff: E::Fr,
+    pub constant_term: E::Fr,
 }
 
 
