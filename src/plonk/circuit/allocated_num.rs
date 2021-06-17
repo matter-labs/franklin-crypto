@@ -452,8 +452,46 @@ impl<E: Engine> Num<E> {
 
                 lc.into_num(cs)
             },
-            _ => {
-                unimplemented!()
+            (Num::Variable(self_value), Num::Constant(accumulator)) => {
+                match boolean {
+                    Boolean::Is(bit) => {
+                        let mut value = None;
+                        let result = cs.alloc(|| {
+                            let mut tmp = self_value.value.grab()?;
+                            let bit_value = bit.get_value().grab()?;
+                            if !bit_value {
+                                tmp = E::Fr::zero();
+                            }
+        
+                            tmp.add_assign(accumulator);
+                            value = Some(tmp); 
+                            Ok(tmp)
+                        })?;
+        
+                        let allocated_res = AllocatedNum {
+                            value: value,
+                            variable: result
+                        };
+        
+                        let self_term = ArithmeticTerm::from_variable(
+                            self_value.get_variable()).mul_by_variable(bit.get_variable()
+                        );
+                        let other_term = ArithmeticTerm::constant(accumulator.clone());
+                        let result_term = ArithmeticTerm::from_variable(result);
+                        
+                        let mut term = MainGateTerm::new();
+                        term.add_assign(self_term);
+                        term.add_assign(other_term);
+                        term.sub_assign(result_term);
+                
+                        cs.allocate_main_gate(term)?;
+        
+                        Ok(Num::Variable(allocated_res))
+                    },
+                    _ => {
+                        unimplemented!()
+                    }
+                }
             }
         }
     }
