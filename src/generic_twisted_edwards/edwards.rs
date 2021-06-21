@@ -339,6 +339,10 @@ impl<E: Engine, C: TwistedEdwardsCurveParams<E>> TwistedEdwardsCurveImplementor<
         }
     }
 
+    pub fn get_params(&self) -> &C {
+        &self.curve_params
+    }
+
     pub fn get_for_y(
         &self,
         y: E::Fr,
@@ -425,6 +429,12 @@ pub struct TwistedEdwardsPoint<E: Engine> {
 }
 
 impl<E: Engine> Copy for TwistedEdwardsPoint<E> {}
+
+impl<E: Engine> Default for TwistedEdwardsPoint<E> {
+    fn default() -> Self {
+        Self::identity()
+    }
+}
 
 impl<E: Engine> TwistedEdwardsPoint<E> {
     pub fn into_xy(&self) -> (E::Fr, E::Fr) {
