@@ -1526,6 +1526,7 @@ mod test {
         }
     }
 
+
     #[test]
     fn test_and() {
         for a_val in [false, true].iter() {

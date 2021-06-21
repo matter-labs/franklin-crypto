@@ -432,28 +432,71 @@ impl<E: Engine> Num<E> {
 
     pub fn mask_by_boolean_into_accumulator<CS: ConstraintSystem<E>>(&self, cs: &mut CS, boolean: &Boolean, accumulator: &Self) -> Result<Self, SynthesisError>
     {   
-        match (self, accumulator) {
-            (Num::Variable(self_var), Num::Variable(accumulator_var)) => {
+        match (self, accumulator, boolean) {
+            (Num::Variable(self_var), Num::Variable(accumulator_var), _) => {
                 let accumulated = self_var.mask_by_boolean_into_accumulator(cs, boolean, accumulator_var)?;
 
                 Ok(Num::Variable(accumulated))
             },
-            (Num::Constant(self_value), Num::Constant(accumulator_value)) => {
+            (Num::Constant(self_value), Num::Constant(accumulator_value), _) => {
                 let mut lc = LinearCombination::zero();
                 lc.add_assign_constant(*accumulator_value);
                 lc.add_assign_boolean_with_coeff(boolean, *self_value);
 
                 lc.into_num(cs)
             },
-            (Num::Constant(self_value), accumulator @ Num::Variable(..)) => {
+            (Num::Constant(self_value), accumulator @ Num::Variable(..), _) => {
                 let mut lc = LinearCombination::zero();
                 lc.add_assign_number_with_coeff(accumulator, E::Fr::one());
                 lc.add_assign_boolean_with_coeff(boolean, *self_value);
 
                 lc.into_num(cs)
             },
-            _ => {
-                unimplemented!()
+            (self_value @ Num::Variable(..), accumulator @ Num::Constant(..), Boolean::Constant(flag)) => {
+                let res = if *flag {
+                   accumulator.add(cs, &self_value)?
+                }
+                else {
+                    accumulator.clone()
+                };
+                Ok(res)
+            }
+            (Num::Variable(self_value), Num::Constant(accumulator), Boolean::Is(bit)) => {
+                let mut value = None;
+                let result = cs.alloc(|| {
+                    let mut tmp = self_value.value.grab()?;
+                    let bit_value = bit.get_value().grab()?;
+                    if !bit_value {
+                        tmp = E::Fr::zero();
+                    }
+
+                    tmp.add_assign(accumulator);
+                    value = Some(tmp); 
+                    Ok(tmp)
+                })?;
+
+                let allocated_res = AllocatedNum {
+                    value: value,
+                    variable: result
+                };
+
+                let self_term = ArithmeticTerm::from_variable(
+                    self_value.get_variable()).mul_by_variable(bit.get_variable()
+                );
+                let other_term = ArithmeticTerm::constant(accumulator.clone());
+                let result_term = ArithmeticTerm::from_variable(result);
+                
+                let mut term = MainGateTerm::new();
+                term.add_assign(self_term);
+                term.add_assign(other_term);
+                term.sub_assign(result_term);
+        
+                cs.allocate_main_gate(term)?;
+
+                Ok(Num::Variable(allocated_res))
+            }
+            (_, _, _) => {
+                unimplemented!();
             }
         }
     }
