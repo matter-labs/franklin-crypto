@@ -82,7 +82,7 @@ impl<E: Engine> LookupTableInternal<E> for Sha256ShedulerHelperTable<E> {
         true
     }
     fn get_table_values_for_polys(&self) -> Vec<Vec<E::Fr>> {
-        vec![self.table_entries[0].clone(), self.table_entries[1].clone()]
+        vec![self.table_entries[0].clone(), self.table_entries[1].clone(), self.table_entries[2].clone()]
     }
     fn table_id(&self) -> E::Fr {
         table_id_from_string(self.name)
