@@ -177,6 +177,15 @@ impl<E: Engine> Num<E> {
         }
     }
 
+    #[track_caller]
+    pub fn conditionally_enforce_equal<CS>(cs: &mut CS, cond: &Boolean, a: &Self, b: &Self) -> Result<(), SynthesisError>
+    where CS: ConstraintSystem<E>
+    {
+        let masked_a = Num::mask(cs, &a, &cond)?;
+        let masked_b = Num::mask(cs, &b, &cond)?;
+        masked_a.enforce_equal(cs, &masked_b)
+    }
+
     /// Takes two allocated numbers (a, b) and returns
     /// (b, a) if the condition is true, and (a, b)
     /// otherwise.
