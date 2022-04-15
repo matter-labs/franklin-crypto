@@ -43,6 +43,7 @@ pub mod eddsa;
 pub mod interpolation;
 pub mod as_waksman;
 pub mod rescue;
+pub mod poseidon;
 
 #[cfg(feature = "plonk")]
 pub mod plonk;

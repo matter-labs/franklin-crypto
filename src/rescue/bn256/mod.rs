@@ -1,6 +1,7 @@
 use bellman::pairing::bn256;
 use bellman::pairing::ff::{Field, PrimeField, PrimeFieldRepr};
-use super::{RescueEngine, RescueHashParams, RescueParamsInternal, PowerSBox, QuinticSBox, generate_mds_matrix};
+use super::{RescueEngine, RescueHashParams, RescueParamsInternal,
+            PowerSBox, QuinticSBox, generate_mds_matrix};
 use group_hash::{GroupHasher, BlakeHasher};
 
 extern crate num_bigint;
