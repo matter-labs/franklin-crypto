@@ -356,11 +356,7 @@ pub fn rescue_mimc_over_lcs<E: RescueEngine, CS>(
                         .zip(params.round_constants(0).iter())
                         .enumerate()
     {
-        let with_constant = c.add_constant(
-            CS::one(),
-            constant
-        );
-
+        let with_constant = c.add_constant(CS::one(),constant);
         state.push(with_constant);
     }
 
@@ -384,9 +380,7 @@ pub fn rescue_mimc_over_lcs<E: RescueEngine, CS>(
 
 
         // apply multiplication by MDS
-
         let mut linear_transformation_results_scratch = Vec::with_capacity(state_len);
-
         let round_constants = params.round_constants(round_num + 1);
         for row_idx in 0..state_len {
             let row = params.mds_matrix_row(row_idx as u32);

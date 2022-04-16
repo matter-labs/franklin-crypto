@@ -319,88 +319,118 @@ pub fn poseidon_mimc_over_lcs<E: PoseidonEngine, CS>(
           CS: ConstraintSystem<E>
 {
     let state_len = params.state_width() as usize;
-
     assert_eq!(input.len(), state_len);
+
+    debug_assert!(params.num_full_rounds() % 2 == 0);
+
+    let half_round = params.num_full_rounds() / 2;
+    let full_round = params.num_full_rounds();
+    let partial_round = params.num_partial_rounds();
+    let last_element_idx = state_len - 1;
 
     let mut state: Vec<Num<E>> = Vec::with_capacity(input.len());
 
-    // add constant
-    for (_i, (c, &constant)) in input.iter().cloned()
-        .zip(params.round_constants(0).iter())
-        .enumerate()
-    {
-        let with_constant = c.add_constant(
-            CS::one(),
-            constant
-        );
-
-        state.push(with_constant);
+    for el in input.iter().cloned(){
+        state.push(el);
     }
 
-    let mut state = Some(state);
+    for round in 0..half_round {
+        // add constants
+        let mut state_adv: Vec<Num<E>> = Vec::with_capacity(input.len());
+        for (_i, (state_i, &constant)) in state.into_iter()
+            .zip(params.round_constants(round).iter())
+            .enumerate()
+        {
+            let with_constant = state_i.add_constant(CS::one(),constant);
+            state_adv.push(with_constant);
+        }
 
-    // first half of full rounds
-    // parameters use number of rounds that is number of invocations of each SBox,
-    // so we double
-    for first_half_of_full_rounds in 0..(params.num_full_rounds() / 2) {
-        // apply corresponding sbox
+        // S_box
         let tmp =  {
             params.sbox().apply_constraints_on_lc_for_set(
-                cs.namespace(|| format!("apply SBox for half of full round {}", first_half_of_full_rounds)),
-                state.take().unwrap()
+                cs.namespace(|| format!("apply SBox for first half of full round {}", round)),
+                state_adv
             )?
         };
 
-
-        // MDS matrix
-        let mut linear_transformation_results_scratch = Vec::with_capacity(state_len);
-        let round_constants = params.round_constants(first_half_of_full_rounds + 1);
+        // MDS
+        let mut linear_transformation_results = Vec::with_capacity(state_len);
         for row_idx in 0..state_len {
             let row = params.mds_matrix_row(row_idx as u32);
-            let linear_applied = scalar_product_over_lc_of_length_one(&tmp[..], row);
-            let with_round_constant = linear_applied.add_constant(
-                CS::one(),
-                round_constants[row_idx]
-            );
-            linear_transformation_results_scratch.push(with_round_constant);
+            let linear_applied = scalar_product_over_lc_of_length_one(&tmp[..], row); // MDS
+            linear_transformation_results.push(linear_applied);
         }
 
-        state = Some(linear_transformation_results_scratch);
-
+        state = linear_transformation_results;
     }
 
+    for round in half_round..(partial_round + half_round) {
+        // add constants
+        let mut state_adv: Vec<Num<E>> = Vec::with_capacity(input.len());
+        for (_i, (state_i, &constant)) in state.into_iter()
+            .zip(params.round_constants(round).iter())
+            .enumerate()
+        {
+            let with_constant = state_i.add_constant(CS::one(),constant);
+            state_adv.push(with_constant);
+        }
 
-    // half of full rounds
-    // parameters use number of rounds that is number of invocations of each SBox,
-    // so we double
-    for second_half_of_full_rounds in 0..(params.num_full_rounds() / 2) {
-        // apply corresponding sbox
+        // SBox
+        let mut tmp = Vec::with_capacity(state_len);
+        for (i, element) in state_adv.into_iter().enumerate() {
+            if i < last_element_idx {
+                tmp.push(element);
+            } else  {
+                let applied = params.sbox().apply_constraints_on_lc(
+                    cs.namespace(|| format!("apply SBox for word {}", i)),
+                    element
+                )?;
+                tmp.push(applied)
+            }
+        }
+
+        // MDS
+        let mut linear_transformation_results = Vec::with_capacity(state_len);
+        for row_idx in 0..state_len {
+            let row = params.mds_matrix_row(row_idx as u32);
+            let linear_applied = scalar_product_over_lc_of_length_one(&tmp[..], row); // MDS
+            linear_transformation_results.push(linear_applied);
+        }
+
+        state = linear_transformation_results;
+    }
+
+    for round in (partial_round + half_round)..(partial_round + full_round) {
+        // add constants
+        let mut state_adv: Vec<Num<E>> = Vec::with_capacity(input.len());
+        for (_i, (state_i, &constant)) in state.into_iter()
+            .zip(params.round_constants(round).iter())
+            .enumerate()
+        {
+            let with_constant = state_i.add_constant(CS::one(),constant);
+            state_adv.push(with_constant);
+        }
+
+        // S_box
         let tmp =  {
             params.sbox().apply_constraints_on_lc_for_set(
-                cs.namespace(|| format!("apply SBox for half of full round {}", second_half_of_full_rounds)),
-                state.take().unwrap()
+                cs.namespace(|| format!("apply SBox for second half of full round {}", round)),
+                state_adv
             )?
         };
 
-
-        // MDS matrix
-        let mut linear_transformation_results_scratch = Vec::with_capacity(state_len);
-        let round_constants = params.round_constants(second_half_of_full_rounds + 1);
+        // MDS
+        let mut linear_transformation_results = Vec::with_capacity(state_len);
         for row_idx in 0..state_len {
             let row = params.mds_matrix_row(row_idx as u32);
-            let linear_applied = scalar_product_over_lc_of_length_one(&tmp[..], row);
-            let with_round_constant = linear_applied.add_constant(
-                CS::one(),
-                round_constants[row_idx]
-            );
-            linear_transformation_results_scratch.push(with_round_constant);
+            let linear_applied = scalar_product_over_lc_of_length_one(&tmp[..], row); // MDS
+            linear_transformation_results.push(linear_applied);
         }
 
-        state = Some(linear_transformation_results_scratch);
-
+        state = linear_transformation_results;
     }
 
-    Ok(state.unwrap())
+    Ok(state)
 }
 
 fn scalar_product<E: Engine> (input: &[AllocatedNum<E>], by: &[E::Fr]) -> Num<E> {
