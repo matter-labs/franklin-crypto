@@ -327,6 +327,10 @@ pub fn poseidon_mimc_over_lcs<E: PoseidonEngine, CS>(
     let full_round = params.num_full_rounds();
     let partial_round = params.num_partial_rounds();
     let last_element_idx = state_len - 1;
+    let input_len = input.len() - 1;
+
+    println!("last_element_idx: {:?}", last_element_idx);
+    println!("input len: {:?}", input_len);
 
     let mut state: Vec<Num<E>> = Vec::with_capacity(input.len());
 
@@ -357,7 +361,7 @@ pub fn poseidon_mimc_over_lcs<E: PoseidonEngine, CS>(
         let mut linear_transformation_results = Vec::with_capacity(state_len);
         for row_idx in 0..state_len {
             let row = params.mds_matrix_row(row_idx as u32);
-            let linear_applied = scalar_product_over_lc_of_length_one(&tmp[..], row); // MDS
+            let linear_applied = scalar_product_over_lc_of_length_one(&tmp[..], row);
             linear_transformation_results.push(linear_applied);
         }
 
@@ -393,7 +397,7 @@ pub fn poseidon_mimc_over_lcs<E: PoseidonEngine, CS>(
         let mut linear_transformation_results = Vec::with_capacity(state_len);
         for row_idx in 0..state_len {
             let row = params.mds_matrix_row(row_idx as u32);
-            let linear_applied = scalar_product_over_lc_of_length_one(&tmp[..], row); // MDS
+            let linear_applied = scalar_product_over_lc_of_length_one(&tmp[..], row);
             linear_transformation_results.push(linear_applied);
         }
 
@@ -423,7 +427,7 @@ pub fn poseidon_mimc_over_lcs<E: PoseidonEngine, CS>(
         let mut linear_transformation_results = Vec::with_capacity(state_len);
         for row_idx in 0..state_len {
             let row = params.mds_matrix_row(row_idx as u32);
-            let linear_applied = scalar_product_over_lc_of_length_one(&tmp[..], row); // MDS
+            let linear_applied = scalar_product_over_lc_of_length_one(&tmp[..], row);
             linear_transformation_results.push(linear_applied);
         }
 
