@@ -400,7 +400,7 @@ impl<E: Engine> AllocatedNum<E> {
             Ok(tmp)
         })?;
 
-        // Constrain: a * b = ab
+        // Constrain: a + c = a + c
         cs.enforce(
             || "addition constraint",
             |zero| zero + self.variable + (constant, CS::one()),
@@ -432,7 +432,7 @@ impl<E: Engine> AllocatedNum<E> {
             Ok(tmp)
         })?;
 
-        // Constrain: a * b = ab
+        // Constrain: a - b = a - b
         cs.enforce(
             || "addition constraint",
             |zero| zero + self.variable - other.variable,

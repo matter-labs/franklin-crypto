@@ -219,7 +219,7 @@ pub fn poseidon_mimc<E: PoseidonEngine>(
     for round in 0..half_of_full_rounds {
         let round_constants = params.round_constants(round);
 
-        // add round constatnts
+        // add round constant
         for (s, c)  in state.iter_mut()
             .zip(round_constants.iter()) {
             s.add_assign(c);
@@ -239,7 +239,6 @@ pub fn poseidon_mimc<E: PoseidonEngine>(
     }
 
     // partial rounds
-
     for round in half_of_full_rounds..(params.num_partial_rounds() + half_of_full_rounds){
         let round_constants = params.round_constants(round);
 

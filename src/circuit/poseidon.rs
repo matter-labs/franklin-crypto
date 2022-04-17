@@ -320,27 +320,21 @@ pub fn poseidon_mimc_over_lcs<E: PoseidonEngine, CS>(
 {
     let state_len = params.state_width() as usize;
     assert_eq!(input.len(), state_len);
-
     debug_assert!(params.num_full_rounds() % 2 == 0);
 
-    let half_round = params.num_full_rounds() / 2;
     let full_round = params.num_full_rounds();
+    let half_round = full_round / 2;
     let partial_round = params.num_partial_rounds();
-    let last_element_idx = state_len - 1;
-    let input_len = input.len() - 1;
+    let last_element_idx = state_len.clone() - 1;
 
-    println!("last_element_idx: {:?}", last_element_idx);
-    println!("input len: {:?}", input_len);
-
-    let mut state: Vec<Num<E>> = Vec::with_capacity(input.len());
-
+    let mut state: Vec<Num<E>> = Vec::with_capacity(state_len.clone());
     for el in input.iter().cloned(){
         state.push(el);
     }
 
     for round in 0..half_round {
         // add constants
-        let mut state_adv: Vec<Num<E>> = Vec::with_capacity(input.len());
+        let mut state_adv: Vec<Num<E>> = Vec::with_capacity(state_len.clone());
         for (_i, (state_i, &constant)) in state.into_iter()
             .zip(params.round_constants(round).iter())
             .enumerate()
@@ -438,7 +432,7 @@ pub fn poseidon_mimc_over_lcs<E: PoseidonEngine, CS>(
 }
 
 fn scalar_product<E: Engine> (input: &[AllocatedNum<E>], by: &[E::Fr]) -> Num<E> {
-    assert!(input.len() == by.len());
+    assert_eq!(input.len(), by.len());
     let mut result = Num::zero();
     for (a, b) in input.iter().zip(by.iter()) {
         result = result.add_number_with_coeff(a, *b);
@@ -448,7 +442,7 @@ fn scalar_product<E: Engine> (input: &[AllocatedNum<E>], by: &[E::Fr]) -> Num<E>
 }
 
 fn scalar_product_over_lc_of_length_one<E: Engine> (input: &[Num<E>], by: &[E::Fr]) -> Num<E> {
-    assert!(input.len() == by.len());
+    assert_eq!(input.len(), by.len());
     let mut result = Num::zero();
     for (a, b) in input.iter().zip(by.iter()) {
         if a.is_empty() {

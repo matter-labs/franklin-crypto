@@ -19,7 +19,6 @@ pub struct CubicSBox<E: Engine> {
 }
 
 impl<E: Engine>SBox<E> for CubicSBox<E> {
-
     fn apply(&self, elements: &mut [E::Fr]) {
         for element in elements.iter_mut() {
             let mut squared = *element;
@@ -196,7 +195,8 @@ pub fn rescue_mimc<E: RescueEngine>(
     let mut state = old_state.to_vec();
     let mut mds_application_scratch = vec![E::Fr::zero(); state.len()];
     assert_eq!(state.len(), params.state_width() as usize);
-    // add round constatnts
+
+    // add first round constants
     for (s, c)  in state.iter_mut()
                 .zip(params.round_constants(0).iter()) {
         s.add_assign(c);
@@ -205,21 +205,21 @@ pub fn rescue_mimc<E: RescueEngine>(
     // parameters use number of rounds that is number of invocations of each SBox,
     // so we double
     for round_num in 0..(2*params.num_rounds()) {
-        // apply corresponding sbox
+        // apply corresponding SBox
         if round_num & 1u32 == 0 {
             params.sbox_0().apply(&mut state);
         } else {
             params.sbox_1().apply(&mut state);
         }
 
-        // add round keys right away
+        // prepare for round keys
         mds_application_scratch.copy_from_slice(params.round_constants(round_num + 1));
 
         // mul state by MDS
         for (row, place_into) in mds_application_scratch.iter_mut()
                                         .enumerate() {
-            let tmp = scalar_product::<E>(& state[..], params.mds_matrix_row(row as u32));
-            place_into.add_assign(&tmp);                                
+            let tmp = scalar_product::<E>(& state[..], params.mds_matrix_row(row as u32));//MDS
+            place_into.add_assign(&tmp); // round_constant + MDS_result
             // *place_into = scalar_product::<E>(& state[..], params.mds_matrix_row(row as u32));
         }
 
@@ -337,7 +337,8 @@ pub fn make_keyed_params<E: RescueEngine>(
     let mut state = key.to_vec();
     let mut mds_application_scratch = vec![E::Fr::zero(); state.len()];
     assert_eq!(state.len(), default_params.state_width() as usize);
-    // add round constatnts
+
+    // add round constant
     for (s, c)  in state.iter_mut()
                 .zip(default_params.round_constants(0).iter()) {
         s.add_assign(c);
@@ -356,7 +357,7 @@ pub fn make_keyed_params<E: RescueEngine>(
             default_params.sbox_1().apply(&mut state);
         }
 
-        // add round keys right away
+        // prepare round keys right away
         mds_application_scratch.copy_from_slice(default_params.round_constants(round_num + 1));
 
         // mul state by MDS

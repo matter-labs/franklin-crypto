@@ -352,6 +352,8 @@ pub fn rescue_mimc_over_lcs<E: RescueEngine, CS>(
     assert_eq!(input.len(), state_len); 
 
     let mut state: Vec<Num<E>> = Vec::with_capacity(input.len());
+
+    // add first round constant
     for (_i, (c, &constant)) in input.iter().cloned()
                         .zip(params.round_constants(0).iter())
                         .enumerate()
@@ -365,7 +367,7 @@ pub fn rescue_mimc_over_lcs<E: RescueEngine, CS>(
     // parameters use number of rounds that is number of invocations of each SBox,
     // so we double
     for round_num in 0..(2*params.num_rounds()) {
-        // apply corresponding sbox
+        // SBox
         let tmp = if round_num & 1u32 == 0 {
             params.sbox_0().apply_constraints_on_lc_for_set(
                 cs.namespace(|| format!("apply SBox_0 for round {}", round_num)),
@@ -381,11 +383,13 @@ pub fn rescue_mimc_over_lcs<E: RescueEngine, CS>(
 
         // apply multiplication by MDS
         let mut linear_transformation_results_scratch = Vec::with_capacity(state_len);
+        // prepare round_constant
         let round_constants = params.round_constants(round_num + 1);
+
         for row_idx in 0..state_len {
             let row = params.mds_matrix_row(row_idx as u32);
-            let linear_applied = scalar_product_over_lc_of_length_one(&tmp[..], row);
-            let with_round_constant = linear_applied.add_constant(
+            let linear_applied = scalar_product_over_lc_of_length_one(&tmp[..], row); // MDS
+            let with_round_constant = linear_applied.add_constant(  // MDS + round_constant
                 CS::one(), 
                 round_constants[row_idx]
             );
@@ -393,7 +397,6 @@ pub fn rescue_mimc_over_lcs<E: RescueEngine, CS>(
         }
 
         state = Some(linear_transformation_results_scratch);
-
     }
 
     Ok(state.unwrap())
