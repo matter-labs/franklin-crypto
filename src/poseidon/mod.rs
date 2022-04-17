@@ -192,7 +192,7 @@ fn sponge<E: PoseidonEngine>(
     input: &[E::Fr]
 ) -> Vec<E::Fr> {
 
-    let mut stateful = StatefulSponge::<E>::new(params);
+    let mut stateful = StatefulPoseidon::<E>::new(params);
     stateful.absorb(&input);
 
     let mut output = Vec::with_capacity(params.capacity() as usize);
@@ -445,13 +445,13 @@ enum PoseidonOpMode<E: PoseidonEngine> {
 }
 
 #[derive(Clone, Debug)]
-pub struct StatefulSponge<'a, E: PoseidonEngine> {
+pub struct StatefulPoseidon<'a, E: PoseidonEngine> {
     params: &'a E::Params,
     internal_state: Vec<E::Fr>,
     mode: PoseidonOpMode<E>
 }
 
-// impl<'a, E: PoseidonEngine> Clone for StatefulSponge<'a, E> {
+// impl<'a, E: PoseidonEngine> Clone for StatefulPoseidon<'a, E> {
 //     fn clone(&self) -> Self {
 //         Self {
 //             params: self.params,
@@ -461,7 +461,7 @@ pub struct StatefulSponge<'a, E: PoseidonEngine> {
 //     }
 // }
 
-impl<'a, E: PoseidonEngine> StatefulSponge<'a, E> {
+impl<'a, E: PoseidonEngine> StatefulPoseidon<'a, E> {
     pub fn new(
         params: &'a E::Params
     ) -> Self {
@@ -545,6 +545,18 @@ impl<'a, E: PoseidonEngine> StatefulSponge<'a, E> {
 
         for &val in it {
             self.absorb_single_value(val);
+        }
+    }
+
+    pub fn pad_if_necessary(&mut self) {
+        match self.mode {
+            PoseidonOpMode::AccumulatingToAbsorb(ref mut into) => {
+                let rate = self.params.rate() as usize;
+                if into.len() != rate {
+                    into.resize(rate, E::Fr::one());
+                }
+            },
+            PoseidonOpMode::SqueezedInto(_) => {}
         }
     }
 

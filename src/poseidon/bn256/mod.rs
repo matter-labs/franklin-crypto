@@ -216,7 +216,7 @@ mod test {
         let params = Bn256PoseidonParams::new_2_into_1::<BlakeHasher>();
         let input: Vec<Fr> = (0..params.rate()).map(|_| rng.gen()).collect();
 
-        let mut stateful_rescue = super::super::StatefulSponge::<Bn256>::new(&params);
+        let mut stateful_rescue = super::super::StatefulPoseidon::<Bn256>::new(&params);
         stateful_rescue.specialize(input.len() as u8);
         stateful_rescue.absorb(&input);
 

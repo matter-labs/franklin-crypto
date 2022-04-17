@@ -884,8 +884,7 @@ mod test {
         }
 
         impl<E: PoseidonEngine> crate::bellman::Circuit<E> for PoseidonTester<E>
-            where <<E as PoseidonEngine>::Params as PoseidonHashParams<E>>::SBox0: CsSBox<E>,
-                  <<E as PoseidonEngine>::Params as PoseidonHashParams<E>>::SBox1: CsSBox<E>
+            where <<E as PoseidonEngine>::Params as PoseidonHashParams<E>>::SBox: CsSBox<E>,
         {
             fn synthesize<CS: ConstraintSystem<E>>(self, cs: &mut CS) -> Result<(), SynthesisError> {
                 for _ in 0..self.num_duplicates {
