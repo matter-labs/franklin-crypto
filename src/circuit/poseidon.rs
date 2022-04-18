@@ -400,7 +400,7 @@ pub fn poseidon_mimc_over_lcs<E: PoseidonEngine, CS>(
         }
 
         let s_box_last_element =  {
-            params.sbox().apply_constraints_on_lc( // S_box
+            params.sbox().apply_constraints_on_lc(
                 cs.namespace(|| format!("apply S_Box for partial round {}", round)),
                                                    last_element.clone()
             )?
@@ -693,9 +693,8 @@ mod test {
                 Num::<Bn256>::from(v)
             }).collect();
 
-
             let res = poseidon_mimc_over_lcs(
-                cs.namespace(|| "poseidon mimc"),
+                cs.namespace(|| "poseidon mimc over lcs"),
                 &input_words,
                 &params
             ).unwrap();
