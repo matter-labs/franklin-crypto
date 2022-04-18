@@ -372,64 +372,6 @@ fn generate_mds_matrix<E: PoseidonEngine, R: Rng>(t: u32, rng: &mut R) -> Vec<E:
     }
 }
 
-// pub fn make_keyed_params<E: PoseidonEngine>(
-//     default_params: &E::Params,
-//     key: &[E::Fr]
-// ) -> E::Params {
-//     // for this purpose we feed the master key through the rescue itself
-//     // in a sense that we make non-trivial initial state and run it with empty input
-//
-//     assert_eq!(default_params.state_width() as usize, key.len());
-//
-//     let mut new_round_constants = vec![];
-//
-//     let mut state = key.to_vec();
-//     let mut mds_application_scratch = vec![E::Fr::zero(); state.len()];
-//     assert_eq!(state.len(), default_params.state_width() as usize);
-//
-//     // add round constant
-//     for (s, c)  in state.iter_mut()
-//                 .zip(default_params.round_constants(0).iter()) {
-//         s.add_assign(c);
-//     }
-//
-//     // add to round constant
-//     new_round_constants.extend_from_slice(&state);
-//
-//     // parameters use number of rounds that is number of invocations of each SBox,
-//     // so we double
-//     for round_num in 0..(2*default_params.num_rounds()) {
-//         // apply corresponding sbox
-//         if round_num & 1u32 == 0 {
-//             default_params.sbox_0().apply(&mut state);
-//         } else {
-//             default_params.sbox_1().apply(&mut state);
-//         }
-//
-//         // add round keys right away
-//         mds_application_scratch.copy_from_slice(default_params.round_constants(round_num + 1));
-//
-//         // mul state by MDS
-//         for (row, place_into) in mds_application_scratch.iter_mut()
-//                                         .enumerate() {
-//             let tmp = scalar_product::<E>(& state[..], default_params.mds_matrix_row(row as u32));
-//             place_into.add_assign(&tmp);
-//             // *place_into = scalar_product::<E>(& state[..], params.mds_matrix_row(row as u32));
-//         }
-//
-//         // place new data into the state
-//         state.copy_from_slice(&mds_application_scratch[..]);
-//
-//         new_round_constants.extend_from_slice(&state);
-//     }
-//
-//     let mut new_params = default_params.clone();
-//
-//     new_params.set_round_constants(new_round_constants);
-//
-//     new_params
-// }
-
 #[derive(Clone, Debug)]
 enum PoseidonOpMode<E: PoseidonEngine> {
     AccumulatingToAbsorb(Vec<E::Fr>),

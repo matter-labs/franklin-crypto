@@ -702,7 +702,6 @@ mod test {
 
             assert!(cs.is_satisfied());
             assert_eq!(res.len(), (params.state_width() as usize));
-
             assert_eq!(res[0].get_value().unwrap(), expected[0]);
         }
     }
@@ -736,7 +735,6 @@ mod test {
             assert!(cs.is_satisfied());
             assert_eq!(res.len(), 1);
             println!("Poseidon hash {} to {} taken {} constraints", input.len(), res.len(), cs.num_constraints());
-
             assert_eq!(res[0].get_value().unwrap(), expected[0]);
         }
     }
@@ -769,7 +767,6 @@ mod test {
             assert!(cs.is_satisfied());
             assert_eq!(res.len(), 1);
             println!("Poseidon hash {} to {} taken {} constraints", input.len(), res.len(), cs.num_constraints());
-
             assert_eq!(res[0].get_value().unwrap(), expected[0]);
         }
     }
@@ -879,7 +876,6 @@ mod test {
             assert!(cs.is_satisfied());
             assert!(res.len() == 1);
             println!("Poseidon hash {} to {} taken {} constraints", input.len(), res.len(), cs.num_constraints());
-
             assert_eq!(res[0].get_value().unwrap(), expected[0]);
         }
     }
@@ -977,9 +973,7 @@ mod test {
         }
 
         println!("Transpilation hist = {:?}", hints_hist);
-
         println!("Done transpiling");
-
         println!("Made {} invocations into {} gates", dupls, n);
     }
 }
