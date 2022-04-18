@@ -7,7 +7,7 @@ use rand::{Rand, Rng};
 
 pub mod bn256;
 #[cfg(feature = "plonk")]
-pub mod rescue_transcript;
+pub mod poseidon_transcript;
 
 pub trait SBox<E: Engine>: Sized + Clone + std::fmt::Debug {
     fn apply(&self, elements: &mut [E::Fr]);
@@ -19,6 +19,7 @@ pub struct CubicSBox<E: Engine> {
 }
 
 impl<E: Engine>SBox<E> for CubicSBox<E> {
+
     fn apply(&self, elements: &mut [E::Fr]) {
         for element in elements.iter_mut() {
             let mut squared = *element;
@@ -44,16 +45,51 @@ impl<E: Engine>SBox<E> for QuinticSBox<E> {
     }
 }
 
+const POWER_SBOX_WINDOW_SIZE: usize = 4;
+
 #[derive(Clone, Debug)]
 pub struct PowerSBox<E: Engine> {
     pub power: <E::Fr as PrimeField>::Repr,
+    pub precomputed_indexes: Vec<usize>,
     pub inv: u64,
 }
 
 impl<E: Engine>SBox<E> for PowerSBox<E> {
     fn apply(&self, elements: &mut [E::Fr]) {
-        for element in elements.iter_mut() {
-            *element = element.pow(&self.power);
+        if self.precomputed_indexes.len() != 0 {
+            let mut table = [E::Fr::zero(); 1 << POWER_SBOX_WINDOW_SIZE];
+            table[0] = E::Fr::one();
+
+            for element in elements.iter_mut() {
+                let mut current = *element;
+                table[1] = current;
+
+                for i in 2..(1 << POWER_SBOX_WINDOW_SIZE) {
+                    current.mul_assign(&*element);
+                    table[i] = current;
+                }
+
+                let bound = self.precomputed_indexes.len() - 1;
+                let mut result = table[self.precomputed_indexes[0]];
+                for _ in 0..POWER_SBOX_WINDOW_SIZE {
+                    result.square();
+                }
+
+                for i in 1..bound {
+                    result.mul_assign(&table[self.precomputed_indexes[i]]);
+                    for _ in 0..POWER_SBOX_WINDOW_SIZE {
+                        result.square();
+                    }
+                }
+
+                result.mul_assign(&table[self.precomputed_indexes[bound]]);
+
+                *element = result;
+            }
+        } else {
+            for element in elements.iter_mut() {
+                *element = element.pow(&self.power);
+            }
         }
     }
 }
@@ -84,12 +120,12 @@ fn batch_inversion<E: Engine>(v: &mut [E::Fr]) {
 
     // Second pass: iterate backwards to compute inverses
     for (g, s) in v.iter_mut()
-                    // Backwards
-                    .rev()
-                    // Ignore normalized elements
-                    .filter(|g| !g.is_zero())
-                    // Backwards, skip last element, fill in one for last term.
-                    .zip(prod.into_iter().rev().skip(1).chain(Some(E::Fr::one())))
+        // Backwards
+        .rev()
+        // Ignore normalized elements
+        .filter(|g| !g.is_zero())
+        // Backwards, skip last element, fill in one for last term.
+        .zip(prod.into_iter().rev().skip(1).chain(Some(E::Fr::one())))
     {
         // tmp := tmp * g.z; g.z := tmp * s = 1/z
         let mut newtmp = tmp;
@@ -106,17 +142,17 @@ impl<E: Engine>SBox<E> for InversionSBox<E> {
     }
 }
 
-use crate::circuit::rescue::CsSBox;
+use crate::circuit::poseidon::CsSBox;
 
-pub trait RescueHashParams<E: Engine>: RescueParamsInternal<E> {
-    type SBox0: CsSBox<E>;
-    type SBox1: CsSBox<E>;
+pub trait PoseidonHashParams<E: Engine>: PoseidonParamsInternal<E> {
+    type SBox: CsSBox<E>;
     fn capacity(&self) -> u32;
     fn rate(&self) -> u32;
     fn state_width(&self) -> u32 {
         self.capacity() + self.rate()
     }
-    fn num_rounds(&self) -> u32;
+    fn num_full_rounds(&self) -> u32;
+    fn num_partial_rounds(&self) -> u32;
     fn round_constants(&self, round: u32) -> &[E::Fr];
     fn mds_matrix_row(&self, row: u32) -> &[E::Fr];
     fn security_level(&self) -> u32;
@@ -130,97 +166,125 @@ pub trait RescueHashParams<E: Engine>: RescueParamsInternal<E> {
         self.absorbtion_cycle_len() / self.output_len()
     }
 
-    fn sbox_0(&self) -> &Self::SBox0;
-    fn sbox_1(&self) -> &Self::SBox1;
+    fn sbox(&self) -> &Self::SBox;
     fn can_use_custom_gates(&self) -> bool {
         false
     }
 }
 
-pub trait RescueParamsInternal<E: Engine>: Send + Sync + Sized + Clone + std::fmt::Debug {
+pub trait PoseidonParamsInternal<E: Engine>: Send + Sync + Sized + Clone + std::fmt::Debug {
     fn set_round_constants(&mut self, to: Vec<E::Fr>);
 }
 
-pub trait RescueEngine: Engine {
-    type Params: RescueHashParams<Self>; 
+pub trait PoseidonEngine: Engine {
+    type Params: PoseidonHashParams<Self>;
 }
 
-pub fn rescue_hash<E: RescueEngine>(
+pub fn poseidon_hash<E: PoseidonEngine>(
     params: &E::Params,
     input: &[E::Fr]
 ) -> Vec<E::Fr> {
-    sponge_fixed_length::<E>(params, input)
+    sponge::<E>(params, input)
 }
 
-fn sponge_fixed_length<E: RescueEngine>(
+fn sponge<E: PoseidonEngine>(
     params: &E::Params,
     input: &[E::Fr]
 ) -> Vec<E::Fr> {
-    assert!(input.len() > 0);
-    assert!(input.len() < 256);
-    let input_len = input.len() as u64;
-    let mut state = vec![E::Fr::zero(); params.state_width() as usize];
-    // specialized for input length
-    let mut repr = <E::Fr as PrimeField>::Repr::default();
-    repr.as_mut()[0] = input_len;
-    let len_fe = <E::Fr as PrimeField>::from_repr(repr).unwrap();
-    let last_state_elem_idx = state.len() - 1;
-    state[last_state_elem_idx] = len_fe;
 
-    let rate = params.rate() as usize;
-    let mut absorbtion_cycles = input.len() / rate;
-    if input.len() % rate != 0 {
-        absorbtion_cycles += 1;
-    }
-    let padding_len = absorbtion_cycles * rate - input.len();
-    let padding = vec![E::Fr::one(); padding_len];
+    let mut stateful = StatefulPoseidon::<E>::new(params);
+    stateful.absorb(&input);
 
-    let mut it = input.iter().chain(&padding);
-    for _ in 0..absorbtion_cycles {
-        for i in 0..rate {
-            state[i].add_assign(&it.next().unwrap());
-        }
-        state = rescue_mimc::<E>(params, &state);
+    let mut output = Vec::with_capacity(params.capacity() as usize);
+    for _ in 0..params.capacity() {
+        output.push(stateful.squeeze_out_single());
     }
 
-    debug_assert!(it.next().is_none());
+    output
+}
 
-    state[..(params.capacity() as usize)].to_vec()
-}   
-
-pub fn rescue_mimc<E: RescueEngine>(
+pub fn poseidon_mimc<E: PoseidonEngine>(
     params: &E::Params,
     old_state: &[E::Fr]
 ) -> Vec<E::Fr> {
     let mut state = old_state.to_vec();
+    debug_assert!(params.num_full_rounds() % 2 == 0);
+    let half_of_full_rounds = params.num_full_rounds() / 2;
     let mut mds_application_scratch = vec![E::Fr::zero(); state.len()];
     assert_eq!(state.len(), params.state_width() as usize);
 
-    // add first round constants
-    for (s, c)  in state.iter_mut()
-                .zip(params.round_constants(0).iter()) {
-        s.add_assign(c);
-    }
+    let last_elem_idx = state.len() - 1;
 
-    // parameters use number of rounds that is number of invocations of each SBox,
-    // so we double
-    for round_num in 0..(2*params.num_rounds()) {
-        // apply corresponding SBox
-        if round_num & 1u32 == 0 {
-            params.sbox_0().apply(&mut state);
-        } else {
-            params.sbox_1().apply(&mut state);
+    // full rounds
+    for round in 0..half_of_full_rounds {
+        let round_constants = params.round_constants(round);
+
+        // add round constant
+        for (s, c)  in state.iter_mut()
+            .zip(round_constants.iter()) {
+            s.add_assign(c);
         }
 
-        // prepare for round keys
-        mds_application_scratch.copy_from_slice(params.round_constants(round_num + 1));
+        params.sbox().apply(&mut state[..]);
 
         // mul state by MDS
         for (row, place_into) in mds_application_scratch.iter_mut()
-                                        .enumerate() {
-            let tmp = scalar_product::<E>(& state[..], params.mds_matrix_row(row as u32));//MDS
-            place_into.add_assign(&tmp); // round_constant + MDS_result
-            // *place_into = scalar_product::<E>(& state[..], params.mds_matrix_row(row as u32));
+            .enumerate() {
+            let tmp = scalar_product::<E>(& state[..], params.mds_matrix_row(row as u32));
+            *place_into = tmp;
+        }
+
+        // place new data into the state
+        state.copy_from_slice(&mds_application_scratch[..]);
+    }
+
+    // partial rounds
+    for round in half_of_full_rounds..(params.num_partial_rounds() + half_of_full_rounds){
+        let round_constants = params.round_constants(round);
+
+        // add round constants
+        for (s, c)  in state.iter_mut()
+            .zip(round_constants.iter()) {
+            s.add_assign(c);
+        }
+        // for tp in state.iter(){
+        //     println!("algorithm SBox0 {:?}", tp);
+        // }
+
+        params.sbox().apply(&mut state[last_elem_idx..]);
+        // for tp in state.iter(){
+        //     println!("algorithm SBox1 {:?}", tp);
+        // }
+
+        // mul state by MDS
+        for (row, place_into) in mds_application_scratch.iter_mut()
+            .enumerate() {
+            let tmp = scalar_product::<E>(& state[..], params.mds_matrix_row(row as u32));
+            *place_into = tmp;
+        }
+
+        // place new data into the state
+        state.copy_from_slice(&mds_application_scratch[..]);
+    }
+
+
+    // full rounds
+    for round in (params.num_partial_rounds() + half_of_full_rounds)..(params.num_partial_rounds() + params.num_full_rounds()) {
+        let round_constants = params.round_constants(round);
+
+        // add round constatnts
+        for (s, c)  in state.iter_mut()
+            .zip(round_constants.iter()) {
+            s.add_assign(c);
+        }
+
+        params.sbox().apply(&mut state[..]);
+
+        // mul state by MDS
+        for (row, place_into) in mds_application_scratch.iter_mut()
+            .enumerate() {
+            let tmp = scalar_product::<E>(& state[..], params.mds_matrix_row(row as u32));
+            *place_into = tmp;
         }
 
         // place new data into the state
@@ -230,8 +294,9 @@ pub fn rescue_mimc<E: RescueEngine>(
     state
 }
 
+#[inline]
 fn scalar_product<E: Engine> (input: &[E::Fr], by: &[E::Fr]) -> E::Fr {
-    assert_eq!(input.len(), by.len());
+    debug_assert!(input.len() == by.len());
     let mut result = E::Fr::zero();
     for (a, b) in input.iter().zip(by.iter()) {
         let mut tmp = *a;
@@ -244,7 +309,7 @@ fn scalar_product<E: Engine> (input: &[E::Fr], by: &[E::Fr]) -> E::Fr {
 
 // For simplicity we'll not generate a matrix using a way from the paper and sampling
 // an element with some zero MSBs and instead just sample and retry
-fn generate_mds_matrix<E: RescueEngine, R: Rng>(t: u32, rng: &mut R) -> Vec<E::Fr> {
+fn generate_mds_matrix<E: PoseidonEngine, R: Rng>(t: u32, rng: &mut R) -> Vec<E::Fr> {
     loop {
         let x: Vec<E::Fr> = (0..t).map(|_| rng.gen()).collect();
         let y: Vec<E::Fr> = (0..t).map(|_| rng.gen()).collect();
@@ -323,84 +388,93 @@ fn generate_mds_matrix<E: RescueEngine, R: Rng>(t: u32, rng: &mut R) -> Vec<E::F
     }
 }
 
-pub fn make_keyed_params<E: RescueEngine>(
-    default_params: &E::Params,
-    key: &[E::Fr]
-) -> E::Params {
-    // for this purpose we feed the master key through the rescue itself
-    // in a sense that we make non-trivial initial state and run it with empty input
+// pub fn make_keyed_params<E: PoseidonEngine>(
+//     default_params: &E::Params,
+//     key: &[E::Fr]
+// ) -> E::Params {
+//     // for this purpose we feed the master key through the rescue itself
+//     // in a sense that we make non-trivial initial state and run it with empty input
 
-    assert_eq!(default_params.state_width() as usize, key.len());
+//     assert_eq!(default_params.state_width() as usize, key.len());
 
-    let mut new_round_constants = vec![];
+//     let mut new_round_constants = vec![];
 
-    let mut state = key.to_vec();
-    let mut mds_application_scratch = vec![E::Fr::zero(); state.len()];
-    assert_eq!(state.len(), default_params.state_width() as usize);
+//     let mut state = key.to_vec();
+//     let mut mds_application_scratch = vec![E::Fr::zero(); state.len()];
+//     assert_eq!(state.len(), default_params.state_width() as usize);
+//     // add round constatnts
+//     for (s, c)  in state.iter_mut()
+//                 .zip(default_params.round_constants(0).iter()) {
+//         s.add_assign(c);
+//     }
 
-    // add round constant
-    for (s, c)  in state.iter_mut()
-                .zip(default_params.round_constants(0).iter()) {
-        s.add_assign(c);
-    }
+//     // add to round constants
+//     new_round_constants.extend_from_slice(&state);
 
-    // add to round constants
-    new_round_constants.extend_from_slice(&state);
+//     // parameters use number of rounds that is number of invocations of each SBox,
+//     // so we double
+//     for round_num in 0..(2*default_params.num_rounds()) {
+//         // apply corresponding sbox
+//         if round_num & 1u32 == 0 {
+//             default_params.sbox_0().apply(&mut state);
+//         } else {
+//             default_params.sbox_1().apply(&mut state);
+//         }
 
-    // parameters use number of rounds that is number of invocations of each SBox,
-    // so we double
-    for round_num in 0..(2*default_params.num_rounds()) {
-        // apply corresponding sbox
-        if round_num & 1u32 == 0 {
-            default_params.sbox_0().apply(&mut state);
-        } else {
-            default_params.sbox_1().apply(&mut state);
-        }
+//         // add round keys right away
+//         mds_application_scratch.copy_from_slice(default_params.round_constants(round_num + 1));
 
-        // prepare round keys right away
-        mds_application_scratch.copy_from_slice(default_params.round_constants(round_num + 1));
+//         // mul state by MDS
+//         for (row, place_into) in mds_application_scratch.iter_mut()
+//                                         .enumerate() {
+//             let tmp = scalar_product::<E>(& state[..], default_params.mds_matrix_row(row as u32));
+//             place_into.add_assign(&tmp);
+//             // *place_into = scalar_product::<E>(& state[..], params.mds_matrix_row(row as u32));
+//         }
 
-        // mul state by MDS
-        for (row, place_into) in mds_application_scratch.iter_mut()
-                                        .enumerate() {
-            let tmp = scalar_product::<E>(& state[..], default_params.mds_matrix_row(row as u32));
-            place_into.add_assign(&tmp);                                
-            // *place_into = scalar_product::<E>(& state[..], params.mds_matrix_row(row as u32));
-        }
+//         // place new data into the state
+//         state.copy_from_slice(&mds_application_scratch[..]);
 
-        // place new data into the state
-        state.copy_from_slice(&mds_application_scratch[..]);
+//         new_round_constants.extend_from_slice(&state);
+//     }
 
-        new_round_constants.extend_from_slice(&state);
-    }
-    
-    let mut new_params = default_params.clone();
+//     let mut new_params = default_params.clone();
 
-    new_params.set_round_constants(new_round_constants);
+//     new_params.set_round_constants(new_round_constants);
 
-    new_params
-}
+//     new_params
+// }
 
 #[derive(Clone, Debug)]
-enum RescueOpMode<E: RescueEngine> {
+enum PoseidonOpMode<E: PoseidonEngine> {
     AccumulatingToAbsorb(Vec<E::Fr>),
     SqueezedInto(Vec<E::Fr>)
 }
 
 #[derive(Clone, Debug)]
-pub struct StatefulRescue<'a, E: RescueEngine> {
+pub struct StatefulPoseidon<'a, E: PoseidonEngine> {
     params: &'a E::Params,
     internal_state: Vec<E::Fr>,
-    mode: RescueOpMode<E>
+    mode: PoseidonOpMode<E>
 }
 
-impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
+// impl<'a, E: PoseidonEngine> Clone for StatefulPoseidon<'a, E> {
+//     fn clone(&self) -> Self {
+//         Self {
+//             params: self.params,
+//             internal_state: self.internal_state.clone(),
+//             mode: self.mode.clone()
+//         }
+//     }
+// }
+
+impl<'a, E: PoseidonEngine> StatefulPoseidon<'a, E> {
     pub fn new(
         params: &'a E::Params
     ) -> Self {
-        let op = RescueOpMode::AccumulatingToAbsorb(Vec::with_capacity(params.rate() as usize));
+        let op = PoseidonOpMode::AccumulatingToAbsorb(Vec::with_capacity(params.rate() as usize));
 
-        StatefulRescue::<_> {
+        Self {
             params,
             internal_state: vec![E::Fr::zero(); params.state_width() as usize],
             mode: op
@@ -412,7 +486,7 @@ impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
         dst: u8
     ) {
         match self.mode {
-            RescueOpMode::AccumulatingToAbsorb(ref into) => {
+            PoseidonOpMode::AccumulatingToAbsorb(ref into) => {
                 assert_eq!(into.len(), 0, "can not specialize sponge that absorbed something")
             },
             _ => {
@@ -432,9 +506,9 @@ impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
         value: E::Fr
     ) {
         match self.mode {
-            RescueOpMode::AccumulatingToAbsorb(ref mut into) => {
+            PoseidonOpMode::AccumulatingToAbsorb(ref mut into) => {
                 // two cases
-                // either we have accumulated enough already and should to 
+                // either we have accumulated enough already and should to
                 // a mimc round before accumulating more, or just accumulate more
                 let rate = self.params.rate() as usize;
                 if into.len() < rate {
@@ -444,19 +518,19 @@ impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
                         self.internal_state[i].add_assign(&into[i]);
                     }
 
-                    self.internal_state = rescue_mimc::<E>(self.params, &self.internal_state);
+                    self.internal_state = poseidon_mimc::<E>(self.params, &self.internal_state);
 
                     into.truncate(0);
                     into.push(value);
                 }
             },
-            RescueOpMode::SqueezedInto(_) => {
+            PoseidonOpMode::SqueezedInto(_) => {
                 // we don't need anything from the output, so it's dropped
 
                 let mut s = Vec::with_capacity(self.params.rate() as usize);
                 s.push(value);
 
-                let op = RescueOpMode::AccumulatingToAbsorb(s);
+                let op = PoseidonOpMode::AccumulatingToAbsorb(s);
                 self.mode = op;
             }
         }
@@ -466,7 +540,6 @@ impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
         &mut self,
         input: &[E::Fr]
     ) {
-        assert!(input.len() > 0);
         let rate = self.params.rate() as usize;
         let mut absorbtion_cycles = input.len() / rate;
         if input.len() % rate != 0 {
@@ -484,13 +557,13 @@ impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
 
     pub fn pad_if_necessary(&mut self) {
         match self.mode {
-            RescueOpMode::AccumulatingToAbsorb(ref mut into) => {
+            PoseidonOpMode::AccumulatingToAbsorb(ref mut into) => {
                 let rate = self.params.rate() as usize;
                 if into.len() != rate {
                     into.resize(rate, E::Fr::one());
                 }
             },
-            RescueOpMode::SqueezedInto(_) => {}
+            PoseidonOpMode::SqueezedInto(_) => {}
         }
     }
 
@@ -498,27 +571,45 @@ impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
         &mut self,
     ) -> E::Fr {
         match self.mode {
-            RescueOpMode::AccumulatingToAbsorb(ref mut into) => {
+            PoseidonOpMode::AccumulatingToAbsorb(ref mut into) => {
                 let rate = self.params.rate() as usize;
+                if into.len() < rate {
+                    into.resize(rate, E::Fr::one());
+                }
+
                 assert_eq!(into.len(), rate, "padding was necessary!");
                 // two cases
-                // either we have accumulated enough already and should to 
+                // either we have accumulated enough already and should to
                 // a mimc round before accumulating more, or just accumulate more
                 for i in 0..rate {
                     self.internal_state[i].add_assign(&into[i]);
                 }
-                self.internal_state = rescue_mimc::<E>(self.params, &self.internal_state);
+                self.internal_state = poseidon_mimc::<E>(self.params, &self.internal_state);
 
                 // we don't take full internal state, but only the rate
                 let mut sponge_output = self.internal_state[0..rate].to_vec();
                 let output = sponge_output.drain(0..1).next().unwrap();
 
-                let op = RescueOpMode::SqueezedInto(sponge_output);
+                let op = PoseidonOpMode::SqueezedInto(sponge_output);
                 self.mode = op;
 
                 return output;
             },
-            RescueOpMode::SqueezedInto(ref mut into) => {
+            PoseidonOpMode::SqueezedInto(ref mut into) => {
+                if into.len() == 0 {
+                    let rate = self.params.rate() as usize;
+
+                    self.internal_state = poseidon_mimc::<E>(self.params, &self.internal_state);
+
+                    let mut sponge_output = self.internal_state[0..rate].to_vec();
+                    let output = sponge_output.drain(0..1).next().unwrap();
+
+                    let op = PoseidonOpMode::SqueezedInto(sponge_output);
+                    self.mode = op;
+
+                    return output;
+                }
+
                 assert!(into.len() > 0, "squeezed state is depleted!");
                 let output = into.drain(0..1).next().unwrap();
 
@@ -527,4 +618,3 @@ impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
         }
     }
 }
-

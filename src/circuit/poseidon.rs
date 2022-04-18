@@ -330,7 +330,6 @@ pub fn poseidon_mimc_over_lcs<E: PoseidonEngine, CS>(
 
     // full rounds
     for round in 0..half_of_full_rounds {
-        println!("first_half_of_full_rounds {:?}", round);
         // add constants
         let mut state_adv: Vec<Num<E>> = Vec::with_capacity(state_len.clone());
         for (_i, (state_i, &constant)) in state.into_iter()
@@ -362,8 +361,6 @@ pub fn poseidon_mimc_over_lcs<E: PoseidonEngine, CS>(
 
     // partial rounds
     for round in half_of_full_rounds..(params.num_partial_rounds() + half_of_full_rounds){
-        println!("partial_rounds {:?}", round);
-
         // add constants
         let mut state_adv: Vec<Num<E>> = Vec::with_capacity(state_len.clone());
         for (_i, (state_i, &constant)) in state.into_iter()
@@ -420,7 +417,6 @@ pub fn poseidon_mimc_over_lcs<E: PoseidonEngine, CS>(
 
     // full rounds
     for round in (params.num_partial_rounds() + half_of_full_rounds)..(params.num_partial_rounds() + params.num_full_rounds()) {
-        println!("second_half_of_full_rounds {:?}", round);
         // add constant
         let mut state_adv: Vec<Num<E>> = Vec::with_capacity(state_len.clone());
         for (_i, (state_i, &constant)) in state.into_iter()

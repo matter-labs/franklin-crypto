@@ -19,7 +19,6 @@ pub struct CubicSBox<E: Engine> {
 }
 
 impl<E: Engine>SBox<E> for CubicSBox<E> {
-
     fn apply(&self, elements: &mut [E::Fr]) {
         for element in elements.iter_mut() {
             let mut squared = *element;
@@ -45,51 +44,16 @@ impl<E: Engine>SBox<E> for QuinticSBox<E> {
     }
 }
 
-const POWER_SBOX_WINDOW_SIZE: usize = 4;
-
 #[derive(Clone, Debug)]
 pub struct PowerSBox<E: Engine> {
     pub power: <E::Fr as PrimeField>::Repr,
-    pub precomputed_indexes: Vec<usize>,
     pub inv: u64,
 }
 
 impl<E: Engine>SBox<E> for PowerSBox<E> {
     fn apply(&self, elements: &mut [E::Fr]) {
-        if self.precomputed_indexes.len() != 0 {
-            let mut table = [E::Fr::zero(); 1 << POWER_SBOX_WINDOW_SIZE];
-            table[0] = E::Fr::one();
-
-            for element in elements.iter_mut() {
-                let mut current = *element;
-                table[1] = current;
-
-                for i in 2..(1 << POWER_SBOX_WINDOW_SIZE) {
-                    current.mul_assign(&*element);
-                    table[i] = current;
-                }
-
-                let bound = self.precomputed_indexes.len() - 1;
-                let mut result = table[self.precomputed_indexes[0]];
-                for _ in 0..POWER_SBOX_WINDOW_SIZE {
-                    result.square();
-                }
-
-                for i in 1..bound {
-                    result.mul_assign(&table[self.precomputed_indexes[i]]);
-                    for _ in 0..POWER_SBOX_WINDOW_SIZE {
-                        result.square();
-                    }
-                }
-
-                result.mul_assign(&table[self.precomputed_indexes[bound]]);
-
-                *element = result;
-            }
-        } else {
-            for element in elements.iter_mut() {
-                *element = element.pow(&self.power);
-            }
+        for element in elements.iter_mut() {
+            *element = element.pow(&self.power);
         }
     }
 }
@@ -145,6 +109,7 @@ impl<E: Engine>SBox<E> for InversionSBox<E> {
 use crate::circuit::poseidon::CsSBox;
 
 pub trait PoseidonHashParams<E: Engine>: PoseidonParamsInternal<E> {
+    // SBox_0 SBox_1 merge into SBox
     type SBox: CsSBox<E>;
     fn capacity(&self) -> u32;
     fn rate(&self) -> u32;
@@ -184,23 +149,43 @@ pub fn poseidon_hash<E: PoseidonEngine>(
     params: &E::Params,
     input: &[E::Fr]
 ) -> Vec<E::Fr> {
-    sponge::<E>(params, input)
+    sponge_fixed_length::<E>(params, input)
 }
 
-fn sponge<E: PoseidonEngine>(
+fn sponge_fixed_length<E: PoseidonEngine>(
     params: &E::Params,
     input: &[E::Fr]
 ) -> Vec<E::Fr> {
+    assert!(input.len() > 0);
+    assert!(input.len() < 256);
+    let input_len = input.len() as u64;
+    let mut state = vec![E::Fr::zero(); params.state_width() as usize];
+    // specialized for input length
+    let mut repr = <E::Fr as PrimeField>::Repr::default();
+    repr.as_mut()[0] = input_len;
+    let len_fe = <E::Fr as PrimeField>::from_repr(repr).unwrap();
+    let last_state_elem_idx = state.len() - 1;
+    state[last_state_elem_idx] = len_fe;
 
-    let mut stateful = StatefulPoseidon::<E>::new(params);
-    stateful.absorb(&input);
+    let rate = params.rate() as usize;
+    let mut absorbtion_cycles = input.len() / rate;
+    if input.len() % rate != 0 {
+        absorbtion_cycles += 1;
+    }
+    let padding_len = absorbtion_cycles * rate - input.len();
+    let padding = vec![E::Fr::one(); padding_len];
 
-    let mut output = Vec::with_capacity(params.capacity() as usize);
-    for _ in 0..params.capacity() {
-        output.push(stateful.squeeze_out_single());
+    let mut it = input.iter().chain(&padding);
+    for _ in 0..absorbtion_cycles {
+        for i in 0..rate {
+            state[i].add_assign(&it.next().unwrap());
+        }
+        state = poseidon_mimc::<E>(params, &state);
     }
 
-    output
+    debug_assert!(it.next().is_none());
+
+    state[..(params.capacity() as usize)].to_vec()
 }
 
 pub fn poseidon_mimc<E: PoseidonEngine>(
@@ -294,9 +279,8 @@ pub fn poseidon_mimc<E: PoseidonEngine>(
     state
 }
 
-#[inline]
 fn scalar_product<E: Engine> (input: &[E::Fr], by: &[E::Fr]) -> E::Fr {
-    debug_assert!(input.len() == by.len());
+    assert_eq!(input.len(), by.len());
     let mut result = E::Fr::zero();
     for (a, b) in input.iter().zip(by.iter()) {
         let mut tmp = *a;
@@ -394,23 +378,24 @@ fn generate_mds_matrix<E: PoseidonEngine, R: Rng>(t: u32, rng: &mut R) -> Vec<E:
 // ) -> E::Params {
 //     // for this purpose we feed the master key through the rescue itself
 //     // in a sense that we make non-trivial initial state and run it with empty input
-
+//
 //     assert_eq!(default_params.state_width() as usize, key.len());
-
+//
 //     let mut new_round_constants = vec![];
-
+//
 //     let mut state = key.to_vec();
 //     let mut mds_application_scratch = vec![E::Fr::zero(); state.len()];
 //     assert_eq!(state.len(), default_params.state_width() as usize);
-//     // add round constatnts
+//
+//     // add round constant
 //     for (s, c)  in state.iter_mut()
 //                 .zip(default_params.round_constants(0).iter()) {
 //         s.add_assign(c);
 //     }
-
-//     // add to round constants
+//
+//     // add to round constant
 //     new_round_constants.extend_from_slice(&state);
-
+//
 //     // parameters use number of rounds that is number of invocations of each SBox,
 //     // so we double
 //     for round_num in 0..(2*default_params.num_rounds()) {
@@ -420,10 +405,10 @@ fn generate_mds_matrix<E: PoseidonEngine, R: Rng>(t: u32, rng: &mut R) -> Vec<E:
 //         } else {
 //             default_params.sbox_1().apply(&mut state);
 //         }
-
+//
 //         // add round keys right away
 //         mds_application_scratch.copy_from_slice(default_params.round_constants(round_num + 1));
-
+//
 //         // mul state by MDS
 //         for (row, place_into) in mds_application_scratch.iter_mut()
 //                                         .enumerate() {
@@ -431,17 +416,17 @@ fn generate_mds_matrix<E: PoseidonEngine, R: Rng>(t: u32, rng: &mut R) -> Vec<E:
 //             place_into.add_assign(&tmp);
 //             // *place_into = scalar_product::<E>(& state[..], params.mds_matrix_row(row as u32));
 //         }
-
+//
 //         // place new data into the state
 //         state.copy_from_slice(&mds_application_scratch[..]);
-
+//
 //         new_round_constants.extend_from_slice(&state);
 //     }
-
+//
 //     let mut new_params = default_params.clone();
-
+//
 //     new_params.set_round_constants(new_round_constants);
-
+//
 //     new_params
 // }
 
@@ -457,16 +442,6 @@ pub struct StatefulPoseidon<'a, E: PoseidonEngine> {
     internal_state: Vec<E::Fr>,
     mode: PoseidonOpMode<E>
 }
-
-// impl<'a, E: PoseidonEngine> Clone for StatefulPoseidon<'a, E> {
-//     fn clone(&self) -> Self {
-//         Self {
-//             params: self.params,
-//             internal_state: self.internal_state.clone(),
-//             mode: self.mode.clone()
-//         }
-//     }
-// }
 
 impl<'a, E: PoseidonEngine> StatefulPoseidon<'a, E> {
     pub fn new(
@@ -540,6 +515,7 @@ impl<'a, E: PoseidonEngine> StatefulPoseidon<'a, E> {
         &mut self,
         input: &[E::Fr]
     ) {
+        assert!(input.len() > 0);
         let rate = self.params.rate() as usize;
         let mut absorbtion_cycles = input.len() / rate;
         if input.len() % rate != 0 {
