@@ -201,13 +201,51 @@ mod test {
     use bellman::pairing::ff::PrimeField;
     use bellman::pairing::ff::Field;
     use super::*;
-    use crate::*;
+    //use crate::*;
     use crate::poseidon::*;
     use crate::group_hash::BlakeHasher;
 
     #[test]
     fn test_generate_bn256_params() {
         let params = Bn256PoseidonParams::new_2_into_1::<BlakeHasher>();
+    }
+
+    #[test]
+    fn test_bn256_poseidon_hash() {
+        let rng = &mut thread_rng();
+        let params = Bn256PoseidonParams::new_2_into_1::<BlakeHasher>();
+        let input: Vec<Fr> = (0..params.rate()).map(|_| rng.gen()).collect();
+        let output = poseidon_hash::<Bn256>(&params, &input[..]);
+        assert_eq!(output.len(), 1);
+    }
+
+    #[test]
+    fn output_bn256_poseidon_hash() {
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+        let params = Bn256PoseidonParams::new_checked_2_into_1();
+        for len in 1..=3 {
+            let input: Vec<Fr> = (0..len).map(|_| rng.gen()).collect();
+            println!("Input = {:?}", input);
+            let output = poseidon_hash::<Bn256>(&params, &input[..]);
+            println!("Output = {:?}", output);
+        }
+        /*
+        Input =
+        [Fr(0x27014c0bd27dddc8514b53831287e0ba02b26875bdcb34f0d4699681f487cf7b)]
+        Output =
+        [Fr(0x0a384dc586fd786dfd6dbb3052cdf937983fed31ede00dd95c17e2d6c3b2221e)]
+        Input =
+        [Fr(0x238ba289e8783d31585aa75bba8ddc2269c0c2d8c45d0769943b16f009ff5510),
+        Fr(0x069fd7f225dd46f03e4e0059d187419eb51b5ab5a33368e4ac05e62353dda0c3)]
+        Output =
+        [Fr(0x088e9a4d8d5620405ec9970a113547a5282ec9ab8987dc560c00af19ced21318)]
+        Input =
+        [Fr(0x2f61d41a22e59d0c97c01e805e94254ee2931fdd577e157b3c2498479f5ae867),
+        Fr(0x29d4bfd78903c5cfefe4eb802d3a0eae55b49650e59aac93bf4af56b9e71e462),
+        Fr(0x0f4434eb4b70fb4bc32548e4e89d6d6fcefbeba3fd9a4fd6ff6d0afcc15ed5b3)]
+        Output =
+        [Fr(0x0f5fcbffb8df8f5d380ff3efbc69236c11569666af614a81c6a84538ba7595c1)]
+         */
     }
 
     #[test]
@@ -234,4 +272,17 @@ mod test {
 
         println!("[ {} ]", vec.join(","));
     }
+    /*
+    MDS_MATRIX
+[ [ Fr(0x05bb9226b9b9dd753cb5b4d591564d707a488ed2f9d742036b95e8f4436e174a),
+Fr(0x13055a3600b9006696c372f97fc8aff2da96bb28ccf61dd24fcb60b92192de3d),
+Fr(0x1adaa409f15b0fd9af93b539cefe7bce471c4f2e4df1db4f29503f27d7c452ef) ],
+[ Fr(0x26d32f41d05b6a97c14aa448b15c1f46ecbb256c742547d3852a47d9a91fd950),
+Fr(0x1f917d5481f29eb012f2c3d475e73588f0a50b813900e63794108bb987cb3d29),
+Fr(0x235af5cba632d769b957383ad8321850c1cdecb4ba312026b5758e0422435988) ],
+[ Fr(0x1bbb5d95192b03039485455554ed1eb73e7909f9db951d82cf6777d3e5a85a51),
+Fr(0x026019a0051ebb21312d1f0107ede2a609d3bfe0a96da2ee89420fe70a756bf4),
+Fr(0x258dfe047aede7c4f3cd7b324ab784b0a84ce4cf1a81dafa88e89138fcd45133) ] ]
+
+     */
 }

@@ -318,13 +318,10 @@ pub fn poseidon_mimc_over_lcs<E: PoseidonEngine, CS>(
     where <<E as PoseidonEngine>::Params as PoseidonHashParams<E>>::SBox: CsSBox<E>,
           CS: ConstraintSystem<E>
 {
-    let state_len = params.state_width() as usize;
+    let state_len = params.state_width() as usize;  // state_len = 3
     assert_eq!(input.len(), state_len);
     debug_assert!(params.num_full_rounds() % 2 == 0);
-
-    let full_round = params.num_full_rounds();
-    let half_round = full_round / 2;
-    let partial_round = params.num_partial_rounds();
+    let half_of_full_rounds = params.num_full_rounds() / 2;
     let last_element_idx = state_len.clone() - 1;
 
     let mut state: Vec<Num<E>> = Vec::with_capacity(state_len.clone());
@@ -332,7 +329,9 @@ pub fn poseidon_mimc_over_lcs<E: PoseidonEngine, CS>(
         state.push(el);
     }
 
-    for round in 0..half_round {
+    // full rounds
+    for round in 0..half_of_full_rounds {
+        println!("first_half_of_full_rounds {:?}", round);
         // add constants
         let mut state_adv: Vec<Num<E>> = Vec::with_capacity(state_len.clone());
         for (_i, (state_i, &constant)) in state.into_iter()
@@ -352,7 +351,7 @@ pub fn poseidon_mimc_over_lcs<E: PoseidonEngine, CS>(
         };
 
         // MDS
-        let mut linear_transformation_results = Vec::with_capacity(state_len);
+        let mut linear_transformation_results = Vec::with_capacity(state_len.clone());
         for row_idx in 0..state_len {
             let row = params.mds_matrix_row(row_idx as u32);
             let linear_applied = scalar_product_over_lc_of_length_one(&tmp[..], row);
@@ -362,9 +361,12 @@ pub fn poseidon_mimc_over_lcs<E: PoseidonEngine, CS>(
         state = linear_transformation_results;
     }
 
-    for round in half_round..(partial_round + half_round) {
+    // partial rounds
+    for round in half_of_full_rounds..(params.num_partial_rounds() + half_of_full_rounds){
+        println!("partial_rounds {:?}", round);
+
         // add constants
-        let mut state_adv: Vec<Num<E>> = Vec::with_capacity(input.len());
+        let mut state_adv: Vec<Num<E>> = Vec::with_capacity(state_len.clone());
         for (_i, (state_i, &constant)) in state.into_iter()
             .zip(params.round_constants(round).iter())
             .enumerate()
@@ -373,34 +375,88 @@ pub fn poseidon_mimc_over_lcs<E: PoseidonEngine, CS>(
             state_adv.push(with_constant);
         }
 
+        let sta = state_adv.clone();
+        for tp in sta.into_iter(){
+            println!("before s_box all {:?}", tp.get_value());
+        }
+
+        let s_box =  {
+            params.sbox().apply_constraints_on_lc_for_set( // S_box
+                                                           cs.namespace(|| format!("apply SBox for second half of full round {}", round)),
+                                                           state_adv.clone()
+            )?
+        };
+        let sb = s_box.clone();
+        for s in sb.into_iter(){
+            println!("after s_box all {:?}", s.get_value());
+        }
+
+        // test here
         // SBox
-        let mut tmp = Vec::with_capacity(state_len);
+        let mut tmp = Vec::with_capacity(state_len.clone());
+        let mut tmp_1 = Vec::with_capacity(state_len.clone());
+        let mut state_adv_last = Vec::with_capacity(1);
+        let mut xx = Num::zero();
         for (i, element) in state_adv.into_iter().enumerate() {
             if i < last_element_idx {
-                tmp.push(element);
-            } else  {
-                let applied = params.sbox().apply_constraints_on_lc(
-                    cs.namespace(|| format!("apply SBox for word {}", i)),
-                    element
-                )?;
-                tmp.push(applied)
+                tmp_1.push(element);
+            } else {
+                state_adv_last.push(element.clone());
+                xx = element;
             }
         }
+        tmp.extend(tmp_1.clone());
+
+        let tt = tmp_1.clone();
+        for tm in tt.into_iter(){
+            println!("[before s_box two]: {:?}", tm.get_value());
+        }
+
+        let tmp_2 =  {
+            params.sbox().apply_constraints_on_lc_for_set( // S_box
+                                                           cs.namespace(|| format!("apply SBox for partial round {}", round)),
+                                                           tmp_1.clone()
+            )?
+        };
+        for tm in tmp_2.into_iter(){
+            println!("[after s_box two] {:?}", tm.get_value());
+        }
+
+        println!("[before s_box third] {:?}", xx.clone().get_value());
+        let tmp_3 =  {
+            params.sbox().apply_constraints_on_lc( // S_box
+                cs.namespace(|| format!("apply S_Box for partial round {}", round)),
+                xx.clone()
+            )?
+        };
+        tmp.push(tmp_3.clone());
+        println!("[after s_box third] {:?}", tmp_3.get_value());
+
+        // let t = tmp.clone();
+        // for tm in tmp.into_iter(){
+        //     println!("[s_box all]: {:?}", tm.get_value());
+        // }
+
+
+
 
         // MDS
         let mut linear_transformation_results = Vec::with_capacity(state_len);
         for row_idx in 0..state_len {
             let row = params.mds_matrix_row(row_idx as u32);
-            let linear_applied = scalar_product_over_lc_of_length_one(&tmp[..], row);
+            let linear_applied = scalar_product_over_lc_of_length_one(&s_box[..], row);
             linear_transformation_results.push(linear_applied);
         }
 
         state = linear_transformation_results;
+        // state = state_adv;
     }
 
-    for round in (partial_round + half_round)..(partial_round + full_round) {
-        // add constants
-        let mut state_adv: Vec<Num<E>> = Vec::with_capacity(input.len());
+    // full rounds
+    for round in (params.num_partial_rounds() + half_of_full_rounds)..(params.num_partial_rounds() + params.num_full_rounds()) {
+        println!("second_half_of_full_rounds {:?}", round);
+        // add constant
+        let mut state_adv: Vec<Num<E>> = Vec::with_capacity(state_len.clone());
         for (_i, (state_i, &constant)) in state.into_iter()
             .zip(params.round_constants(round).iter())
             .enumerate()
@@ -684,7 +740,7 @@ mod test {
             }
 
             assert!(cs.is_satisfied());
-            assert!(res.len() == (params.state_width() as usize));
+            assert_eq!(res.len(), (params.state_width() as usize));
 
             assert_eq!(res[0].get_value().unwrap(), expected[0]);
         }
@@ -717,7 +773,7 @@ mod test {
             ).unwrap();
 
             assert!(cs.is_satisfied());
-            assert!(res.len() == 1);
+            assert_eq!(res.len(), 1);
             println!("Poseidon hash {} to {} taken {} constraints", input.len(), res.len(), cs.num_constraints());
 
             assert_eq!(res[0].get_value().unwrap(), expected[0]);
@@ -729,7 +785,7 @@ mod test {
         use crate::poseidon::bn256::*;
         let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
         let params = Bn256PoseidonParams::new_2_into_1::<BlakeHasher>();
-        let input: Vec<Fr> = (0..(params.rate()*5)).map(|_| rng.gen()).collect();
+        let input: Vec<Fr> = (0..(params.rate()*1)).map(|_| rng.gen()).collect();  // 10 = params.rate() * 5
         let expected = poseidon::poseidon_hash::<Bn256>(&params, &input[..]);
 
         {
@@ -750,7 +806,7 @@ mod test {
             ).unwrap();
 
             assert!(cs.is_satisfied());
-            assert!(res.len() == 1);
+            assert_eq!(res.len(), 1);
             println!("Poseidon hash {} to {} taken {} constraints", input.len(), res.len(), cs.num_constraints());
 
             assert_eq!(res[0].get_value().unwrap(), expected[0]);

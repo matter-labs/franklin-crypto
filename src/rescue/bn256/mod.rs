@@ -286,7 +286,7 @@ mod test {
         let params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
         let input: Vec<Fr> = (0..params.rate()).map(|_| rng.gen()).collect();
         let output = rescue_hash::<Bn256>(&params, &input[..]);
-        assert!(output.len() == 1);
+        assert_eq!(output.len(), 1);
     }
 
     #[test]
@@ -307,7 +307,7 @@ mod test {
         let params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
         let input: Vec<Fr> = (0..params.rate()).map(|_| rng.gen()).collect();
         let output = rescue_hash::<Bn256>(&params, &input[..]);
-        assert!(output.len() == 1);
+        assert_eq!(output.len(), 1);
 
         let mut stateful_rescue = super::super::StatefulRescue::<Bn256>::new(&params);
         stateful_rescue.specialize(input.len() as u8);
@@ -325,7 +325,7 @@ mod test {
         let params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
         let input: Vec<Fr> = (0..((params.rate()*10) + 1)).map(|_| rng.gen()).collect();
         let output = rescue_hash::<Bn256>(&params, &input[..]);
-        assert!(output.len() == 1);
+        assert_eq!(output.len(), 1);
 
         let mut stateful_rescue = super::super::StatefulRescue::<Bn256>::new(&params);
         stateful_rescue.specialize(input.len() as u8);
@@ -343,7 +343,7 @@ mod test {
         let params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
         let input: Vec<Fr> = (0..((params.rate()*10) + 1)).map(|_| rng.gen()).collect();
         let output = rescue_hash::<Bn256>(&params, &input[..]);
-        assert!(output.len() == 1);
+        assert_eq!(output.len(), 1);
 
         let mut stateful_rescue = super::super::StatefulRescue::<Bn256>::new(&params);
         stateful_rescue.specialize(input.len() as u8);

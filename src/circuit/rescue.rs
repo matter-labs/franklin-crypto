@@ -655,7 +655,7 @@ mod test {
             }
 
             assert!(cs.is_satisfied());
-            assert!(res.len() == (params.state_width() as usize));
+            assert_eq!(res.len(), (params.state_width() as usize));
 
             assert_eq!(res[0].get_value().unwrap(), expected[0]);
         }
@@ -688,8 +688,9 @@ mod test {
             ).unwrap();
 
             assert!(cs.is_satisfied());
-            assert!(res.len() == 1);
+            assert_eq!(res.len(), 1);
             println!("Rescue hash {} to {} taken {} constraints", input.len(), res.len(), cs.num_constraints());
+            // Rescue hash 2 to 1 taken 463 constraints
 
             assert_eq!(res[0].get_value().unwrap(), expected[0]);
         }
@@ -700,7 +701,7 @@ mod test {
         use crate::rescue::bn256::*;
         let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
         let params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
-        let input: Vec<Fr> = (0..(params.rate()*5)).map(|_| rng.gen()).collect();
+        let input: Vec<Fr> = (0..(params.rate() * 5)).map(|_| rng.gen()).collect();  // 10 = params.rate() * 5
         let expected = rescue::rescue_hash::<Bn256>(&params, &input[..]);
 
         {
@@ -721,8 +722,9 @@ mod test {
             ).unwrap();
 
             assert!(cs.is_satisfied());
-            assert!(res.len() == 1);
+            assert_eq!(res.len(), 1);
             println!("Rescue hash {} to {} taken {} constraints", input.len(), res.len(), cs.num_constraints());
+            //Rescue hash 10 to 1 taken 2311 constraints
 
             assert_eq!(res[0].get_value().unwrap(), expected[0]);
         }
@@ -734,7 +736,7 @@ mod test {
         let mut rng = XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
         let params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
         // let input: Vec<Fr> = (0..(params.rate()*2)).map(|_| rng.gen()).collect();
-        let input: Vec<Fr> = (0..(params.rate()+1)).map(|_| rng.gen()).collect();
+        let input: Vec<Fr> = (0..(params.rate()+1)).map(|_| rng.gen()).collect();  // 3 = params.rate() + 1
         let expected = rescue::rescue_hash::<Bn256>(&params, &input[..]);
 
         {
@@ -755,9 +757,10 @@ mod test {
             ).unwrap();
 
             assert!(cs.is_satisfied());
-            assert!(res.len() == 1);
+            assert_eq!(res.len(), 1);
 
             println!("Rescue stateless hash {} to {} taken {} constraints", input.len(), res.len(), cs.num_constraints());
+            //Rescue stateless hash 3 to 1 taken 925 constraints
 
             let constr = cs.num_constraints();
 
@@ -783,11 +786,13 @@ mod test {
 
             assert_eq!(res_0.get_value().unwrap(), expected[0]);
             println!("Rescue stateful hash {} to {} taken {} constraints", input.len(), res.len(), cs.num_constraints() - constr);
+            //Rescue stateful hash 3 to 1 taken 925 constraints
 
             let res_1 = rescue_gadget.squeeze_out_single(
                 cs.namespace(|| "squeeze second word"), 
                 &params
             ).unwrap();
+
 
             let mut stateful_hasher = rescue::StatefulRescue::<Bn256>::new(
                 &params
@@ -831,8 +836,9 @@ mod test {
             ).unwrap();
 
             assert!(cs.is_satisfied());
-            assert!(res.len() == 1);
+            assert_eq!(res.len(), 1);
             println!("Rescue hash {} to {} taken {} constraints", input.len(), res.len(), cs.num_constraints());
+            //Rescue hash 3 to 1 taken 617 constraints
 
             assert_eq!(res[0].get_value().unwrap(), expected[0]);
         }
@@ -895,7 +901,7 @@ mod test {
 
         // let mut transpiler = Transpiler::new();
 
-        let dupls: usize = 1024;
+        let dupls: usize = 1;
 
         let c = RescueTester::<Bn256> {
             num_duplicates: dupls,
@@ -904,7 +910,7 @@ mod test {
         };
 
 
-        let (n, hints) = transpile_with_gates_count::<Bn256, _>(c.clone()).expect("transpilation is successful");
+        let (n, hints) = transpile_with_gates_count::<Bn256, _>(c.clone()).expect("transpiration is successful");
 
         let mut hints_hist = std::collections::HashMap::new();
         hints_hist.insert("into addition gate".to_owned(), 0);
@@ -936,5 +942,15 @@ mod test {
         println!("Done transpiling");
 
         println!("Made {} invocations into {} gates", dupls, n);
+        /*
+        Transpilation hist = {"into addition gate": 68608, "into quadratic gate": 0, "merge LC": 1024, "into multiplication gate": 405504}  405504 / 1024 = 396
+        Done transpiling
+        Made 1024 invocations into 677888 gates
+        677888 / 1024 = 662
+
+        Transpilation hist = {"merge LC": 1, "into multiplication gate": 396, "into addition gate": 67, "into quadratic gate": 0}
+        Done transpiling
+        Made 1 invocations into 662 gates
+         */
     }
 }

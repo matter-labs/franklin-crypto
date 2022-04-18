@@ -242,13 +242,19 @@ pub fn poseidon_mimc<E: PoseidonEngine>(
     for round in half_of_full_rounds..(params.num_partial_rounds() + half_of_full_rounds){
         let round_constants = params.round_constants(round);
 
-        // add round constatnts
+        // add round constants
         for (s, c)  in state.iter_mut()
             .zip(round_constants.iter()) {
             s.add_assign(c);
         }
+        // for tp in state.iter(){
+        //     println!("algorithm SBox0 {:?}", tp);
+        // }
 
         params.sbox().apply(&mut state[last_elem_idx..]);
+        // for tp in state.iter(){
+        //     println!("algorithm SBox1 {:?}", tp);
+        // }
 
         // mul state by MDS
         for (row, place_into) in mds_application_scratch.iter_mut()
@@ -260,6 +266,7 @@ pub fn poseidon_mimc<E: PoseidonEngine>(
         // place new data into the state
         state.copy_from_slice(&mds_application_scratch[..]);
     }
+
 
     // full rounds
     for round in (params.num_partial_rounds() + half_of_full_rounds)..(params.num_partial_rounds() + params.num_full_rounds()) {
