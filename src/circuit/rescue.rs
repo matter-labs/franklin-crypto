@@ -362,7 +362,7 @@ pub fn rescue_mimc_over_lcs<E: RescueEngine, CS>(
         state.push(with_constant);
     }
 
-    let mut state = Some(state);
+    //let mut state = state;
 
     // parameters use number of rounds that is number of invocations of each SBox,
     // so we double
@@ -371,12 +371,12 @@ pub fn rescue_mimc_over_lcs<E: RescueEngine, CS>(
         let tmp = if round_num & 1u32 == 0 {
             params.sbox_0().apply_constraints_on_lc_for_set(
                 cs.namespace(|| format!("apply SBox_0 for round {}", round_num)),
-                state.take().unwrap()
+                state.clone()
             )?
         } else {
             params.sbox_1().apply_constraints_on_lc_for_set(
                 cs.namespace(|| format!("apply SBox_1 for round {}", round_num)),
-                state.take().unwrap()
+                state.clone()
             )?
         };
 
@@ -396,10 +396,10 @@ pub fn rescue_mimc_over_lcs<E: RescueEngine, CS>(
             linear_transformation_results_scratch.push(with_round_constant);
         }
 
-        state = Some(linear_transformation_results_scratch);
+        state = linear_transformation_results_scratch;
     }
 
-    Ok(state.unwrap())
+    Ok(state)
 }
 
 fn scalar_product<E: Engine> (input: &[AllocatedNum<E>], by: &[E::Fr]) -> Num<E> {

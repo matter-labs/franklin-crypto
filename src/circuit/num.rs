@@ -1010,7 +1010,7 @@ impl<E: Engine> Num<E> {
     pub fn unwrap_as_allocated_num(
         &self,
     ) -> AllocatedNum<E> {
-        assert!(self.lc.as_ref().len() == 1);
+        assert_eq!(self.lc.as_ref().len(), 1);
         let (var, c) = self.lc.as_ref().last().unwrap().clone();
         assert!(c == E::Fr::one());
 
