@@ -1,16 +1,10 @@
-use jubjub::{
-    JubjubEngine,
-    PrimeOrder,
-    edwards
-};
+use jubjub::{edwards, JubjubEngine, PrimeOrder};
 
-use bellman::pairing::ff::{
-    PrimeField
-};
+use bellman::pairing::ff::PrimeField;
 
-use tiny_keccak::Keccak;
 use blake2_rfc::blake2s::Blake2s;
 use constants;
+use tiny_keccak::Keccak;
 
 pub trait GroupHasher {
     fn new(personalization: &[u8]) -> Self;
@@ -19,16 +13,14 @@ pub trait GroupHasher {
 }
 
 pub struct BlakeHasher {
-    h: Blake2s
+    h: Blake2s,
 }
 
 impl GroupHasher for BlakeHasher {
     fn new(personalization: &[u8]) -> Self {
         let h = Blake2s::with_params(32, &[], &[], personalization);
 
-        Self {
-            h: h
-        }
+        Self { h: h }
     }
 
     fn update(&mut self, data: &[u8]) {
@@ -48,7 +40,7 @@ impl GroupHasher for BlakeHasher {
 }
 
 pub struct Keccak256Hasher {
-    h: Keccak
+    h: Keccak,
 }
 
 impl GroupHasher for Keccak256Hasher {
@@ -56,9 +48,7 @@ impl GroupHasher for Keccak256Hasher {
         let mut h = Keccak::new_keccak256();
         h.update(personalization);
 
-        Self {
-            h: h
-        }
+        Self { h: h }
     }
 
     fn update(&mut self, data: &[u8]) {
@@ -84,9 +74,8 @@ impl GroupHasher for Keccak256Hasher {
 pub fn group_hash<E: JubjubEngine>(
     tag: &[u8],
     personalization: &[u8],
-    params: &E::Params
-) -> Option<edwards::Point<E, PrimeOrder>>
-{
+    params: &E::Params,
+) -> Option<edwards::Point<E, PrimeOrder>> {
     assert_eq!(personalization.len(), 8);
 
     // Check to see that scalar field is 255 bits
@@ -107,8 +96,8 @@ pub fn group_hash<E: JubjubEngine>(
             } else {
                 None
             }
-        },
-        Err(_) => None
+        }
+        Err(_) => None,
     }
 }
 
@@ -118,9 +107,8 @@ pub fn group_hash<E: JubjubEngine>(
 pub fn baby_group_hash<E: JubjubEngine>(
     tag: &[u8],
     personalization: &[u8],
-    params: &E::Params
-) -> Option<edwards::Point<E, PrimeOrder>>
-{
+    params: &E::Params,
+) -> Option<edwards::Point<E, PrimeOrder>> {
     assert_eq!(personalization.len(), 8);
 
     // Check to see that scalar field is 255 bits
@@ -141,8 +129,8 @@ pub fn baby_group_hash<E: JubjubEngine>(
             } else {
                 None
             }
-        },
-        Err(_) => None
+        }
+        Err(_) => None,
     }
 }
 
@@ -152,9 +140,8 @@ pub fn baby_group_hash<E: JubjubEngine>(
 pub fn generic_group_hash<E: JubjubEngine, H: GroupHasher>(
     tag: &[u8],
     personalization: &[u8],
-    params: &E::Params
-) -> Option<edwards::Point<E, PrimeOrder>>
-{
+    params: &E::Params,
+) -> Option<edwards::Point<E, PrimeOrder>> {
     assert_eq!(personalization.len(), 8);
 
     // Due to small number of iterations Fr should be close to 255 bits
@@ -175,39 +162,41 @@ pub fn generic_group_hash<E: JubjubEngine, H: GroupHasher>(
             } else {
                 None
             }
-        },
-        Err(_) => None
+        }
+        Err(_) => None,
     }
 }
 
 #[test]
 fn test_generic_hash() {
-    use bellman::pairing::bn256::Bn256;
-    use alt_babyjubjub::JubjubEngine;
     use alt_babyjubjub::AltJubjubBn256;
+    use alt_babyjubjub::JubjubEngine;
+    use bellman::pairing::bn256::Bn256;
 
     let personalization = b"Hello123";
     let params = AltJubjubBn256::new();
     for t in 0u8..=255u8 {
         let tag = [t];
         let blake_point = baby_group_hash::<Bn256>(&tag, &personalization[..], &params);
-        let generic_point = generic_group_hash::<Bn256, BlakeHasher>(&tag, &personalization[..], &params);
+        let generic_point =
+            generic_group_hash::<Bn256, BlakeHasher>(&tag, &personalization[..], &params);
         assert!(blake_point == generic_point);
     }
 }
 
 #[test]
 fn test_export_blake_generators() {
-    use bellman::pairing::bn256::Bn256;
-    use alt_babyjubjub::JubjubEngine;
     use alt_babyjubjub::AltJubjubBn256;
+    use alt_babyjubjub::JubjubEngine;
+    use bellman::pairing::bn256::Bn256;
 
     let personalization = b"Hello123";
     let params = AltJubjubBn256::new();
     for t in 0u8..=255u8 {
         let tag = [t];
         let blake_point = baby_group_hash::<Bn256>(&tag, &personalization[..], &params);
-        let generic_point = generic_group_hash::<Bn256, BlakeHasher>(&tag, &personalization[..], &params);
+        let generic_point =
+            generic_group_hash::<Bn256, BlakeHasher>(&tag, &personalization[..], &params);
         assert!(blake_point == generic_point);
     }
 }

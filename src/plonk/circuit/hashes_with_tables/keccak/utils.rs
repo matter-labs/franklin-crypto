@@ -1,10 +1,8 @@
-use crate::bellman::pairing::ff::*;
 use super::super::utils::*;
+use crate::bellman::pairing::ff::*;
 
-
-pub const KECCAK_FIRST_SPARSE_BASE : u64 = 13;
-pub fn keccak_u64_first_converter(n: u64) -> u64 
-{
+pub const KECCAK_FIRST_SPARSE_BASE: u64 = 13;
+pub fn keccak_u64_first_converter(n: u64) -> u64 {
     assert!(n < KECCAK_FIRST_SPARSE_BASE);
     // simple xor
     n & 1
@@ -33,9 +31,9 @@ pub fn keccak_u64_first_converter(n: u64) -> u64
 // | 15  | 1 | 1 | 1 | 1 |         0        |          8       |
 // -----------------------------------------|------------------|
 // this table shows that mapping f_alg -> f_log is indeed well-defined
-pub const KECCAK_SECOND_SPARSE_BASE : u64 = 9; 
+pub const KECCAK_SECOND_SPARSE_BASE: u64 = 9;
 pub fn keccak_u64_second_converter(n: u64) -> u64 {
     assert!(n < KECCAK_SECOND_SPARSE_BASE);
-    let bit_table : [u64; KECCAK_SECOND_SPARSE_BASE as usize] = [0, 0, 1, 1, 0, 0, 1, 1, 0];
+    let bit_table: [u64; KECCAK_SECOND_SPARSE_BASE as usize] = [0, 0, 1, 1, 0, 0, 1, 1, 0];
     bit_table[n as usize]
 }

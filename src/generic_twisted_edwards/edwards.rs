@@ -9,7 +9,10 @@ struct LookupTable<E: Engine>(Vec<TwistedEdwardsPoint<E>>);
 
 impl<E: Engine> LookupTable<E> {
     // precomputation
-    fn from_point<C: TwistedEdwardsCurveParams<E>>(p: &TwistedEdwardsPoint<E>, curve: &TwistedEdwardsCurveImplementor<E, C>) -> Self {
+    fn from_point<C: TwistedEdwardsCurveParams<E>>(
+        p: &TwistedEdwardsPoint<E>,
+        curve: &TwistedEdwardsCurveImplementor<E, C>,
+    ) -> Self {
         let mut table = vec![p.clone(); 8];
 
         for i in 0..7 {
@@ -20,7 +23,11 @@ impl<E: Engine> LookupTable<E> {
     }
 
     // -8 <= x <= 8
-    fn select<C: TwistedEdwardsCurveParams<E>>(&self, x: i8, curve: &TwistedEdwardsCurveImplementor<E, C>) -> TwistedEdwardsPoint<E> {
+    fn select<C: TwistedEdwardsCurveParams<E>>(
+        &self,
+        x: i8,
+        curve: &TwistedEdwardsCurveImplementor<E, C>,
+    ) -> TwistedEdwardsPoint<E> {
         if x == 0 {
             return TwistedEdwardsPoint::identity();
         }
@@ -180,7 +187,7 @@ impl<E: Engine, C: TwistedEdwardsCurveParams<E>> TwistedEdwardsCurveImplementor<
         let d = if self.curve_params.is_param_a_equals_minus_one() {
             let mut d = a;
             d.negate();
-            
+
             d
         } else {
             let mut d = a;
@@ -273,11 +280,7 @@ impl<E: Engine, C: TwistedEdwardsCurveParams<E>> TwistedEdwardsCurveImplementor<
         res
     }
 
-    pub fn ct_mul(
-        &self,
-        p: &TwistedEdwardsPoint<E>,
-        scalar: C::Fs,
-    ) -> TwistedEdwardsPoint<E> {
+    pub fn ct_mul(&self, p: &TwistedEdwardsPoint<E>, scalar: C::Fs) -> TwistedEdwardsPoint<E> {
         // construct table from point
         let table = LookupTable::from_point(&p, self);
 
@@ -287,7 +290,7 @@ impl<E: Engine, C: TwistedEdwardsCurveParams<E>> TwistedEdwardsCurveImplementor<
         // iterate and select from table
         let mut q = TwistedEdwardsPoint::identity();
 
-        for i in (0..scalar_in_base_16.len()).rev(){            
+        for i in (0..scalar_in_base_16.len()).rev() {
             let s_i = scalar_in_base_16[i];
             let t = table.select(s_i, self);
 
@@ -295,7 +298,7 @@ impl<E: Engine, C: TwistedEdwardsCurveParams<E>> TwistedEdwardsCurveImplementor<
                 q = self.double(&q);
             }
 
-            q  = self.add(&q, &t)
+            q = self.add(&q, &t)
         }
 
         q
@@ -317,10 +320,7 @@ impl<E: Engine, C: TwistedEdwardsCurveParams<E>> TwistedEdwardsCurveImplementor<
         self.mul(&self.curve_params.generator(), scalar)
     }
 
-    pub fn is_in_main_subgroup(
-        &self,
-        p: &TwistedEdwardsPoint<E>
-    ) -> bool {
+    pub fn is_in_main_subgroup(&self, p: &TwistedEdwardsPoint<E>) -> bool {
         use crate::plonk::circuit::utils::words_to_msb_first_bits;
 
         let mut tmp = p.clone();
@@ -349,14 +349,14 @@ pub trait TwistedEdwardsCurveParams<E: Engine>: Clone {
 
 pub struct TwistedEdwardsCurveImplementor<E: Engine, C: TwistedEdwardsCurveParams<E>> {
     pub curve_params: C,
-    _marker: std::marker::PhantomData<E>
+    _marker: std::marker::PhantomData<E>,
 }
 
 impl<E: Engine, C: TwistedEdwardsCurveParams<E>> TwistedEdwardsCurveImplementor<E, C> {
     pub fn new_from_params(params: C) -> Self {
         Self {
             curve_params: params,
-            _marker: std::marker::PhantomData
+            _marker: std::marker::PhantomData,
         }
     }
 
@@ -364,11 +364,7 @@ impl<E: Engine, C: TwistedEdwardsCurveParams<E>> TwistedEdwardsCurveImplementor<
         &self.curve_params
     }
 
-    pub fn get_for_y(
-        &self,
-        y: E::Fr,
-        sign: bool,
-    ) -> Option<TwistedEdwardsPoint<E>> {
+    pub fn get_for_y(&self, y: E::Fr, sign: bool) -> Option<TwistedEdwardsPoint<E>> {
         // Given a y on the curve, x^2 = ((y^2 - 1) / (dy^2 + 1)) / -a
         // This is defined for all valid y-coordinates,
         // as dy^2 + 1 = 0 has no solution in Fr.
@@ -437,7 +433,7 @@ impl ConditionalSelect<u64> for u64 {
     fn conditional_select(flag: u8, first: u64, second: u64) -> u64 {
         let bit = flag as u64;
 
-        bit*first + (1-bit)*second // TODO: check correctness
+        bit * first + (1 - bit) * second // TODO: check correctness
     }
 }
 
@@ -461,7 +457,7 @@ impl<E: Engine> TwistedEdwardsPoint<E> {
     pub fn from_xy(x: E::Fr, y: E::Fr) -> Self {
         let mut t = x;
         t.mul_assign(&y);
-        
+
         Self {
             x,
             y,
@@ -493,20 +489,20 @@ impl<E: Engine> TwistedEdwardsPoint<E> {
         }
     }
 
-    pub fn conditional_select(
-        flag: u8,
-        first: &Self,
-        second: &Self,
-    ) -> Self {
+    pub fn conditional_select(flag: u8, first: &Self, second: &Self) -> Self {
         fn conditional_select_fe<E: Engine>(flag: u8, first: &E::Fr, second: &E::Fr) -> E::Fr {
             let first_repr = first.into_raw_repr();
             let second_repr = second.into_raw_repr();
             let mut result_repr = <E::Fr as PrimeField>::Repr::default();
-            
-            result_repr.as_mut()[0] = u64::conditional_select(flag, first_repr.as_ref()[0], second_repr.as_ref()[0]);
-            result_repr.as_mut()[1] = u64::conditional_select(flag, first_repr.as_ref()[1], second_repr.as_ref()[1]);
-            result_repr.as_mut()[2] = u64::conditional_select(flag, first_repr.as_ref()[2], second_repr.as_ref()[2]);
-            result_repr.as_mut()[3] = u64::conditional_select(flag, first_repr.as_ref()[3], second_repr.as_ref()[3]);
+
+            result_repr.as_mut()[0] =
+                u64::conditional_select(flag, first_repr.as_ref()[0], second_repr.as_ref()[0]);
+            result_repr.as_mut()[1] =
+                u64::conditional_select(flag, first_repr.as_ref()[1], second_repr.as_ref()[1]);
+            result_repr.as_mut()[2] =
+                u64::conditional_select(flag, first_repr.as_ref()[2], second_repr.as_ref()[2]);
+            result_repr.as_mut()[3] =
+                u64::conditional_select(flag, first_repr.as_ref()[3], second_repr.as_ref()[3]);
 
             // first and second are valid field elements so we can unwrap
             let result = E::Fr::from_raw_repr(result_repr).unwrap();
@@ -536,18 +532,23 @@ pub struct GenericTwistedEdwardsCurveParams<E: Engine> {
 impl<E: Engine> Copy for GenericTwistedEdwardsCurveParams<E> {}
 
 impl<E: Engine> GenericTwistedEdwardsCurveParams<E> {
-    pub fn new(d: E::Fr, a: E::Fr, generator: TwistedEdwardsPoint<E>, log_2_cofactor: usize) -> Self {
+    pub fn new(
+        d: E::Fr,
+        a: E::Fr,
+        generator: TwistedEdwardsPoint<E>,
+        log_2_cofactor: usize,
+    ) -> Self {
         let mut minus_one = E::Fr::one();
         minus_one.negate();
-        
-        let is_param_a_equals_minus_one = a == minus_one; 
 
-        Self { 
+        let is_param_a_equals_minus_one = a == minus_one;
+
+        Self {
             param_d: d,
             param_a: a,
             is_param_a_equals_minus_one,
             generator,
-            log_2_cofactor
+            log_2_cofactor,
         }
     }
 }

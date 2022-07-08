@@ -1,13 +1,12 @@
+use super::super::utils::*;
+use crate::bellman::pairing::ff::*;
 use crate::bellman::plonk::better_better_cs::cs::*;
 use crate::bellman::plonk::better_better_cs::lookup_tables::*;
 use crate::bellman::plonk::better_better_cs::utils;
-use crate::bellman::pairing::ff::*;
-use crate::bellman::SynthesisError;
 use crate::bellman::Engine;
-use super::super::utils::*;
-use std::iter::FromIterator;
+use crate::bellman::SynthesisError;
 use itertools::Itertools;
-
+use std::iter::FromIterator;
 
 pub const DIGIT_SEP: usize = 3;
 
@@ -18,7 +17,7 @@ pub const DIGIT_SEP: usize = 3;
 //
 //    |<-----|      |<-----|       |<-------|
 //    |      |      |      |       |        |
-//    |--->[ 0 ]----|--->[ 1 ]<----|----->[ 2 ] 
+//    |--->[ 0 ]----|--->[ 1 ]<----|----->[ 2 ]
 //
 // the only valid state transitions are: 0 -> 0, 0 -> 1, 1 -> 1, 1 -> 2, 2 -> 1, 2 -> 2
 #[derive(Clone)]
@@ -31,21 +30,22 @@ pub struct ReinforcementConcreterHelperTable0<E: Engine> {
 
 impl<E: Engine> ReinforcementConcreterHelperTable0<E> {
     pub fn new(name: &'static str) -> Self {
-        let valid_state_transitions = std::collections::HashSet::<_>::from_iter(std::array::IntoIter::new(
-            [(0, 0), (0, 1), (1, 1), (1, 2), (2, 1), (2, 2)]).map(
-                |(x, y)| (u64_to_ff::<E::Fr>(x), u64_to_ff::<E::Fr>(y))
-            )
+        let valid_state_transitions = std::collections::HashSet::<_>::from_iter(
+            std::array::IntoIter::new([(0, 0), (0, 1), (1, 1), (1, 2), (2, 1), (2, 2)])
+                .map(|(x, y)| (u64_to_ff::<E::Fr>(x), u64_to_ff::<E::Fr>(y))),
         );
         let table_len = valid_state_transitions.len() * 2;
         let mut column0 = Vec::with_capacity(table_len);
         let mut column1 = Vec::with_capacity(table_len);
         let mut column2 = Vec::with_capacity(table_len);
 
-        let iter = valid_state_transitions.iter().cartesian_product(std::array::IntoIter::new([
-            E::Fr::zero(), E::Fr::one()
-        ]));
+        let iter = valid_state_transitions
+            .iter()
+            .cartesian_product(std::array::IntoIter::new([E::Fr::zero(), E::Fr::one()]));
         for ((s0, s1), z) in iter {
-            column0.push(s0.clone()); column1.push(s1.clone()); column2.push(z.clone());
+            column0.push(s0.clone());
+            column1.push(s1.clone());
+            column2.push(z.clone());
         }
 
         Self {
@@ -59,7 +59,8 @@ impl<E: Engine> ReinforcementConcreterHelperTable0<E> {
 
 impl<E: Engine> std::fmt::Debug for ReinforcementConcreterHelperTable0<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ReinforcementConcreterHelperTable0").finish()
+        f.debug_struct("ReinforcementConcreterHelperTable0")
+            .finish()
     }
 }
 
@@ -80,7 +81,11 @@ impl<E: Engine> LookupTableInternal<E> for ReinforcementConcreterHelperTable0<E>
         true
     }
     fn get_table_values_for_polys(&self) -> Vec<Vec<E::Fr>> {
-        vec![self.table_entries[0].clone(), self.table_entries[1].clone(), self.table_entries[2].clone()]
+        vec![
+            self.table_entries[0].clone(),
+            self.table_entries[1].clone(),
+            self.table_entries[2].clone(),
+        ]
     }
     fn table_id(&self) -> E::Fr {
         table_id_from_string(self.name)
@@ -99,9 +104,10 @@ impl<E: Engine> LookupTableInternal<E> for ReinforcementConcreterHelperTable0<E>
         assert!(keys.len() == self.num_keys());
         assert!(values.len() == self.num_values());
 
-        let check_booleanity = |fr: &E::Fr| -> bool { (*fr == E::Fr::zero()) || (*fr == E::Fr::one()) };
+        let check_booleanity =
+            |fr: &E::Fr| -> bool { (*fr == E::Fr::zero()) || (*fr == E::Fr::one()) };
         let trns = (keys[0].clone(), keys[1].clone());
-        self.valid_state_transitions.contains(&trns) && check_booleanity(&keys[2]) 
+        self.valid_state_transitions.contains(&trns) && check_booleanity(&keys[2])
     }
 
     fn query(&self, _keys: &[E::Fr]) -> Result<Vec<E::Fr>, SynthesisError> {
@@ -109,12 +115,11 @@ impl<E: Engine> LookupTableInternal<E> for ReinforcementConcreterHelperTable0<E>
     }
 }
 
-        
 // Special ReinForcement Concrete table has the following column structure: |  x  |   sig_seq  |  f(x) |
 // where x is, roughly speaking, is the input of S_box (for Bars round), f(x) is the result of S box
-// and signal sequence is auxiliary number which indicates both the index of the current S_box and 
+// and signal sequence is auxiliary number which indicates both the index of the current S_box and
 // tracks the elements of x, s.t. x < p
-// each S_box S_i is associated with unique modulus s_i, s.t. p < s_i, 
+// each S_box S_i is associated with unique modulus s_i, s.t. p < s_i,
 // and S_i(x) = f(x), if x < p, and x othersiwe
 // these means that all S boxes operate identiacally on the subset of x < p, a
 // the actual tables for the table are the following:
@@ -134,9 +139,12 @@ pub struct ReinforcementConcreterHelperTable1<E: Engine> {
 
 impl<E: Engine> ReinforcementConcreterHelperTable1<E> {
     pub fn new<F: Fn(u16) -> u16>(
-        p: u16, perm_f: F, s_arr: &[u16], u_arr: &[u16], name: &'static str
-    ) -> Self  
-    {
+        p: u16,
+        perm_f: F,
+        s_arr: &[u16],
+        u_arr: &[u16],
+        name: &'static str,
+    ) -> Self {
         let mut table_len = (p + s_arr.iter().map(|s| *s - p).sum::<u16>()) as usize;
         table_len -= (s_arr[0] - u_arr[0]) as usize;
 
@@ -149,8 +157,10 @@ impl<E: Engine> ReinforcementConcreterHelperTable1<E> {
             let x_fr = u64_to_ff::<E::Fr>(x as u64);
             let y_fr = E::Fr::one();
             let z_fr = u64_to_ff::<E::Fr>(perm_f(x) as u64);
-           
-            column0.push(x_fr); column1.push(y_fr); column2.push(z_fr);
+
+            column0.push(x_fr);
+            column1.push(y_fr);
+            column2.push(z_fr);
             map.insert((x_fr, y_fr), z_fr);
         }
 
@@ -163,30 +173,36 @@ impl<E: Engine> ReinforcementConcreterHelperTable1<E> {
             // (x_i | i * DIGIT_SEP + 2 | x_i)
             for x in p..*u_i {
                 let x = u64_to_ff::<E::Fr>(x as u64);
-                let y = u64_to_ff::<E::Fr>(((i+1) * DIGIT_SEP + 1) as u64);
+                let y = u64_to_ff::<E::Fr>(((i + 1) * DIGIT_SEP + 1) as u64);
                 let z = x.clone();
 
-                column0.push(x); column1.push(y); column2.push(z);
+                column0.push(x);
+                column1.push(y);
+                column2.push(z);
                 map.insert((x, y), z);
             }
 
             let x = u64_to_ff::<E::Fr>(*u_i as u64);
-            let y = u64_to_ff::<E::Fr>(((i+1) * DIGIT_SEP + 0) as u64);
+            let y = u64_to_ff::<E::Fr>(((i + 1) * DIGIT_SEP + 0) as u64);
             let z = x.clone();
 
-            column0.push(x); column1.push(y); column2.push(z);
+            column0.push(x);
+            column1.push(y);
+            column2.push(z);
             map.insert((x, y), z);
 
             if i == 0 {
-                continue
+                continue;
             }
 
             for x in *u_i..*s_i {
                 let x = u64_to_ff::<E::Fr>(x as u64);
-                let y = u64_to_ff::<E::Fr>(((i+1) * DIGIT_SEP + 2) as u64);
+                let y = u64_to_ff::<E::Fr>(((i + 1) * DIGIT_SEP + 2) as u64);
                 let z = x.clone();
 
-                column0.push(x); column1.push(y); column2.push(z);
+                column0.push(x);
+                column1.push(y);
+                column2.push(z);
                 map.insert((x, y), z);
             }
         }
@@ -202,7 +218,8 @@ impl<E: Engine> ReinforcementConcreterHelperTable1<E> {
 
 impl<E: Engine> std::fmt::Debug for ReinforcementConcreterHelperTable1<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ReinforcementConcreterHelperTable1").finish()
+        f.debug_struct("ReinforcementConcreterHelperTable1")
+            .finish()
     }
 }
 
@@ -223,7 +240,11 @@ impl<E: Engine> LookupTableInternal<E> for ReinforcementConcreterHelperTable1<E>
         true
     }
     fn get_table_values_for_polys(&self) -> Vec<Vec<E::Fr>> {
-        vec![self.table_entries[0].clone(), self.table_entries[1].clone(), self.table_entries[2].clone()]
+        vec![
+            self.table_entries[0].clone(),
+            self.table_entries[1].clone(),
+            self.table_entries[2].clone(),
+        ]
     }
     fn table_id(&self) -> E::Fr {
         table_id_from_string(self.name)
@@ -252,7 +273,7 @@ impl<E: Engine> LookupTableInternal<E> for ReinforcementConcreterHelperTable1<E>
         assert!(keys.len() == self.num_keys());
 
         if let Some(entry) = self.table_lookup_map.get(&(keys[0], keys[1])) {
-            return Ok(vec![*entry])
+            return Ok(vec![*entry]);
         }
 
         Err(SynthesisError::Unsatisfiable)

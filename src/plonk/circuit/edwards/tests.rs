@@ -1,13 +1,13 @@
 mod tests {
-    use super::super::edwards::*;
     use super::super::bn256::*;
+    use super::super::edwards::*;
+    use crate::alt_babyjubjub::fs::Fs;
+    use crate::alt_babyjubjub::AltJubjubBn256;
+    use crate::bellman::pairing::bn256::{Bn256, Fr};
+    use crate::bellman::pairing::ff::BitIterator;
     use crate::bellman::plonk::better_better_cs::cs::{
         PlonkCsWidth4WithNextStepAndCustomGatesParams, TrivialAssembly, Width4MainGateWithDNext,
     };
-    use crate::bellman::pairing::bn256::{Bn256, Fr};
-    use crate::bellman::pairing::ff::BitIterator;
-    use crate::alt_babyjubjub::fs::Fs;
-    use crate::alt_babyjubjub::AltJubjubBn256;
     use crate::bellman::{Field, PrimeField};
     use crate::jubjub::edwards::Point;
     use crate::plonk::circuit::allocated_num::{AllocatedNum, Num};
@@ -188,7 +188,9 @@ mod tests {
             };
 
             let curve = CircuitAltBabyJubjubBn256::get_implementor();
-            let result = curve.from_xy_assert_on_curve(&mut cs, &p_x_num, &p_y_num).unwrap();
+            let result = curve
+                .from_xy_assert_on_curve(&mut cs, &p_x_num, &p_y_num)
+                .unwrap();
 
             assert!(cs.is_satisfied());
 

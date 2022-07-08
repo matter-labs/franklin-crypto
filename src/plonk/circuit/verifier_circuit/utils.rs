@@ -3,25 +3,26 @@ use crate::plonk::circuit::linear_combination::*;
 use crate::plonk::circuit::rescue::*;
 use crate::rescue::*;
 
-use crate::plonk::circuit::bigint::field::*;
 use crate::plonk::circuit::bigint::bigint::*;
+use crate::plonk::circuit::bigint::field::*;
 
-use crate::bellman::pairing::{Engine, GenericCurveAffine};
 use crate::bellman::pairing::ff::PrimeField;
+use crate::bellman::pairing::{Engine, GenericCurveAffine};
 
-use crate::bellman::plonk::better_cs::keys::{Proof, VerificationKey};
-use crate::bellman::plonk::better_cs::cs::PlonkConstraintSystemParams as OldCSParams;
 use crate::bellman::plonk::better_cs::cs::Circuit as OldCircuit;
 use crate::bellman::plonk::better_cs::cs::ConstraintSystem as OldConstraintSystem;
+use crate::bellman::plonk::better_cs::cs::PlonkConstraintSystemParams as OldCSParams;
 use crate::bellman::plonk::better_cs::cs::PlonkCsWidth4WithNextStepParams as OldActualParams;
+use crate::bellman::plonk::better_cs::keys::{Proof, VerificationKey};
 
 use crate::bellman::plonk::domains::*;
 
 pub fn verification_key_into_allocated_limb_witnesses<E: Engine, P: OldCSParams<E>>(
     vk: &VerificationKey<E, P>,
-    params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>) -> Vec<E::Fr> 
-        // where <E::G1Affine as GenericCurveAffine>::Base: PrimeField 
-    {
+    params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
+) -> Vec<E::Fr>
+// where <E::G1Affine as GenericCurveAffine>::Base: PrimeField
+{
     // we encode
     // domain size
     // domain generator
@@ -77,8 +78,8 @@ pub fn verification_key_into_allocated_limb_witnesses<E: Engine, P: OldCSParams<
 
 pub fn proof_into_allocated_limb_witnesses<E: Engine, P: OldCSParams<E>>(
     proof: &Proof<E, P>,
-    params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>) -> Vec<E::Fr> 
-    {
+    params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
+) -> Vec<E::Fr> {
     // we encode
     // inputs
     // witness commitments
@@ -116,8 +117,8 @@ pub fn proof_into_allocated_limb_witnesses<E: Engine, P: OldCSParams<E>>(
 
 pub fn proof_into_single_limb_witness<E: Engine, P: OldCSParams<E>>(
     proof: &Proof<E, P>,
-    params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>) -> Vec<E::Fr> 
-{
+    params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
+) -> Vec<E::Fr> {
     // change the params
 
     let mut new_params = params.clone();
@@ -159,7 +160,10 @@ pub fn proof_into_single_limb_witness<E: Engine, P: OldCSParams<E>>(
     encodings
 }
 
-pub fn field_to_witness<E: Engine, F: PrimeField>(element: &F, params: &RnsParameters<E, F>) -> Vec<E::Fr> {
+pub fn field_to_witness<E: Engine, F: PrimeField>(
+    element: &F,
+    params: &RnsParameters<E, F>,
+) -> Vec<E::Fr> {
     if params.can_allocate_from_double_limb_witness() {
         let mut num_witness = params.num_limbs_for_in_field_representation / 2;
         if params.num_limbs_for_in_field_representation % 2 != 0 {
@@ -169,12 +173,15 @@ pub fn field_to_witness<E: Engine, F: PrimeField>(element: &F, params: &RnsParam
         let coord_as_bigint = fe_to_biguint(element);
 
         let witness_limbs = split_into_fixed_number_of_limbs(
-            coord_as_bigint, 
-            params.binary_limbs_params.limb_size_bits * 2, 
-            num_witness
+            coord_as_bigint,
+            params.binary_limbs_params.limb_size_bits * 2,
+            num_witness,
         );
 
-        let witnesses: Vec<_> = witness_limbs.into_iter().map(|el| biguint_to_fe::<E::Fr>(el)).collect();
+        let witnesses: Vec<_> = witness_limbs
+            .into_iter()
+            .map(|el| biguint_to_fe::<E::Fr>(el))
+            .collect();
 
         witnesses
     } else {
@@ -183,18 +190,25 @@ pub fn field_to_witness<E: Engine, F: PrimeField>(element: &F, params: &RnsParam
         let coord_as_bigint = fe_to_biguint(element);
 
         let witness_limbs = split_into_fixed_number_of_limbs(
-            coord_as_bigint, 
-            params.binary_limbs_params.limb_size_bits, 
-            num_witness
+            coord_as_bigint,
+            params.binary_limbs_params.limb_size_bits,
+            num_witness,
         );
 
-        let witnesses: Vec<_> = witness_limbs.into_iter().map(|el| biguint_to_fe::<E::Fr>(el)).collect();
+        let witnesses: Vec<_> = witness_limbs
+            .into_iter()
+            .map(|el| biguint_to_fe::<E::Fr>(el))
+            .collect();
 
         witnesses
     }
 }
 
-pub fn add_point<E: Engine>(src: &E::G1Affine, dst: &mut Vec<E::Fr>, params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>) {
+pub fn add_point<E: Engine>(
+    src: &E::G1Affine,
+    dst: &mut Vec<E::Fr>,
+    params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
+) {
     assert!(!src.is_zero());
     let (x, y) = src.into_xy_unchecked();
 
@@ -204,7 +218,11 @@ pub fn add_point<E: Engine>(src: &E::G1Affine, dst: &mut Vec<E::Fr>, params: &Rn
     }
 }
 
-pub fn add_points<E: Engine>(src: &[E::G1Affine], dst: &mut Vec<E::Fr>, params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>) {
+pub fn add_points<E: Engine>(
+    src: &[E::G1Affine],
+    dst: &mut Vec<E::Fr>,
+    params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
+) {
     for s in src.iter() {
         add_point(s, dst, params);
     }

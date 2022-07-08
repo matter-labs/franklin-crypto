@@ -1,30 +1,12 @@
-use bellman::pairing::ff::{
-    Field,
-    SqrtField,
-    PrimeField,
-    PrimeFieldRepr,
-    BitIterator
-};
+use bellman::pairing::ff::{BitIterator, Field, PrimeField, PrimeFieldRepr, SqrtField};
 
-use super::{
-    JubjubEngine,
-    JubjubParams,
-    Unknown,
-    PrimeOrder,
-    montgomery
-};
+use super::{montgomery, JubjubEngine, JubjubParams, PrimeOrder, Unknown};
 
-use rand::{
-    Rng
-};
+use rand::Rng;
 
 use std::marker::PhantomData;
 
-use std::io::{
-    self,
-    Write,
-    Read
-};
+use std::io::{self, Read, Write};
 
 // Represents the affine point (X/Z, Y/Z) via the extended
 // twisted Edwards coordinates.
@@ -40,30 +22,26 @@ pub struct Point<E: JubjubEngine, Subgroup> {
 
     #[serde(skip)]
     #[serde(bound = "")]
-    _marker: PhantomData<Subgroup>
+    _marker: PhantomData<Subgroup>,
 }
 
-fn convert_subgroup<E: JubjubEngine, S1, S2>(from: &Point<E, S1>) -> Point<E, S2>
-{
+fn convert_subgroup<E: JubjubEngine, S1, S2>(from: &Point<E, S1>) -> Point<E, S2> {
     Point {
         x: from.x,
         y: from.y,
         t: from.t,
         z: from.z,
-        _marker: PhantomData
+        _marker: PhantomData,
     }
 }
 
-impl<E: JubjubEngine> From<Point<E, PrimeOrder>> for Point<E, Unknown>
-{
-    fn from(p: Point<E, PrimeOrder>) -> Point<E, Unknown>
-    {
+impl<E: JubjubEngine> From<Point<E, PrimeOrder>> for Point<E, Unknown> {
+    fn from(p: Point<E, PrimeOrder>) -> Point<E, Unknown> {
         convert_subgroup(&p)
     }
 }
 
-impl<E: JubjubEngine, Subgroup> Clone for Point<E, Subgroup>
-{
+impl<E: JubjubEngine, Subgroup> Clone for Point<E, Subgroup> {
     fn clone(&self) -> Self {
         convert_subgroup(self)
     }
@@ -94,11 +72,7 @@ impl<E: JubjubEngine, Subgroup> PartialEq for Point<E, Subgroup> {
 }
 
 impl<E: JubjubEngine> Point<E, Unknown> {
-    pub fn read<R: Read>(
-        reader: R,
-        params: &E::Params
-    ) -> io::Result<Self>
-    {
+    pub fn read<R: Read>(reader: R, params: &E::Params) -> io::Result<Self> {
         let mut y_repr = <E::Fr as PrimeField>::Repr::default();
         y_repr.read_le(reader)?;
 
@@ -106,22 +80,18 @@ impl<E: JubjubEngine> Point<E, Unknown> {
         y_repr.as_mut()[3] &= 0x7fffffffffffffff;
 
         match E::Fr::from_repr(y_repr) {
-            Ok(y) => {
-                match Self::get_for_y(y, x_sign, params) {
-                    Some(p) => Ok(p),
-                    None => {
-                        Err(io::Error::new(io::ErrorKind::InvalidInput, "not on curve"))
-                    }
-                }
+            Ok(y) => match Self::get_for_y(y, x_sign, params) {
+                Some(p) => Ok(p),
+                None => Err(io::Error::new(io::ErrorKind::InvalidInput, "not on curve")),
             },
-            Err(_) => {
-                Err(io::Error::new(io::ErrorKind::InvalidInput, "y is not in field"))
-            }
+            Err(_) => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "y is not in field",
+            )),
         }
     }
 
-    pub fn from_xy(x: E::Fr, y: E::Fr, params: &E::Params) -> Option<Self>
-    {
+    pub fn from_xy(x: E::Fr, y: E::Fr, params: &E::Params) -> Option<Self> {
         // check that a point is on curve
         // y^2 - x^2 = 1 + d * x^2 * y^2
 
@@ -143,7 +113,6 @@ impl<E: JubjubEngine> Point<E, Unknown> {
 
         if rhs != lhs {
             return None;
-
         }
 
         let mut t = x;
@@ -154,12 +123,11 @@ impl<E: JubjubEngine> Point<E, Unknown> {
             y: y,
             t: t,
             z: E::Fr::one(),
-            _marker: PhantomData
+            _marker: PhantomData,
         })
     }
 
-    pub fn from_xy_unchecked(x: E::Fr, y: E::Fr, params: &E::Params) -> (Self, bool)
-    {
+    pub fn from_xy_unchecked(x: E::Fr, y: E::Fr, params: &E::Params) -> (Self, bool) {
         // check that a point is on curve
         // y^2 - x^2 = 1 + d * x^2 * y^2
 
@@ -182,17 +150,19 @@ impl<E: JubjubEngine> Point<E, Unknown> {
         let mut t = x;
         t.mul_assign(&y);
 
-        (Point {
-            x: x,
-            y: y,
-            t: t,
-            z: E::Fr::one(),
-            _marker: PhantomData
-        }, rhs==lhs)
+        (
+            Point {
+                x: x,
+                y: y,
+                t: t,
+                z: E::Fr::one(),
+                _marker: PhantomData,
+            },
+            rhs == lhs,
+        )
     }
 
-    pub fn get_for_y(y: E::Fr, sign: bool, params: &E::Params) -> Option<Self>
-    {
+    pub fn get_for_y(y: E::Fr, sign: bool, params: &E::Params) -> Option<Self> {
         // Given a y on the curve, x^2 = (y^2 - 1) / (dy^2 + 1)
         // This is defined for all valid y-coordinates,
         // as dy^2 + 1 = 0 has no solution in Fr.
@@ -228,19 +198,18 @@ impl<E: JubjubEngine> Point<E, Unknown> {
                             y: y,
                             t: t,
                             z: E::Fr::one(),
-                            _marker: PhantomData
+                            _marker: PhantomData,
                         })
-                    },
-                    None => None
+                    }
+                    None => None,
                 }
-            },
-            None => None
+            }
+            None => None,
         }
     }
 
     // compress point into single E::Fr and a sign bit
-    pub fn compress_into_y(&self) -> (E::Fr, bool)
-    {
+    pub fn compress_into_y(&self) -> (E::Fr, bool) {
         // Given a y on the curve, read the x sign and leave y coordinate only
         // Important - normalize from extended coordinates
         let (x, y) = self.into_xy();
@@ -251,17 +220,13 @@ impl<E: JubjubEngine> Point<E, Unknown> {
 
     /// This guarantees the point is in the prime order subgroup
     #[must_use]
-    pub fn mul_by_cofactor(&self, params: &E::Params) -> Point<E, PrimeOrder>
-    {
-        let tmp = self.double(params)
-                      .double(params)
-                      .double(params);
+    pub fn mul_by_cofactor(&self, params: &E::Params) -> Point<E, PrimeOrder> {
+        let tmp = self.double(params).double(params).double(params);
 
         convert_subgroup(&tmp)
     }
 
-    pub fn rand<R: Rng>(rng: &mut R, params: &E::Params) -> Self
-    {
+    pub fn rand<R: Rng>(rng: &mut R, params: &E::Params) -> Self {
         loop {
             let y: E::Fr = rng.gen();
 
@@ -273,11 +238,7 @@ impl<E: JubjubEngine> Point<E, Unknown> {
 }
 
 impl<E: JubjubEngine, Subgroup> Point<E, Subgroup> {
-    pub fn write<W: Write>(
-        &self,
-        writer: W
-    ) -> io::Result<()>
-    {
+    pub fn write<W: Write>(&self, writer: W) -> io::Result<()> {
         let (x, y) = self.into_xy();
 
         assert!(E::Fr::NUM_BITS <= 255);
@@ -293,16 +254,12 @@ impl<E: JubjubEngine, Subgroup> Point<E, Subgroup> {
     }
 
     /// Convert from a Montgomery point
-    pub fn from_montgomery(
-        m: &montgomery::Point<E, Subgroup>,
-        params: &E::Params
-    ) -> Self
-    {
+    pub fn from_montgomery(m: &montgomery::Point<E, Subgroup>, params: &E::Params) -> Self {
         match m.into_xy() {
             None => {
                 // Map the point at infinity to the neutral element.
                 Point::zero()
-            },
+            }
             Some((x, y)) => {
                 // The map from a Montgomery curve is defined as:
                 // (x, y) -> (u, v) where
@@ -335,7 +292,7 @@ impl<E: JubjubEngine, Subgroup> Point<E, Subgroup> {
                         y: neg1,
                         t: E::Fr::zero(),
                         z: E::Fr::one(),
-                        _marker: PhantomData
+                        _marker: PhantomData,
                     }
                 } else {
                     // Otherwise, as stated above, the mapping is still
@@ -394,7 +351,7 @@ impl<E: JubjubEngine, Subgroup> Point<E, Subgroup> {
                         y: v,
                         t: t,
                         z: z,
-                        _marker: PhantomData
+                        _marker: PhantomData,
                     }
                 }
             }
@@ -417,12 +374,11 @@ impl<E: JubjubEngine, Subgroup> Point<E, Subgroup> {
             y: E::Fr::one(),
             t: E::Fr::zero(),
             z: E::Fr::one(),
-            _marker: PhantomData
+            _marker: PhantomData,
         }
     }
 
-    pub fn into_xy(&self) -> (E::Fr, E::Fr)
-    {
+    pub fn into_xy(&self) -> (E::Fr, E::Fr) {
         let zinv = self.z.inverse().unwrap();
 
         let mut x = self.x;
@@ -509,13 +465,12 @@ impl<E: JubjubEngine, Subgroup> Point<E, Subgroup> {
             y: y3,
             t: t3,
             z: z3,
-            _marker: PhantomData
+            _marker: PhantomData,
         }
     }
 
     #[must_use]
-    pub fn add(&self, other: &Self, params: &E::Params) -> Self
-    {
+    pub fn add(&self, other: &Self, params: &E::Params) -> Self {
         // See "Twisted Edwards Curves Revisited"
         //     Huseyin Hisil, Kenneth Koon-Ho Wong, Gary Carter, and Ed Dawson
         //     3.1 Unified Addition in E^e
@@ -582,17 +537,12 @@ impl<E: JubjubEngine, Subgroup> Point<E, Subgroup> {
             y: y3,
             t: t3,
             z: z3,
-            _marker: PhantomData
+            _marker: PhantomData,
         }
     }
 
     #[must_use]
-    pub fn mul<S: Into<<E::Fs as PrimeField>::Repr>>(
-        &self,
-        scalar: S,
-        params: &E::Params
-    ) -> Self
-    {
+    pub fn mul<S: Into<<E::Fs as PrimeField>::Repr>>(&self, scalar: S, params: &E::Params) -> Self {
         // Standard double-and-add scalar multiplication
 
         let mut res = Self::zero();

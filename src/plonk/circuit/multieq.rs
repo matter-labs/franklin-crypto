@@ -1,46 +1,22 @@
-use crate::bellman::pairing::{
-    Engine,
-};
+use crate::bellman::pairing::Engine;
 
-use crate::bellman::pairing::ff::{
-    Field,
-    PrimeField,
-    PrimeFieldRepr,
-    BitIterator
-};
+use crate::bellman::pairing::ff::{BitIterator, Field, PrimeField, PrimeFieldRepr};
 
-use crate::bellman::{
-    SynthesisError,
-};
+use crate::bellman::SynthesisError;
 
 use crate::bellman::plonk::better_better_cs::cs::{
-    Variable, 
-    ConstraintSystem,
-    ArithmeticTerm,
-    MainGateTerm,
-    Width4MainGateWithDNext,
-    MainGate,
-    GateInternal,
-    Gate,
-    LinearCombinationOfTerms,
-    PolynomialMultiplicativeTerm,
-    PolynomialInConstraint,
-    TimeDilation,
-    Coefficient,
+    ArithmeticTerm, Coefficient, ConstraintSystem, Gate, GateInternal, LinearCombinationOfTerms,
+    MainGate, MainGateTerm, PolynomialInConstraint, PolynomialMultiplicativeTerm, TimeDilation,
+    Variable, Width4MainGateWithDNext,
 };
-
 
 use crate::plonk::circuit::Assignment;
 
-use super::allocated_num::{
-    AllocatedNum
-};
+use super::allocated_num::AllocatedNum;
 
-use super::linear_combination::{
-    LinearCombination
-};
+use super::linear_combination::LinearCombination;
 
-pub struct MultiEq<'a, E: Engine, CS: ConstraintSystem<E> + 'a>{
+pub struct MultiEq<'a, E: Engine, CS: ConstraintSystem<E> + 'a> {
     cs: &'a mut CS,
     ops: usize,
     bits_used: usize,
@@ -55,7 +31,7 @@ impl<'a, E: Engine, CS: ConstraintSystem<E> + 'a> MultiEq<'a, E, CS> {
             ops: 0,
             bits_used: 0,
             lhs: LinearCombination::<E>::zero(),
-            rhs: LinearCombination::<E>::zero()
+            rhs: LinearCombination::<E>::zero(),
         }
     }
 
@@ -63,8 +39,7 @@ impl<'a, E: Engine, CS: ConstraintSystem<E> + 'a> MultiEq<'a, E, CS> {
         &mut self.cs
     }
 
-    fn accumulate(&mut self)
-    {
+    fn accumulate(&mut self) {
         let mut lhs = self.lhs.clone();
         let mut rhs = self.rhs.clone();
         let mut minus_one = E::Fr::one();
@@ -85,9 +60,8 @@ impl<'a, E: Engine, CS: ConstraintSystem<E> + 'a> MultiEq<'a, E, CS> {
         &mut self,
         num_bits: usize,
         lhs: &LinearCombination<E>,
-        rhs: &LinearCombination<E>
-    )
-    {
+        rhs: &LinearCombination<E>,
+    ) {
         // Check if we will exceed the capacity
         if (E::Fr::CAPACITY as usize) <= (self.bits_used + num_bits) {
             self.accumulate();
@@ -112,33 +86,29 @@ impl<'a, E: Engine, CS: ConstraintSystem<E> + 'a> MultiEq<'a, E, CS> {
 impl<'a, E: Engine, CS: ConstraintSystem<E> + 'a> Drop for MultiEq<'a, E, CS> {
     fn drop(&mut self) {
         if self.bits_used > 0 {
-           self.accumulate();
+            self.accumulate();
         }
     }
 }
 
-pub fn bytes_to_bits(bytes: &[u8]) -> Vec<bool>
-{
-    bytes.iter()
-         .flat_map(|&v| (0..8).rev().map(move |i| (v >> i) & 1 == 1))
-         .collect()
+pub fn bytes_to_bits(bytes: &[u8]) -> Vec<bool> {
+    bytes
+        .iter()
+        .flat_map(|&v| (0..8).rev().map(move |i| (v >> i) & 1 == 1))
+        .collect()
 }
 
-pub fn bytes_to_bits_le(bytes: &[u8]) -> Vec<bool>
-{
-    bytes.iter()
-         .flat_map(|&v| (0..8).map(move |i| (v >> i) & 1 == 1))
-         .collect()
+pub fn bytes_to_bits_le(bytes: &[u8]) -> Vec<bool> {
+    bytes
+        .iter()
+        .flat_map(|&v| (0..8).map(move |i| (v >> i) & 1 == 1))
+        .collect()
 }
 
-pub fn compute_multipacking<E: Engine>(
-    bits: &[bool]
-) -> Vec<E::Fr>
-{
+pub fn compute_multipacking<E: Engine>(bits: &[bool]) -> Vec<E::Fr> {
     let mut result = vec![];
 
-    for bits in bits.chunks(E::Fr::CAPACITY as usize)
-    {
+    for bits in bits.chunks(E::Fr::CAPACITY as usize) {
         let mut cur = E::Fr::zero();
         let mut coeff = E::Fr::one();
 

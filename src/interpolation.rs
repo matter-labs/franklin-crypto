@@ -1,17 +1,15 @@
 use bellman::pairing::Engine;
 
-use bellman::pairing::ff::{
-    Field,
-    PrimeField
-};
+use bellman::pairing::ff::{Field, PrimeField};
 
 /// Perform a Lagrange interpolation for a set of points
 /// It's O(n^2) operations, so use with caution
-pub fn interpolate<E: Engine>(
-    points: &[(E::Fr, E::Fr)]
-) -> Option<Vec<E::Fr>> {
+pub fn interpolate<E: Engine>(points: &[(E::Fr, E::Fr)]) -> Option<Vec<E::Fr>> {
     let max_degree_plus_one = points.len();
-    assert!(max_degree_plus_one >= 2, "should interpolate for degree >= 1");
+    assert!(
+        max_degree_plus_one >= 2,
+        "should interpolate for degree >= 1"
+    );
     let mut coeffs = vec![E::Fr::zero(); max_degree_plus_one];
     // external iterator
     for (k, p_k) in points.iter().enumerate() {
@@ -33,23 +31,34 @@ pub fn interpolate<E: Engine>(
 
             if max_contribution_degree == 0 {
                 max_contribution_degree = 1;
-                contribution.get_mut(0).expect("must have enough coefficients").sub_assign(&x_j);
-                contribution.get_mut(1).expect("must have enough coefficients").add_assign(&E::Fr::one());
+                contribution
+                    .get_mut(0)
+                    .expect("must have enough coefficients")
+                    .sub_assign(&x_j);
+                contribution
+                    .get_mut(1)
+                    .expect("must have enough coefficients")
+                    .add_assign(&E::Fr::one());
             } else {
-                let mul_by_minus_x_j: Vec<E::Fr> = contribution.iter().map(|el| {
-                    let mut tmp = *el;
-                    tmp.mul_assign(&x_j);
-                    tmp.negate();
+                let mul_by_minus_x_j: Vec<E::Fr> = contribution
+                    .iter()
+                    .map(|el| {
+                        let mut tmp = *el;
+                        tmp.mul_assign(&x_j);
+                        tmp.negate();
 
-                    tmp
-                }).collect();
+                        tmp
+                    })
+                    .collect();
 
                 contribution.insert(0, E::Fr::zero());
                 contribution.truncate(max_degree_plus_one);
 
                 assert_eq!(mul_by_minus_x_j.len(), max_degree_plus_one);
                 for (i, c) in contribution.iter_mut().enumerate() {
-                    let other = mul_by_minus_x_j.get(i).expect("should have enough elements");
+                    let other = mul_by_minus_x_j
+                        .get(i)
+                        .expect("should have enough elements");
                     c.add_assign(&other);
                 }
             }
@@ -63,16 +72,12 @@ pub fn interpolate<E: Engine>(
             tmp.mul_assign(&y_k);
             c.add_assign(&tmp);
         }
-
     }
 
     Some(coeffs)
 }
 
-pub fn evaluate_at_x<E: Engine>(
-    coeffs: &[E::Fr],
-    x: &E::Fr
-) -> E::Fr {
+pub fn evaluate_at_x<E: Engine>(coeffs: &[E::Fr], x: &E::Fr) -> E::Fr {
     let mut res = E::Fr::zero();
     let mut pow = E::Fr::one();
     for c in coeffs.iter() {
@@ -87,10 +92,14 @@ pub fn evaluate_at_x<E: Engine>(
 }
 
 #[test]
-fn test_interpolation_1(){
+fn test_interpolation_1() {
     use bellman::pairing::bn256::{Bn256, Fr};
-    let points = vec![(Fr::zero(), Fr::one()), (Fr::one(), Fr::from_str("2").unwrap())];
-    let interpolation_res = interpolate::<Bn256>(&points[..]).expect("must interpolate a linear func");
+    let points = vec![
+        (Fr::zero(), Fr::one()),
+        (Fr::one(), Fr::from_str("2").unwrap()),
+    ];
+    let interpolation_res =
+        interpolate::<Bn256>(&points[..]).expect("must interpolate a linear func");
     assert_eq!(interpolation_res.len(), 2);
     for (i, c) in interpolation_res.iter().enumerate() {
         println!("Coeff {} = {}", i, c);
@@ -105,7 +114,7 @@ fn test_interpolation_1(){
 }
 
 #[test]
-fn test_interpolation_powers_of_2(){
+fn test_interpolation_powers_of_2() {
     use bellman::pairing::bn256::{Bn256, Fr};
     const MAX_POWER: u32 = Fr::CAPACITY;
 
@@ -115,14 +124,22 @@ fn test_interpolation_powers_of_2(){
     for i in 0..MAX_POWER {
         let x = Fr::from_str(&i.to_string()).unwrap();
         let y = power.clone();
-        points.push((x,y));
+        points.push((x, y));
 
         power.mul_assign(&two);
     }
     let interpolation_res = interpolate::<Bn256>(&points[..]).expect("must interpolate");
     assert_eq!(*interpolation_res.get(0).unwrap(), Fr::one());
-    assert_eq!(interpolation_res.len(), points.len(), "array sized must match");
-    assert_eq!(interpolation_res.len(), MAX_POWER as usize, "array size must be equal to the max power");
+    assert_eq!(
+        interpolation_res.len(),
+        points.len(),
+        "array sized must match"
+    );
+    assert_eq!(
+        interpolation_res.len(),
+        MAX_POWER as usize,
+        "array size must be equal to the max power"
+    );
 
     for (_i, p) in points.iter().enumerate() {
         let (x, y) = p;
@@ -130,8 +147,5 @@ fn test_interpolation_powers_of_2(){
         // println!("Eval at {} = {}, original value = {}", x, val, y);
         // assert!(*y == val, format!("must assert equality for x = {}", x) );
         assert_eq!(*y, val);
-
     }
 }
-
-

@@ -1,14 +1,17 @@
+use super::{
+    generate_mds_matrix, PowerSBox, QuinticSBox, RescueEngine, RescueHashParams,
+    RescueParamsInternal,
+};
 use bellman::pairing::bn256;
 use bellman::pairing::ff::{Field, PrimeField, PrimeFieldRepr};
-use super::{RescueEngine, RescueHashParams, RescueParamsInternal, PowerSBox, QuinticSBox, generate_mds_matrix};
-use group_hash::{GroupHasher, BlakeHasher};
+use group_hash::{BlakeHasher, GroupHasher};
 
 extern crate num_bigint;
 extern crate num_integer;
 extern crate num_traits;
-use self::num_bigint::{BigUint, BigInt};
-use self::num_integer::{Integer, ExtendedGcd};
-use self::num_traits::{ToPrimitive, Zero, One};
+use self::num_bigint::{BigInt, BigUint};
+use self::num_integer::{ExtendedGcd, Integer};
+use self::num_traits::{One, ToPrimitive, Zero};
 
 impl RescueEngine for bn256::Bn256 {
     type Params = Bn256RescueParams;
@@ -55,8 +58,13 @@ impl Bn256RescueParams {
         Self::new_for_params::<H>(c, r, rounds, security_level)
     }
 
-    pub fn new_for_params<H: GroupHasher>(c: u32, r: u32, rounds: u32, _security_level: u32) -> Self {
-        use byteorder::{WriteBytesExt, ReadBytesExt, BigEndian};
+    pub fn new_for_params<H: GroupHasher>(
+        c: u32,
+        r: u32,
+        rounds: u32,
+        _security_level: u32,
+    ) -> Self {
+        use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
         use constants;
 
         let state_width = c + r;
@@ -71,7 +79,9 @@ impl Bn256RescueParams {
             let mut nonce_bytes = [0u8; 4];
 
             loop {
-                (&mut nonce_bytes[0..4]).write_u32::<BigEndian>(nonce).unwrap();
+                (&mut nonce_bytes[0..4])
+                    .write_u32::<BigEndian>(nonce)
+                    .unwrap();
                 let mut h = H::new(&tag[..]);
                 h.update(constants::GH_FIRST_BLOCK);
                 h.update(&nonce_bytes[..]);
@@ -98,8 +108,8 @@ impl Bn256RescueParams {
         };
 
         let mds_matrix = {
-            use rand::{SeedableRng};
             use rand::chacha::ChaChaRng;
+            use rand::SeedableRng;
             // Create an RNG based on the outcome of the random beacon
             let mut rng = {
                 // This tag is a first one in a sequence of b"ResMxxxx"
@@ -112,7 +122,9 @@ impl Bn256RescueParams {
                 assert!(h.len() == 32);
                 let mut seed = [0u32; 8];
                 for i in 0..8 {
-                    seed[i] = (&h[..]).read_u32::<BigEndian>().expect("digest is large enough for this to work");
+                    seed[i] = (&h[..])
+                        .read_u32::<BigEndian>()
+                        .expect("digest is large enough for this to work");
                 }
 
                 ChaChaRng::from_seed(&seed)
@@ -120,7 +132,6 @@ impl Bn256RescueParams {
 
             generate_mds_matrix::<bn256::Bn256, _>(state_width, &mut rng)
         };
-
 
         let alpha = BigUint::from(5u64);
 
@@ -147,7 +158,7 @@ impl Bn256RescueParams {
         let alpha_signed = BigInt::from(alpha);
         let p_minus_one_signed = BigInt::from(p_minus_one_biguint);
 
-        let ExtendedGcd{ gcd, x: _, y, .. } = p_minus_one_signed.extended_gcd(&alpha_signed); 
+        let ExtendedGcd { gcd, x: _, y, .. } = p_minus_one_signed.extended_gcd(&alpha_signed);
         assert!(gcd.is_one());
         let y = if y < BigInt::zero() {
             let mut y = y;
@@ -172,8 +183,13 @@ impl Bn256RescueParams {
             round_constants: round_constants,
             mds_matrix: mds_matrix,
             security_level: 126,
-            sbox_0: PowerSBox { power: alpha_inv_repr, inv: 5u64 },
-            sbox_1: QuinticSBox { _marker: std::marker::PhantomData },
+            sbox_0: PowerSBox {
+                power: alpha_inv_repr,
+                inv: 5u64,
+            },
+            sbox_1: QuinticSBox {
+                _marker: std::marker::PhantomData,
+            },
             custom_gates_allowed: false,
         }
     }
@@ -205,15 +221,15 @@ impl RescueHashParams<bn256::Bn256> for Bn256RescueParams {
     }
     fn round_constants(&self, round: u32) -> &[bn256::Fr] {
         let t = self.c + self.r;
-        let start = (t*round) as usize;
-        let end = (t*(round+1)) as usize;
+        let start = (t * round) as usize;
+        let end = (t * (round + 1)) as usize;
 
         &self.round_constants[start..end]
     }
     fn mds_matrix_row(&self, row: u32) -> &[bn256::Fr] {
         let t = self.c + self.r;
-        let start = (t*row) as usize;
-        let end = (t*(row+1)) as usize;
+        let start = (t * row) as usize;
+        let end = (t * (row + 1)) as usize;
 
         &self.mds_matrix[start..end]
     }
@@ -241,16 +257,15 @@ impl RescueHashParams<bn256::Bn256> for Bn256RescueParams {
     }
 }
 
-
 #[cfg(test)]
 mod test {
-    use rand::{Rand, Rng, thread_rng, XorShiftRng, SeedableRng};
-    use bellman::pairing::bn256::{Bn256, Fr};
-    use bellman::pairing::ff::PrimeField;
-    use bellman::pairing::ff::Field;
     use super::*;
-    use crate::rescue::*;
     use crate::group_hash::BlakeHasher;
+    use crate::rescue::*;
+    use bellman::pairing::bn256::{Bn256, Fr};
+    use bellman::pairing::ff::Field;
+    use bellman::pairing::ff::PrimeField;
+    use rand::{thread_rng, Rand, Rng, SeedableRng, XorShiftRng};
 
     #[test]
     fn test_generate_bn256_rescue_params() {
@@ -322,7 +337,7 @@ mod test {
     fn test_bn256_long_input_rescue_hash() {
         let rng = &mut thread_rng();
         let params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
-        let input: Vec<Fr> = (0..((params.rate()*10) + 1)).map(|_| rng.gen()).collect();
+        let input: Vec<Fr> = (0..((params.rate() * 10) + 1)).map(|_| rng.gen()).collect();
         let output = rescue_hash::<Bn256>(&params, &input[..]);
         assert!(output.len() == 1);
 
@@ -340,7 +355,7 @@ mod test {
     fn test_bn256_different_specializations() {
         let rng = &mut thread_rng();
         let params = Bn256RescueParams::new_2_into_1::<BlakeHasher>();
-        let input: Vec<Fr> = (0..((params.rate()*10) + 1)).map(|_| rng.gen()).collect();
+        let input: Vec<Fr> = (0..((params.rate() * 10) + 1)).map(|_| rng.gen()).collect();
         let output = rescue_hash::<Bn256>(&params, &input[..]);
         assert!(output.len() == 1);
 

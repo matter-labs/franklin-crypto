@@ -1,60 +1,42 @@
-use crate::bellman::pairing::{
-    Engine,
-    GenericCurveAffine,
-    GenericCurveProjective
-};
+use crate::bellman::pairing::{Engine, GenericCurveAffine, GenericCurveProjective};
 
-use crate::bellman::pairing::ff::{
-    Field,
-    PrimeField,
-    PrimeFieldRepr,
-    BitIterator,
-    ScalarEngine
-};
+use crate::bellman::pairing::ff::{BitIterator, Field, PrimeField, PrimeFieldRepr, ScalarEngine};
 
-use crate::bellman::{
-    SynthesisError,
-};
+use crate::bellman::SynthesisError;
 
 use crate::bellman::plonk::better_better_cs::cs::{
-    Variable, 
-    ConstraintSystem,
-    ArithmeticTerm,
-    MainGateTerm,
+    ArithmeticTerm, Coefficient, ConstraintSystem, Gate, GateInternal, LinearCombinationOfTerms,
+    MainGate, MainGateTerm, PlonkConstraintSystemParams, PlonkCsWidth4WithNextStepParams,
+    PolynomialInConstraint, PolynomialMultiplicativeTerm, TimeDilation, TrivialAssembly, Variable,
     Width4MainGateWithDNext,
-    MainGate,
-    GateInternal,
-    Gate,
-    LinearCombinationOfTerms,
-    PolynomialMultiplicativeTerm,
-    PolynomialInConstraint,
-    TimeDilation,
-    Coefficient,
-    PlonkConstraintSystemParams,
-    TrivialAssembly,
-    PlonkCsWidth4WithNextStepParams,
 };
 
 use super::super::allocated_num::{AllocatedNum, Num};
+use super::super::boolean::{AllocatedBit, Boolean};
 use super::super::linear_combination::LinearCombination;
 use super::super::simple_term::Term;
-use super::super::boolean::{Boolean, AllocatedBit};
 
 use num_bigint::BigUint;
 use num_integer::Integer;
 
-use super::super::bigint::field::*;
 use super::super::bigint::bigint::*;
+use super::super::bigint::field::*;
 
 #[derive(Clone, Debug)]
-pub struct PointProjective<'a, E: Engine, G: GenericCurveAffine> where <G as GenericCurveAffine>::Base: PrimeField {
+pub struct PointProjective<'a, E: Engine, G: GenericCurveAffine>
+where
+    <G as GenericCurveAffine>::Base: PrimeField,
+{
     pub x: FieldElement<'a, E, G::Base>,
     pub y: FieldElement<'a, E, G::Base>,
     pub z: FieldElement<'a, E, G::Base>,
     pub value: Option<G::Projective>,
 }
 
-impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as GenericCurveAffine>::Base: PrimeField {
+impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G>
+where
+    <G as GenericCurveAffine>::Base: PrimeField,
+{
     pub fn get_x(&self) -> FieldElement<'a, E, G::Base> {
         self.x.clone()
     }
@@ -70,7 +52,7 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
     pub fn alloc_from_affine_non_zero<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         value: Option<G>,
-        params: &'a RnsParameters<E, G::Base>
+        params: &'a RnsParameters<E, G::Base>,
     ) -> Result<Self, SynthesisError> {
         let (x, y) = match value {
             Some(v) => {
@@ -78,10 +60,8 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
                 let (x, y) = v.into_xy_unchecked();
 
                 (Some(x), Some(y))
-            },
-            None => {
-                (None, None)
             }
+            None => (None, None),
         };
 
         let val = if let Some(value) = value {
@@ -90,19 +70,11 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
             None
         };
 
-        let x = FieldElement::new_allocated(
-            cs, 
-            x, 
-            params
-        )?;
+        let x = FieldElement::new_allocated(cs, x, params)?;
 
         let (x_is_zero, x) = x.is_zero(cs)?;
 
-        let y = FieldElement::new_allocated(
-            cs, 
-            y, 
-            params
-        )?;
+        let y = FieldElement::new_allocated(cs, y, params)?;
 
         let (y_is_zero, y) = y.is_zero(cs)?;
 
@@ -115,7 +87,7 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
             x,
             y,
             z,
-            value: val
+            value: val,
         };
 
         Ok(new)
@@ -124,7 +96,7 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
     pub fn alloc_from_affine_may_be_zero<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         value: Option<G>,
-        params: &'a RnsParameters<E, G::Base>
+        params: &'a RnsParameters<E, G::Base>,
     ) -> Result<Self, SynthesisError> {
         let (x, y) = match value {
             Some(v) => {
@@ -132,10 +104,8 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
                 let (x, y) = v.into_xy_unchecked();
 
                 (Some(x), Some(y))
-            },
-            None => {
-                (None, None)
             }
+            None => (None, None),
         };
 
         let val = if let Some(value) = value {
@@ -144,17 +114,9 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
             None
         };
 
-        let x = FieldElement::new_allocated(
-            cs, 
-            x, 
-            params
-        )?;
+        let x = FieldElement::new_allocated(cs, x, params)?;
 
-        let y = FieldElement::new_allocated(
-            cs, 
-            y, 
-            params
-        )?;
+        let y = FieldElement::new_allocated(cs, y, params)?;
 
         let z = FieldElement::new_constant(G::Base::one(), params);
 
@@ -162,28 +124,19 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
             x,
             y,
             z,
-            value: val
+            value: val,
         };
 
         Ok(new)
     }
 
-    pub fn constant_from_affine(
-        value: G,
-        params: &'a RnsParameters<E, G::Base>
-    ) -> Self {
+    pub fn constant_from_affine(value: G, params: &'a RnsParameters<E, G::Base>) -> Self {
         assert!(!value.is_zero());
         let (x, y) = value.into_xy_unchecked();
 
-        let x = FieldElement::new_constant(
-            x,
-            params
-        );
+        let x = FieldElement::new_constant(x, params);
 
-        let y = FieldElement::new_constant(
-            y,
-            params
-        );
+        let y = FieldElement::new_constant(y, params);
 
         let z = FieldElement::new_constant(G::Base::one(), params);
 
@@ -191,16 +144,13 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
             x,
             y,
             z,
-            value: Some(value.into_projective())
+            value: Some(value.into_projective()),
         };
 
         new
     }
 
-    pub fn zero(
-        params: &'a RnsParameters<E, G::Base>
-    ) -> Self
-    {
+    pub fn zero(params: &'a RnsParameters<E, G::Base>) -> Self {
         let x = FieldElement::zero(params);
         let y = FieldElement::one(params);
         let z = FieldElement::zero(params);
@@ -209,7 +159,7 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
             x,
             y,
             z,
-            value: Some(G::Projective::zero())
+            value: Some(G::Projective::zero()),
         };
 
         new
@@ -227,8 +177,7 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
         &self,
         _cs: &mut CS,
         _other: &Self,
-    ) -> Result<Boolean, SynthesisError> 
-    {
+    ) -> Result<Boolean, SynthesisError> {
         Ok(Boolean::constant(false))
         // let x_check = self.x.equals(cs, &other.x)?;
         // let y_check = self.y.equals(cs, &other.y)?;
@@ -246,26 +195,26 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
         let this_z = self.z;
 
         let (this_y_negated, this_y) = this_y.negated(cs)?;
-       
+
         let new_value = this_value.map(|el| {
             let mut t = el;
             t.negate();
 
             t
         });
-   
+
         let new = Self {
             x: this_x.clone(),
             y: this_y_negated,
             z: this_z.clone(),
-            value: new_value
+            value: new_value,
         };
 
         let this = Self {
             x: this_x,
             y: this_y,
             z: this_z,
-            value: this_value
+            value: this_value,
         };
 
         Ok((new, this))
@@ -276,15 +225,12 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
     pub fn add<CS: ConstraintSystem<E>>(
         self,
         cs: &mut CS,
-        other: Self
+        other: Self,
     ) -> Result<(Self, (Self, Self)), SynthesisError> {
         let params = self.x.representation_params;
 
         let curve_b = G::b_coeff();
-        let b = FieldElement::new_constant(
-            curve_b,
-            params
-        );
+        let b = FieldElement::new_constant(curve_b, params);
         let this_value = self.value;
         let other_value = other.value;
 
@@ -298,69 +244,69 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
 
         // exception free addition in projective coordiantes
 
-        // 1. t0 ← X1 · X2 
+        // 1. t0 ← X1 · X2
         let (t0, (x1, x2)) = x1.mul(cs, x2)?;
-        // 2. t1 ← Y1 · Y2 
+        // 2. t1 ← Y1 · Y2
         let (t1, (y1, y2)) = y1.mul(cs, y2)?;
         // 3. t2 ← Z1 · Z2
         let (t2, (z1, z2)) = z1.mul(cs, z2)?;
-        // 4. t3 ← X1 + Y1 
+        // 4. t3 ← X1 + Y1
         let (t3, (x1, y1)) = x1.add(cs, y1)?;
-        // 5. t4 ← X2 + Y2 
+        // 5. t4 ← X2 + Y2
         let (t4, (x2, y2)) = x2.add(cs, y2)?;
         // 6. t3 ← t3 · t4
         let (t3, _) = t3.mul(cs, t4)?;
-        // 7. t4 ← t0 + t1 
+        // 7. t4 ← t0 + t1
         let (t4, (t0, t1)) = t0.add(cs, t1)?;
-        // 8. t3 ← t3 − t4 
+        // 8. t3 ← t3 − t4
         let (t3, (_, t4)) = t3.sub(cs, t4)?;
         // 9. t4 ← Y1 + Z1
         let (t4, (y1, z1)) = y1.add(cs, z1)?;
-        // 10. X3 ← Y2 + Z2 
+        // 10. X3 ← Y2 + Z2
         let (x3, (y2, z2)) = y2.add(cs, z2)?;
-        // 11. t4 ← t4 · X3 
+        // 11. t4 ← t4 · X3
         let (t4, (_, x3)) = t4.mul(cs, x3)?;
         // 12. X3 ← t1 + t2
         let (x3, (t1, t2)) = t1.add(cs, t2)?;
-        // 13. t4 ← t4 − X3 
+        // 13. t4 ← t4 − X3
         let (t4, (_, x3)) = t4.sub(cs, x3)?;
-        // 14. X3 ← X1 + Z1 
+        // 14. X3 ← X1 + Z1
         let (x3, (x1, z1)) = x1.add(cs, z1)?;
         // 15. Y3 ← X2 + Z2
         let (y3, (x2, z2)) = x2.add(cs, z2)?;
-        // 16. X3 ← X3 · Y3 
+        // 16. X3 ← X3 · Y3
         let (x3, (_, y3)) = x3.mul(cs, y3)?;
-        // 17. Y3 ← t0 + t2 
+        // 17. Y3 ← t0 + t2
         let (y3, (t0, t2)) = t0.add(cs, t2)?;
         // 18. Y3 ← X3 − Y3
         let (y3, (x3, _)) = x3.sub(cs, y3)?;
-        // 19. X3 ← t0 + t0 
+        // 19. X3 ← t0 + t0
         let (x3, t0) = t0.double(cs)?;
-        // 20. t0 ← X3 + t0 
+        // 20. t0 ← X3 + t0
         let (t0, (x3, _)) = x3.add(cs, t0)?;
         // 21. t2 ← b3 · t2
         let (t2, _) = b.clone().mul(cs, t2)?;
-        // 22. Z3 ← t1 + t2 
+        // 22. Z3 ← t1 + t2
         let (z3, (t1, t2)) = t1.add(cs, t2)?;
-        // 23. t1 ← t1 − t2 
+        // 23. t1 ← t1 − t2
         let (t1, (_, t2)) = t1.sub(cs, t2)?;
         // 24. Y3 ← b3 · Y3
         let (y3, _) = b.mul(cs, y3)?;
-        // 25. X3 ← t4 · Y3 
+        // 25. X3 ← t4 · Y3
         let (x3, (t4, y3)) = t4.mul(cs, y3)?;
-        // 26. t2 ← t3 · t1 
+        // 26. t2 ← t3 · t1
         let (t2, (t3, t1)) = t3.mul(cs, t1)?;
         // 27. X3 ← t2 − X3
         let (x3, (t2, _)) = t2.sub(cs, x3)?;
-        // 28. Y3 ← Y3 · t0 
+        // 28. Y3 ← Y3 · t0
         let (y3, (_, t0)) = y3.mul(cs, t0)?;
-        // 29. t1 ← t1 · Z3 
+        // 29. t1 ← t1 · Z3
         let (t1, (_, z3)) = t1.mul(cs, z3)?;
         // 30. Y3 ← t1 + Y3
         let (y3, (t1, _)) = t1.add(cs, y3)?;
-        // 31. t0 ← t0 · t3 
+        // 31. t0 ← t0 · t3
         let (t0, (_, t3)) = t0.mul(cs, t3)?;
-        // 32. Z3 ← Z3 · t4 
+        // 32. Z3 ← Z3 · t4
         let (z3, (_, t4)) = z3.mul(cs, t4)?;
         // 33. Z3 ← Z3 + t0
         let (z3, _) = z3.add(cs, t0)?;
@@ -372,29 +318,29 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
                 tmp.add_assign(&other);
 
                 Some(tmp)
-            },
-            _ => None
+            }
+            _ => None,
         };
-   
+
         let new = Self {
             x: x3,
             y: y3,
             z: z3,
-            value: new_value
+            value: new_value,
         };
 
         let this = Self {
             x: x1,
             y: y1,
             z: z1,
-            value: this_value
+            value: this_value,
         };
 
         let other = Self {
             x: x2,
             y: y2,
             z: z2,
-            value: other_value
+            value: other_value,
         };
 
         Ok((new, (this, other)))
@@ -407,10 +353,10 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
     //     other: Self
     // ) -> Result<(Self, (Self, Self)), SynthesisError> {
     //     // since we are in a circuit we don't use projective coodinates cause inversions are
-    //     // "cheap" in terms of constraints 
+    //     // "cheap" in terms of constraints
 
     //     // we also do not want to have branching here,
-    //     // so this function implicitly requires that 
+    //     // so this function implicitly requires that
     //     // points are not equal
 
     //     // we need to calculate lambda = (y' - y)/(x' - x). We don't care about a particular
@@ -449,7 +395,7 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
     //     // lambda * -(x - new_x) + (- y)
 
     //     let (new_x_minus_this_x, (new_x, this_x)) = new_x.sub(cs, this_x)?;
-        
+
     //     let (new_y, _) = lambda.fma_with_addition_chain(cs, new_x_minus_this_x, vec![this_y_negated])?;
 
     //     let new_value = match (this_value, other_value) {
@@ -464,7 +410,7 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
     //         },
     //         _ => None
     //     };
-   
+
     //     let new = Self {
     //         x: new_x,
     //         y: new_y,
@@ -483,7 +429,6 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
     //         value: other_value
     //     };
 
-
     //     Ok((new, (this, other)))
     // }
 
@@ -493,53 +438,49 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
         self,
         cs: &mut CS,
     ) -> Result<(Self, Self), SynthesisError> {
-
         let params = self.x.representation_params;
 
         let curve_b = G::b_coeff();
-        let b = FieldElement::new_constant(
-            curve_b,
-            params
-        );
+        let b = FieldElement::new_constant(curve_b, params);
         let this_value = self.value;
 
         let x = self.x;
         let y = self.y;
         let z = self.z;
 
-        // 1. t0 ← Y · Y 
+        // 1. t0 ← Y · Y
         let (t0, y) = y.square(cs)?;
-        // 2. Z3 ← t0 + t0 
+        // 2. Z3 ← t0 + t0
         let (z3, t0) = t0.double(cs)?;
         // 3. Z3 ← Z3 + Z3
         let (z3, _) = z3.double(cs)?;
-        // 4. Z3 ← Z3 + Z3 
+        // 4. Z3 ← Z3 + Z3
         let (z3, _) = z3.double(cs)?;
-        // 5. t1 ← Y · Z 
+        // 5. t1 ← Y · Z
         let (t1, (y, z)) = y.mul(cs, z)?;
         // 6. t2 ← Z · Z
         let (t2, z) = z.square(cs)?;
-        // 7. t2 ← b3 · t2 
+        // 7. t2 ← b3 · t2
         let (t2, _) = b.mul(cs, t2)?;
-        // 8. X3 ← t2 · Z3 
+        // 8. X3 ← t2 · Z3
         let (x3, (t2, z3)) = t2.mul(cs, z3)?;
         // 9. Y3 ← t0 + t2
         let (y3, (t0, t2)) = t0.add(cs, t2)?;
-        // 10. Z3 ← t1 · Z3 
+        // 10. Z3 ← t1 · Z3
         let (z3, (t1, _)) = t1.mul(cs, z3)?;
-        // 11. t1 ← t2 + t2 
+        // 11. t1 ← t2 + t2
         let (t1, t2) = t2.double(cs)?;
         // 12. t2 ← t1 + t2
         let (t2, (t1, _)) = t1.add(cs, t2)?;
-        // 13. t0 ← t0 − t2 
+        // 13. t0 ← t0 − t2
         let (t0, (_, t2)) = t0.sub(cs, t2)?;
-        // 14. Y3 ← t0 · Y3 
+        // 14. Y3 ← t0 · Y3
         let (y3, (t0, _)) = t0.mul(cs, y3)?;
         // 15. Y3 ← X3 + Y3
         let (y3, (x3, _)) = x3.add(cs, y3)?;
-        // 16. t1 ← X · Y 
+        // 16. t1 ← X · Y
         let (t1, (x, y)) = x.mul(cs, y)?;
-        // 17. X3 ← t0 · t1 
+        // 17. X3 ← t0 · t1
         let (x3, (t0, t1)) = t0.mul(cs, t1)?;
         // 18. X3 ← X3 + X3
         let (x3, _) = x3.double(cs)?;
@@ -550,19 +491,19 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
 
             tmp
         });
-   
+
         let new = Self {
             x: x3,
             y: y3,
             z: z3,
-            value: new_value
+            value: new_value,
         };
 
         let this = Self {
             x: x,
             y: y,
             z: z,
-            value: this_value
+            value: this_value,
         };
 
         Ok((new, this))
@@ -571,7 +512,7 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
     pub fn mul_by_fixed_scalar<CS: ConstraintSystem<E>>(
         self,
         _cs: &mut CS,
-        _scalar: &G::Scalar
+        _scalar: &G::Scalar,
     ) -> Result<(Self, Self), SynthesisError> {
         unimplemented!()
     }
@@ -580,9 +521,8 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
         cs: &mut CS,
         flag: &Boolean,
         first: Self,
-        second: Self
+        second: Self,
     ) -> Result<(Self, (Self, Self)), SynthesisError> {
-
         let first_value = first.value;
         let second_value = second.value;
         let (x, (first_x, second_x)) = FieldElement::select(cs, flag, first.x, second.x)?;
@@ -592,28 +532,28 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
         let value = match (flag.get_value(), first_value, second_value) {
             (Some(true), Some(p), _) => Some(p),
             (Some(false), _, Some(p)) => Some(p),
-            (_, _, _) => None
+            (_, _, _) => None,
         };
 
-        let selected = Self { 
-            x: x, 
-            y: y, 
+        let selected = Self {
+            x: x,
+            y: y,
             z: z,
-            value 
+            value,
         };
 
         let first = Self {
             x: first_x,
             y: first_y,
             z: first_z,
-            value: first_value
+            value: first_value,
         };
 
         let second = Self {
             x: second_x,
             y: second_y,
             z: second_z,
-            value: second_value
+            value: second_value,
         };
 
         Ok((selected, (first, second)))
@@ -650,7 +590,6 @@ impl<'a, E: Engine, G: GenericCurveAffine> PointProjective<'a, E, G> where <G as
     //         value
     //     };
 
-
     //     Ok((is_on_curve, p))
     // }
 }
@@ -661,11 +600,14 @@ impl<'a, E: Engine> PointProjective<'a, E, E::G1Affine> {
     pub fn mul<CS: ConstraintSystem<E>>(
         self,
         cs: &mut CS,
-        scalar: &Num::<E>,
-        _bit_limit: Option<usize>
+        scalar: &Num<E>,
+        _bit_limit: Option<usize>,
     ) -> Result<(Self, Self), SynthesisError> {
         if let Some(value) = scalar.get_value() {
-            assert!(!value.is_zero(), "can not multiply by zero in the current approach");
+            assert!(
+                !value.is_zero(),
+                "can not multiply by zero in the current approach"
+            );
         }
         if scalar.is_constant() {
             return self.mul_by_fixed_scalar(cs, &scalar.get_value().unwrap());
@@ -683,9 +625,11 @@ impl<'a, E: Engine> PointProjective<'a, E, E::G1Affine> {
         let mut result = Self::zero(params);
         for b in bits.iter().rev() {
             let (result_doubled, result_copy) = result.double(cs)?;
-            let (result_doubled_and_added, (result_doubled, t)) = result_doubled.add(cs, this_copy)?;
+            let (result_doubled_and_added, (result_doubled, t)) =
+                result_doubled.add(cs, this_copy)?;
             this_copy = t;
-            let (selected_result, _) = Self::select(cs, b, result_doubled_and_added, result_doubled)?;
+            let (selected_result, _) =
+                Self::select(cs, b, result_doubled_and_added, result_doubled)?;
             result = selected_result;
         }
 
@@ -693,10 +637,9 @@ impl<'a, E: Engine> PointProjective<'a, E, E::G1Affine> {
             (Some(scalar), Some(value), Some(result)) => {
                 let tmp = value.mul(scalar.into_repr());
                 assert_eq!(tmp.into_affine(), result);
-            },
+            }
             _ => {}
         }
-
 
         Ok((result, this))
     }
@@ -735,7 +678,7 @@ impl<'a, E: Engine> PointProjective<'a, E, E::G1Affine> {
     //     // and unknown discrete log allows us to be "safe"
 
     //     let offset_generator = crate::constants::make_random_points_with_unknown_discrete_log::<E>(
-    //         &crate::constants::MULTIEXP_DST[..], 
+    //         &crate::constants::MULTIEXP_DST[..],
     //         1
     //     )[0];
 
@@ -803,7 +746,7 @@ impl<'a, E: Engine> PointProjective<'a, E, E::G1Affine> {
 
     //         acc = result;
     //     }
-        
+
     //     let shift = BigUint::from(1u64) << num_doubles;
     //     let as_scalar_repr = biguint_to_repr::<E::Fr>(shift);
     //     let offset_value = offset_generator.mul(as_scalar_repr).into_affine();
@@ -820,15 +763,17 @@ impl<'a, E: Engine> PointProjective<'a, E, E::G1Affine> {
 mod test {
     use super::*;
 
+    use crate::bellman::pairing::bn256::{Bn256, Fq, Fr, G1Affine};
     use crate::plonk::circuit::*;
-    use crate::bellman::pairing::bn256::{Fq, Bn256, Fr, G1Affine};
 
     #[test]
-    fn test_add_on_random_witnesses(){
-        use crate::plonk::circuit::tables::inscribe_default_range_table_for_bit_width_over_first_three_columns;
+    fn test_add_on_random_witnesses() {
+        use crate::plonk::circuit::bigint::single_table_range_constraint::{
+            print_stats, reset_stats,
+        };
         use crate::plonk::circuit::bigint::*;
-        use crate::plonk::circuit::bigint::single_table_range_constraint::{reset_stats, print_stats};
-        use rand::{XorShiftRng, SeedableRng, Rng};
+        use crate::plonk::circuit::tables::inscribe_default_range_table_for_bit_width_over_first_three_columns;
+        use rand::{Rng, SeedableRng, XorShiftRng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         let info = RangeConstraintInfo {
@@ -838,37 +783,28 @@ mod test {
             linear_terms_used: 3,
             strategy: RangeConstraintStrategy::SingleTableInvocation,
         };
-        let params = RnsParameters::<Bn256, Fq>::new_for_field_with_strategy(
-            68,
-            110, 
-            4, 
-            info,
-            true
-        );
-    
+        let params =
+            RnsParameters::<Bn256, Fq>::new_for_field_with_strategy(68, 110, 4, info, true);
+
         for i in 0..100 {
-            let mut cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
-            inscribe_default_range_table_for_bit_width_over_first_three_columns(&mut cs, 17).unwrap();
+            let mut cs =
+                TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+            inscribe_default_range_table_for_bit_width_over_first_three_columns(&mut cs, 17)
+                .unwrap();
             reset_stats();
             let a_f: G1Affine = rng.gen();
             let b_f: G1Affine = rng.gen();
-            let a = PointProjective::alloc_from_affine_non_zero(
-                &mut cs, 
-                Some(a_f), 
-                &params
-            ).unwrap();
+            let a =
+                PointProjective::alloc_from_affine_non_zero(&mut cs, Some(a_f), &params).unwrap();
 
-            let b = PointProjective::alloc_from_affine_non_zero(
-                &mut cs, 
-                Some(b_f), 
-                &params
-            ).unwrap();
+            let b =
+                PointProjective::alloc_from_affine_non_zero(&mut cs, Some(b_f), &params).unwrap();
 
             let mut addition_result = a_f.into_projective();
             addition_result.add_assign_mixed(&b_f);
 
             let addition_result = addition_result.into_affine();
-    
+
             let (result, (a, b)) = a.add(&mut cs, b).unwrap();
 
             assert!(cs.is_satisfied());
@@ -900,7 +836,6 @@ mod test {
         }
     }
 
-
     // #[test]
     // fn test_add_with_constant_on_random_witnesses(){
     //     use rand::{XorShiftRng, SeedableRng, Rng};
@@ -914,8 +849,8 @@ mod test {
     //         let a_f: G1Affine = rng.gen();
     //         let b_f: G1Affine = rng.gen();
     //         let a = AffinePoint::alloc(
-    //             &mut cs, 
-    //             Some(a_f), 
+    //             &mut cs,
+    //             Some(a_f),
     //             &params
     //         ).unwrap();
 
@@ -923,7 +858,7 @@ mod test {
     //             b_f,
     //             &params
     //         );
-    
+
     //         let (result, (a, b)) = a.add_unequal(&mut cs, b).unwrap();
 
     //         assert!(cs.is_satisfied());
@@ -965,17 +900,17 @@ mod test {
     //         let a_f: G1Affine = rng.gen();
     //         let b_f: G1Affine = rng.gen();
     //         let a = AffinePoint::alloc(
-    //             &mut cs, 
-    //             Some(a_f), 
+    //             &mut cs,
+    //             Some(a_f),
     //             &params
     //         ).unwrap();
 
     //         let b = AffinePoint::alloc(
-    //             &mut cs, 
-    //             Some(b_f), 
+    //             &mut cs,
+    //             Some(b_f),
     //             &params
     //         ).unwrap();
-    
+
     //         let (result, (a, b)) = a.sub_unequal(&mut cs, b).unwrap();
 
     //         assert!(cs.is_satisfied());
@@ -1017,11 +952,11 @@ mod test {
     //         let a_f: G1Affine = rng.gen();
 
     //         let a = AffinePoint::alloc(
-    //             &mut cs, 
-    //             Some(a_f), 
+    //             &mut cs,
+    //             Some(a_f),
     //             &params
     //         ).unwrap();
-    
+
     //         let (result, a) = a.double(&mut cs).unwrap();
 
     //         assert!(cs.is_satisfied());
@@ -1047,11 +982,13 @@ mod test {
     // }
 
     #[test]
-    fn test_base_curve_multiplication_with_range_table(){
-        use crate::plonk::circuit::tables::inscribe_default_range_table_for_bit_width_over_first_three_columns;
+    fn test_base_curve_multiplication_with_range_table() {
+        use crate::plonk::circuit::bigint::single_table_range_constraint::{
+            print_stats, reset_stats,
+        };
         use crate::plonk::circuit::bigint::*;
-        use crate::plonk::circuit::bigint::single_table_range_constraint::{reset_stats, print_stats};
-        use rand::{XorShiftRng, SeedableRng, Rng};
+        use crate::plonk::circuit::tables::inscribe_default_range_table_for_bit_width_over_first_three_columns;
+        use rand::{Rng, SeedableRng, XorShiftRng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         let info = RangeConstraintInfo {
@@ -1061,36 +998,25 @@ mod test {
             linear_terms_used: 3,
             strategy: RangeConstraintStrategy::SingleTableInvocation,
         };
-        let params = RnsParameters::<Bn256, Fq>::new_for_field_with_strategy(
-            68,
-            110, 
-            4, 
-            info,
-            true
-        );
+        let params =
+            RnsParameters::<Bn256, Fq>::new_for_field_with_strategy(68, 110, 4, info, true);
 
         for i in 0..10 {
-            let mut cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
-            inscribe_default_range_table_for_bit_width_over_first_three_columns(&mut cs, 17).unwrap();
+            let mut cs =
+                TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+            inscribe_default_range_table_for_bit_width_over_first_three_columns(&mut cs, 17)
+                .unwrap();
 
             let a_f: G1Affine = rng.gen();
             let b_f: Fr = rng.gen();
 
-            let a = PointProjective::alloc_from_affine_non_zero(
-                &mut cs, 
-                Some(a_f), 
-                &params
-            ).unwrap();
+            let a =
+                PointProjective::alloc_from_affine_non_zero(&mut cs, Some(a_f), &params).unwrap();
 
-            let b = AllocatedNum::alloc(
-                &mut cs, 
-                || {
-                    Ok(b_f)
-                }
-            ).unwrap();
+            let b = AllocatedNum::alloc(&mut cs, || Ok(b_f)).unwrap();
 
             let b = Num::Variable(b);
-    
+
             let (result, a) = a.mul(&mut cs, &b, None).unwrap();
 
             let result_recalculated = a_f.mul(b_f.into_repr()).into_affine();
@@ -1121,8 +1047,14 @@ mod test {
                 crate::plonk::circuit::counter::reset_counter();
                 let base = cs.n();
                 let _ = a.mul(&mut cs, &b, None).unwrap();
-                println!("Projective single multiplication taken {} gates", cs.n() - base);
-                println!("Projective spent {} gates in equality checks", crate::plonk::circuit::counter::output_counter());
+                println!(
+                    "Projective single multiplication taken {} gates",
+                    cs.n() - base
+                );
+                println!(
+                    "Projective spent {} gates in equality checks",
+                    crate::plonk::circuit::counter::output_counter()
+                );
                 print_stats();
             }
         }
@@ -1142,13 +1074,13 @@ mod test {
     //         let b_f: Fr = rng.gen();
 
     //         let a = AffinePoint::alloc(
-    //             &mut cs, 
-    //             Some(a_f), 
+    //             &mut cs,
+    //             Some(a_f),
     //             &params
     //         ).unwrap();
 
     //         let b = AllocatedNum::alloc(
-    //             &mut cs, 
+    //             &mut cs,
     //             || {
     //                 Ok(b_f)
     //             }
@@ -1208,12 +1140,12 @@ mod test {
     //             a_s.push(a_f);
     //             b_s.push(b_f);
     //         }
-            
+
     //         let mut a_p = vec![];
     //         for a in a_s.iter() {
     //             let a = AffinePoint::alloc(
-    //                 &mut cs, 
-    //                 Some(*a), 
+    //                 &mut cs,
+    //                 Some(*a),
     //                 &params
     //             ).unwrap();
 
@@ -1224,7 +1156,7 @@ mod test {
 
     //         for b in b_s.iter() {
     //             let b = AllocatedNum::alloc(
-    //                 &mut cs, 
+    //                 &mut cs,
     //                 || {
     //                     Ok(*b)
     //                 }
@@ -1289,12 +1221,12 @@ mod test {
     //             a_s.push(a_f);
     //             b_s.push(b_f);
     //         }
-            
+
     //         let mut a_p = vec![];
     //         for a in a_s.iter() {
     //             let a = AffinePoint::alloc(
-    //                 &mut cs, 
-    //                 Some(*a), 
+    //                 &mut cs,
+    //                 Some(*a),
     //                 &params
     //             ).unwrap();
 
@@ -1305,7 +1237,7 @@ mod test {
 
     //         for b in b_s.iter() {
     //             let b = AllocatedNum::alloc(
-    //                 &mut cs, 
+    //                 &mut cs,
     //                 || {
     //                     Ok(*b)
     //                 }
@@ -1370,12 +1302,12 @@ mod test {
     //             a_s.push(a_f);
     //             b_s.push(b_f);
     //         }
-            
+
     //         let mut a_p = vec![];
     //         for a in a_s.iter() {
     //             let a = AffinePoint::alloc(
-    //                 &mut cs, 
-    //                 Some(*a), 
+    //                 &mut cs,
+    //                 Some(*a),
     //                 &params
     //             ).unwrap();
 
@@ -1386,7 +1318,7 @@ mod test {
 
     //         for b in b_s.iter() {
     //             let b = AllocatedNum::alloc(
-    //                 &mut cs, 
+    //                 &mut cs,
     //                 || {
     //                     Ok(*b)
     //                 }
@@ -1451,12 +1383,12 @@ mod test {
     //             a_s.push(a_f);
     //             b_s.push(b_f);
     //         }
-            
+
     //         let mut a_p = vec![];
     //         for a in a_s.iter() {
     //             let a = AffinePoint::alloc(
-    //                 &mut cs, 
-    //                 Some(*a), 
+    //                 &mut cs,
+    //                 Some(*a),
     //                 &params
     //             ).unwrap();
 
@@ -1467,7 +1399,7 @@ mod test {
 
     //         for b in b_s.iter() {
     //             let b = AllocatedNum::alloc(
-    //                 &mut cs, 
+    //                 &mut cs,
     //                 || {
     //                     Ok(*b)
     //                 }
@@ -1534,9 +1466,9 @@ mod test {
     //         // let strats = get_range_constraint_info(&cs);
 
     //         // let mut params = RnsParameters::<Bls12, Fq>::new_for_field_with_strategy(
-    //         //     96, 
-    //         //     110, 
-    //         //     6, 
+    //         //     96,
+    //         //     110,
+    //         //     6,
     //         //     strats[0],
     //         //     true
     //         // );
@@ -1553,12 +1485,12 @@ mod test {
     //             a_s.push(a_f);
     //             b_s.push(b_f);
     //         }
-            
+
     //         let mut a_p = vec![];
     //         for a in a_s.iter() {
     //             let a = AffinePoint::alloc(
-    //                 &mut cs, 
-    //                 Some(*a), 
+    //                 &mut cs,
+    //                 Some(*a),
     //                 &params
     //             ).unwrap();
 
@@ -1569,7 +1501,7 @@ mod test {
 
     //         for b in b_s.iter() {
     //             let b = AllocatedNum::alloc(
-    //                 &mut cs, 
+    //                 &mut cs,
     //                 || {
     //                     Ok(*b)
     //                 }
@@ -1636,9 +1568,9 @@ mod test {
     //     let strats = get_range_constraint_info(&cs);
 
     //     let mut params = RnsParameters::<Bls12, Fq>::new_for_field_with_strategy(
-    //         96, 
-    //         110, 
-    //         6, 
+    //         96,
+    //         110,
+    //         6,
     //         strats[0],
     //         true
     //     );
@@ -1655,12 +1587,12 @@ mod test {
     //         a_s.push(a_f);
     //         b_s.push(b_f);
     //     }
-        
+
     //     let mut a_p = vec![];
     //     for a in a_s.iter() {
     //         let a = AffinePoint::alloc(
-    //             &mut cs, 
-    //             Some(*a), 
+    //             &mut cs,
+    //             Some(*a),
     //             &params
     //         ).unwrap();
 
@@ -1671,7 +1603,7 @@ mod test {
 
     //     for b in b_s.iter() {
     //         let b = AllocatedNum::alloc(
-    //             &mut cs, 
+    //             &mut cs,
     //             || {
     //                 Ok(*b)
     //             }

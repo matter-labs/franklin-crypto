@@ -7,14 +7,17 @@ pub fn scalar_to_radix_16<E: Engine, C: TwistedEdwardsCurveParams<E>>(scalar: &C
     scalar_words_to_radix_16::<E, C, _>(&repr)
 }
 
-pub fn scalar_words_to_radix_16<E: Engine, C: TwistedEdwardsCurveParams<E>, S: AsRef<[u64]>>(scalar_words: &S) -> Vec<i8> {
+pub fn scalar_words_to_radix_16<E: Engine, C: TwistedEdwardsCurveParams<E>, S: AsRef<[u64]>>(
+    scalar_words: &S,
+) -> Vec<i8> {
     let as_ref = scalar_words.as_ref();
     let mut buf = Vec::with_capacity(as_ref.len() * 8);
 
     use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 
     for w in as_ref.iter() {
-        buf.write_u64::<LittleEndian>(*w).expect("must write u64 into Vec");
+        buf.write_u64::<LittleEndian>(*w)
+            .expect("must write u64 into Vec");
     }
 
     debug_assert!(*buf.last().expect("is some byte") <= 127);

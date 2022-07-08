@@ -25,11 +25,7 @@ pub fn u128_to_fe<F: PrimeField>(value: u128) -> F {
 }
 
 pub fn u64_to_le_bits(value: u64, limit: Option<usize>) -> Vec<bool> {
-    let limit = if let Some(limit) = limit {
-        limit
-    } else {
-        64
-    };
+    let limit = if let Some(limit) = limit { limit } else { 64 };
 
     let mut bits: Vec<bool> = BitIterator::new(&[value]).collect();
     bits.reverse();
@@ -55,10 +51,18 @@ pub fn fe_to_le_bits<F: PrimeField>(value: F, limit: Option<usize>) -> Vec<bool>
 struct ZeroPaddingBuffer<'a>(&'a [u8]);
 
 impl<'a> std::io::Read for ZeroPaddingBuffer<'a> {
-    fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> { unimplemented!() }
-    fn read_vectored(&mut self, _bufs: &mut [std::io::IoSliceMut<'_>]) -> std::io::Result<usize> { unimplemented!( )}
-    fn read_to_end(&mut self, _buf: &mut Vec<u8>) -> std::io::Result<usize> { unimplemented!() }
-    fn read_to_string(&mut self, _buf: &mut String) -> std::io::Result<usize> { unimplemented!() }
+    fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+        unimplemented!()
+    }
+    fn read_vectored(&mut self, _bufs: &mut [std::io::IoSliceMut<'_>]) -> std::io::Result<usize> {
+        unimplemented!()
+    }
+    fn read_to_end(&mut self, _buf: &mut Vec<u8>) -> std::io::Result<usize> {
+        unimplemented!()
+    }
+    fn read_to_string(&mut self, _buf: &mut String) -> std::io::Result<usize> {
+        unimplemented!()
+    }
     fn read_exact(&mut self, buf: &mut [u8]) -> std::io::Result<()> {
         let bytes_available = self.0.len();
         let len = buf.len();
@@ -76,20 +80,48 @@ impl<'a> std::io::Read for ZeroPaddingBuffer<'a> {
         }
         Ok(())
     }
-    fn by_ref(&mut self) -> &mut Self where Self: Sized, { self }
-    fn bytes(self) -> std::io::Bytes<Self> where Self: Sized { unimplemented!() }
-    fn chain<R: std::io::Read>(self, _next: R) -> std::io::Chain<Self, R> where Self: Sized { unimplemented!() }
-    fn take(self, _limit: u64) -> std::io::Take<Self> where Self: Sized { unimplemented!() }
+    fn by_ref(&mut self) -> &mut Self
+    where
+        Self: Sized,
+    {
+        self
+    }
+    fn bytes(self) -> std::io::Bytes<Self>
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
+    fn chain<R: std::io::Read>(self, _next: R) -> std::io::Chain<Self, R>
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
+    fn take(self, _limit: u64) -> std::io::Take<Self>
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
 }
 
 #[derive(Clone, Copy)]
 struct ZeroPrePaddingBuffer<'a>(&'a [u8], usize);
 
 impl<'a> std::io::Read for ZeroPrePaddingBuffer<'a> {
-    fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> { unimplemented!() }
-    fn read_vectored(&mut self, _bufs: &mut [std::io::IoSliceMut<'_>]) -> std::io::Result<usize> { unimplemented!( )}
-    fn read_to_end(&mut self, _buf: &mut Vec<u8>) -> std::io::Result<usize> { unimplemented!() }
-    fn read_to_string(&mut self, _buf: &mut String) -> std::io::Result<usize> { unimplemented!() }
+    fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+        unimplemented!()
+    }
+    fn read_vectored(&mut self, _bufs: &mut [std::io::IoSliceMut<'_>]) -> std::io::Result<usize> {
+        unimplemented!()
+    }
+    fn read_to_end(&mut self, _buf: &mut Vec<u8>) -> std::io::Result<usize> {
+        unimplemented!()
+    }
+    fn read_to_string(&mut self, _buf: &mut String) -> std::io::Result<usize> {
+        unimplemented!()
+    }
     fn read_exact(&mut self, buf: &mut [u8]) -> std::io::Result<()> {
         let bytes_available = self.0.len();
         let padding_available = self.1;
@@ -119,23 +151,44 @@ impl<'a> std::io::Read for ZeroPrePaddingBuffer<'a> {
                 self.0 = &[];
             }
         }
-        
+
         Ok(())
     }
-    fn by_ref(&mut self) -> &mut Self where Self: Sized, { self }
-    fn bytes(self) -> std::io::Bytes<Self> where Self: Sized { unimplemented!() }
-    fn chain<R: std::io::Read>(self, _next: R) -> std::io::Chain<Self, R> where Self: Sized { unimplemented!() }
-    fn take(self, _limit: u64) -> std::io::Take<Self> where Self: Sized { unimplemented!() }
+    fn by_ref(&mut self) -> &mut Self
+    where
+        Self: Sized,
+    {
+        self
+    }
+    fn bytes(self) -> std::io::Bytes<Self>
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
+    fn chain<R: std::io::Read>(self, _next: R) -> std::io::Chain<Self, R>
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
+    fn take(self, _limit: u64) -> std::io::Take<Self>
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
 }
 
 #[track_caller]
-pub fn pack_be_bytes_to_fe<F: PrimeField>(bytes: &[u8]) -> Result<F, SynthesisError>{
+pub fn pack_be_bytes_to_fe<F: PrimeField>(bytes: &[u8]) -> Result<F, SynthesisError> {
     let mut repr = F::zero().into_repr();
     let expected_len = repr.as_ref().len() * 8;
     assert!(bytes.len() <= expected_len);
     let padding = expected_len - bytes.len();
     let buff = ZeroPrePaddingBuffer(&bytes, padding);
-    repr.read_be(buff).map_err(|_| SynthesisError::Unsatisfiable)?;
+    repr.read_be(buff)
+        .map_err(|_| SynthesisError::Unsatisfiable)?;
     let el = F::from_repr(repr).map_err(|_| SynthesisError::Unsatisfiable)?;
 
     Ok(el)
@@ -145,7 +198,8 @@ pub fn pack_be_bytes_to_fe<F: PrimeField>(bytes: &[u8]) -> Result<F, SynthesisEr
 pub fn pack_le_bytes_to_fe<F: PrimeField>(bytes: &[u8]) -> Result<F, SynthesisError> {
     let buff = ZeroPaddingBuffer(&bytes);
     let mut repr = F::zero().into_repr();
-    repr.read_le(buff).map_err(|_| SynthesisError::Unsatisfiable)?;
+    repr.read_le(buff)
+        .map_err(|_| SynthesisError::Unsatisfiable)?;
     let el = F::from_repr(repr).map_err(|_| SynthesisError::Unsatisfiable)?;
 
     Ok(el)
@@ -155,7 +209,8 @@ pub fn pack_le_bytes_to_fe<F: PrimeField>(bytes: &[u8]) -> Result<F, SynthesisEr
 pub fn fe_to_be_bytes<F: PrimeField>(el: &F) -> Result<Vec<u8>, SynthesisError> {
     let mut buffer = vec![];
     let repr = el.into_repr();
-    repr.write_be(&mut buffer).map_err(|_| SynthesisError::Unsatisfiable)?;
+    repr.write_be(&mut buffer)
+        .map_err(|_| SynthesisError::Unsatisfiable)?;
 
     Ok(buffer)
 }
@@ -164,7 +219,8 @@ pub fn fe_to_be_bytes<F: PrimeField>(el: &F) -> Result<Vec<u8>, SynthesisError> 
 pub fn fe_to_le_bytes<F: PrimeField>(el: &F) -> Result<Vec<u8>, SynthesisError> {
     let mut buffer = vec![];
     let repr = el.into_repr();
-    repr.write_le(&mut buffer).map_err(|_| SynthesisError::Unsatisfiable)?;
+    repr.write_le(&mut buffer)
+        .map_err(|_| SynthesisError::Unsatisfiable)?;
 
     Ok(buffer)
 }
@@ -217,5 +273,6 @@ pub fn is_selector_specialized_gate<E: Engine, CS: ConstraintSystem<E>>() -> boo
     use bellman::plonk::better_better_cs::gates::selector_optimized_with_d_next::SelectorOptimizedWidth4MainGateWithDNext;
     use std::any::Any;
 
-    Any::type_id(&CS::MainGate::default()) == Any::type_id(&SelectorOptimizedWidth4MainGateWithDNext)
+    Any::type_id(&CS::MainGate::default())
+        == Any::type_id(&SelectorOptimizedWidth4MainGateWithDNext)
 }

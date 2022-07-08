@@ -1,37 +1,24 @@
 pub mod aux_data;
 
-use crate::bellman::pairing::{
-    Engine,
-    GenericCurveAffine,
-    CurveProjective,
-};
+use crate::bellman::pairing::{CurveProjective, Engine, GenericCurveAffine};
 
-use crate::bellman::pairing::ff::{
-    Field,
-    PrimeField,
-    BitIterator,
-};
+use crate::bellman::pairing::ff::{BitIterator, Field, PrimeField};
 
-use crate::bellman::{
-    SynthesisError,
-};
+use crate::bellman::SynthesisError;
 
 use crate::bellman::plonk::better_better_cs::cs::{
-    Variable, 
-    ConstraintSystem,
-    PlonkConstraintSystemParams,
+    ConstraintSystem, PlonkConstraintSystemParams, Variable,
 };
 
-use crate::plonk::circuit::curve::sw_affine::*;
-use crate::plonk::circuit::bigint::field::*;
 use crate::plonk::circuit::allocated_num::*;
+use crate::plonk::circuit::bigint::field::*;
 use crate::plonk::circuit::boolean::*;
+use crate::plonk::circuit::curve::sw_affine::*;
 
 pub trait WrappedAffinePoint<'a, E: Engine>: Sized + Clone + std::fmt::Debug {
-
     fn get_point(&self) -> &AffinePoint<E, E::G1Affine>;
     fn get_zero_flag(&self) -> Boolean;
-   
+
     fn alloc<CS: ConstraintSystem<E>, AD: aux_data::AuxData<E>>(
         cs: &mut CS,
         value: Option<E::G1Affine>,
@@ -43,7 +30,7 @@ pub trait WrappedAffinePoint<'a, E: Engine>: Sized + Clone + std::fmt::Debug {
         cs: &mut CS,
         value: Option<E::G1Affine>,
         params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
-    ) -> Result<Self, SynthesisError>; 
+    ) -> Result<Self, SynthesisError>;
 
     fn from_allocated_limb_witness<'b, CS: ConstraintSystem<E>, AD: aux_data::AuxData<E>>(
         _cs: &mut CS,
@@ -55,10 +42,10 @@ pub trait WrappedAffinePoint<'a, E: Engine>: Sized + Clone + std::fmt::Debug {
     }
 
     fn zero(params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>) -> Self;
-    
+
     fn constant(
         value: E::G1Affine,
-        params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>
+        params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
     ) -> Self;
 
     fn equals<CS: ConstraintSystem<E>>(
@@ -66,14 +53,14 @@ pub trait WrappedAffinePoint<'a, E: Engine>: Sized + Clone + std::fmt::Debug {
         cs: &mut CS,
         other: &Self,
         _params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
-    ) -> Result<Boolean, SynthesisError>; 
+    ) -> Result<Boolean, SynthesisError>;
 
     fn add<CS: ConstraintSystem<E>>(
         &mut self,
         cs: &mut CS,
         other: &mut Self,
         params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
-    ) -> Result<Self, SynthesisError>; 
+    ) -> Result<Self, SynthesisError>;
 
     fn sub<CS: ConstraintSystem<E>>(
         &mut self,
@@ -86,39 +73,39 @@ pub trait WrappedAffinePoint<'a, E: Engine>: Sized + Clone + std::fmt::Debug {
         &mut self,
         cs: &mut CS,
         _params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
-    ) -> Result<Self, SynthesisError>; 
+    ) -> Result<Self, SynthesisError>;
 
     fn negate<CS: ConstraintSystem<E>>(
         &mut self,
         cs: &mut CS,
         _params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
-    ) -> Result<Self, SynthesisError>; 
+    ) -> Result<Self, SynthesisError>;
 
     fn select<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         flag: &Boolean,
         first: Self,
-        second: Self
+        second: Self,
     ) -> Result<Self, SynthesisError>;
-    
+
     fn is_on_curve<CS: ConstraintSystem<E>, AD: aux_data::AuxData<E>>(
         &self,
         cs: &mut CS,
         params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
         aux_data: &AD,
-    ) -> Result<Boolean, SynthesisError>; 
+    ) -> Result<Boolean, SynthesisError>;
 
     fn subgroup_check<CS: ConstraintSystem<E>, AD: aux_data::AuxData<E>>(
         &self,
         cs: &mut CS,
         params: &RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
         aux_data: &AD,
-    ) -> Result<Boolean, SynthesisError>; 
+    ) -> Result<Boolean, SynthesisError>;
 
     fn mul<CS: ConstraintSystem<E>, AD: aux_data::AuxData<E>>(
         &mut self,
         cs: &mut CS,
-        scalar: &AllocatedNum::<E>,
+        scalar: &AllocatedNum<E>,
         bit_limit: Option<usize>,
         params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
         aux_data: &AD,
@@ -126,7 +113,7 @@ pub trait WrappedAffinePoint<'a, E: Engine>: Sized + Clone + std::fmt::Debug {
 
     fn multiexp<CS: ConstraintSystem<E>, AD: aux_data::AuxData<E>>(
         cs: &mut CS,
-        scalars: &[AllocatedNum::<E>],
+        scalars: &[AllocatedNum<E>],
         points: &[Self],
         bit_limit: Option<usize>,
         params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
@@ -134,7 +121,6 @@ pub trait WrappedAffinePoint<'a, E: Engine>: Sized + Clone + std::fmt::Debug {
     ) -> Result<Self, SynthesisError>;
 }
 
-
 // pub mod with_zero_flag;
-pub mod without_flag_unchecked;
 pub mod without_flag_checked;
+pub mod without_flag_unchecked;

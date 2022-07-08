@@ -1,7 +1,7 @@
-use bellman::pairing::ff::{Field, PrimeField, PrimeFieldRepr};
-use bellman::pairing::{Engine};
-use std::marker::PhantomData;
 use super::group_hash::GroupHasher;
+use bellman::pairing::ff::{Field, PrimeField, PrimeFieldRepr};
+use bellman::pairing::Engine;
+use std::marker::PhantomData;
 
 use rand::{Rand, Rng};
 
@@ -14,11 +14,10 @@ pub trait SBox<E: Engine>: Sized + Clone + std::fmt::Debug {
 
 #[derive(Clone, Debug)]
 pub struct CubicSBox<E: Engine> {
-    pub _marker: PhantomData<E>
+    pub _marker: PhantomData<E>,
 }
 
-impl<E: Engine>SBox<E> for CubicSBox<E> {
-
+impl<E: Engine> SBox<E> for CubicSBox<E> {
     fn apply(&self, elements: &mut [E::Fr]) {
         for element in elements.iter_mut() {
             let mut squared = *element;
@@ -30,7 +29,7 @@ impl<E: Engine>SBox<E> for CubicSBox<E> {
 
 #[derive(Clone, Debug)]
 pub struct QuinticSBox<E: Engine> {
-    pub _marker: PhantomData<E>
+    pub _marker: PhantomData<E>,
 }
 
 impl<E: Engine> PartialEq for QuinticSBox<E> {
@@ -41,7 +40,7 @@ impl<E: Engine> PartialEq for QuinticSBox<E> {
 
 impl<E: Engine> Eq for QuinticSBox<E> {}
 
-impl<E: Engine>SBox<E> for QuinticSBox<E> {
+impl<E: Engine> SBox<E> for QuinticSBox<E> {
     fn apply(&self, elements: &mut [E::Fr]) {
         for element in elements.iter_mut() {
             let mut quad = *element;
@@ -60,14 +59,13 @@ pub struct PowerSBox<E: Engine> {
 
 impl<E: Engine> PartialEq for PowerSBox<E> {
     fn eq(&self, other: &Self) -> bool {
-        self.power.eq(&other.power) &&
-        self.inv.eq(&other.inv)
+        self.power.eq(&other.power) && self.inv.eq(&other.inv)
     }
 }
 
 impl<E: Engine> Eq for PowerSBox<E> {}
 
-impl<E: Engine>SBox<E> for PowerSBox<E> {
+impl<E: Engine> SBox<E> for PowerSBox<E> {
     fn apply(&self, elements: &mut [E::Fr]) {
         for element in elements.iter_mut() {
             *element = element.pow(&self.power);
@@ -77,7 +75,7 @@ impl<E: Engine>SBox<E> for PowerSBox<E> {
 
 #[derive(Clone, Debug)]
 pub struct InversionSBox<E: Engine> {
-    pub _marker: PhantomData<E>
+    pub _marker: PhantomData<E>,
 }
 
 fn batch_inversion<E: Engine>(v: &mut [E::Fr]) {
@@ -88,7 +86,8 @@ fn batch_inversion<E: Engine>(v: &mut [E::Fr]) {
     // First pass: compute [a, ab, abc, ...]
     let mut prod = Vec::with_capacity(v.len());
     let mut tmp = E::Fr::one();
-    for g in v.iter()
+    for g in v
+        .iter()
         // Ignore zero elements
         .filter(|g| !g.is_zero())
     {
@@ -100,13 +99,14 @@ fn batch_inversion<E: Engine>(v: &mut [E::Fr]) {
     tmp = tmp.inverse().unwrap(); // Guaranteed to be nonzero.
 
     // Second pass: iterate backwards to compute inverses
-    for (g, s) in v.iter_mut()
-                    // Backwards
-                    .rev()
-                    // Ignore normalized elements
-                    .filter(|g| !g.is_zero())
-                    // Backwards, skip last element, fill in one for last term.
-                    .zip(prod.into_iter().rev().skip(1).chain(Some(E::Fr::one())))
+    for (g, s) in v
+        .iter_mut()
+        // Backwards
+        .rev()
+        // Ignore normalized elements
+        .filter(|g| !g.is_zero())
+        // Backwards, skip last element, fill in one for last term.
+        .zip(prod.into_iter().rev().skip(1).chain(Some(E::Fr::one())))
     {
         // tmp := tmp * g.z; g.z := tmp * s = 1/z
         let mut newtmp = tmp;
@@ -117,7 +117,7 @@ fn batch_inversion<E: Engine>(v: &mut [E::Fr]) {
     }
 }
 
-impl<E: Engine>SBox<E> for InversionSBox<E> {
+impl<E: Engine> SBox<E> for InversionSBox<E> {
     fn apply(&self, elements: &mut [E::Fr]) {
         batch_inversion::<E>(elements);
     }
@@ -154,25 +154,21 @@ pub trait RescueHashParams<E: Engine>: RescueParamsInternal<E> {
     }
 }
 
-pub trait RescueParamsInternal<E: Engine>: Send + Sync + Sized + Clone + std::fmt::Debug + Eq{
+pub trait RescueParamsInternal<E: Engine>:
+    Send + Sync + Sized + Clone + std::fmt::Debug + Eq
+{
     fn set_round_constants(&mut self, to: Vec<E::Fr>);
 }
 
 pub trait RescueEngine: Engine {
-    type Params: RescueHashParams<Self>; 
+    type Params: RescueHashParams<Self>;
 }
 
-pub fn rescue_hash<E: RescueEngine>(
-    params: &E::Params,
-    input: &[E::Fr]
-) -> Vec<E::Fr> {
+pub fn rescue_hash<E: RescueEngine>(params: &E::Params, input: &[E::Fr]) -> Vec<E::Fr> {
     sponge_fixed_length::<E>(params, input)
 }
 
-fn sponge_fixed_length<E: RescueEngine>(
-    params: &E::Params,
-    input: &[E::Fr]
-) -> Vec<E::Fr> {
+fn sponge_fixed_length<E: RescueEngine>(params: &E::Params, input: &[E::Fr]) -> Vec<E::Fr> {
     assert!(input.len() > 0);
     assert!(input.len() < 256);
     let input_len = input.len() as u64;
@@ -203,24 +199,20 @@ fn sponge_fixed_length<E: RescueEngine>(
     debug_assert!(it.next().is_none());
 
     state[..(params.capacity() as usize)].to_vec()
-}   
+}
 
-pub fn rescue_mimc<E: RescueEngine>(
-    params: &E::Params,
-    old_state: &[E::Fr]
-) -> Vec<E::Fr> {
+pub fn rescue_mimc<E: RescueEngine>(params: &E::Params, old_state: &[E::Fr]) -> Vec<E::Fr> {
     let mut state = old_state.to_vec();
     let mut mds_application_scratch = vec![E::Fr::zero(); state.len()];
     assert_eq!(state.len(), params.state_width() as usize);
     // add round constatnts
-    for (s, c)  in state.iter_mut()
-                .zip(params.round_constants(0).iter()) {
+    for (s, c) in state.iter_mut().zip(params.round_constants(0).iter()) {
         s.add_assign(c);
     }
 
     // parameters use number of rounds that is number of invocations of each SBox,
     // so we double
-    for round_num in 0..(2*params.num_rounds()) {
+    for round_num in 0..(2 * params.num_rounds()) {
         // apply corresponding sbox
         if round_num & 1u32 == 0 {
             params.sbox_0().apply(&mut state);
@@ -232,10 +224,9 @@ pub fn rescue_mimc<E: RescueEngine>(
         mds_application_scratch.copy_from_slice(params.round_constants(round_num + 1));
 
         // mul state by MDS
-        for (row, place_into) in mds_application_scratch.iter_mut()
-                                        .enumerate() {
-            let tmp = scalar_product::<E>(& state[..], params.mds_matrix_row(row as u32));
-            place_into.add_assign(&tmp);                                
+        for (row, place_into) in mds_application_scratch.iter_mut().enumerate() {
+            let tmp = scalar_product::<E>(&state[..], params.mds_matrix_row(row as u32));
+            place_into.add_assign(&tmp);
             // *place_into = scalar_product::<E>(& state[..], params.mds_matrix_row(row as u32));
         }
 
@@ -246,7 +237,7 @@ pub fn rescue_mimc<E: RescueEngine>(
     state
 }
 
-fn scalar_product<E: Engine> (input: &[E::Fr], by: &[E::Fr]) -> E::Fr {
+fn scalar_product<E: Engine>(input: &[E::Fr], by: &[E::Fr]) -> E::Fr {
     assert!(input.len() == by.len());
     let mut result = E::Fr::zero();
     for (a, b) in input.iter().zip(by.iter()) {
@@ -273,7 +264,7 @@ fn generate_mds_matrix<E: RescueEngine, R: Rng>(t: u32, rng: &mut R) -> Vec<E::F
                 continue;
             }
             let el = x[i];
-            for other in x[(i+1)..].iter() {
+            for other in x[(i + 1)..].iter() {
                 if el == *other {
                     invalid = true;
                     break;
@@ -291,7 +282,7 @@ fn generate_mds_matrix<E: RescueEngine, R: Rng>(t: u32, rng: &mut R) -> Vec<E::F
                 continue;
             }
             let el = y[i];
-            for other in y[(i+1)..].iter() {
+            for other in y[(i + 1)..].iter() {
                 if el == *other {
                     invalid = true;
                     break;
@@ -322,10 +313,10 @@ fn generate_mds_matrix<E: RescueEngine, R: Rng>(t: u32, rng: &mut R) -> Vec<E::F
         }
 
         // by previous checks we can be sure in uniqueness and perform subtractions easily
-        let mut mds_matrix = vec![E::Fr::zero(); (t*t) as usize];
+        let mut mds_matrix = vec![E::Fr::zero(); (t * t) as usize];
         for (i, x) in x.into_iter().enumerate() {
             for (j, y) in y.iter().enumerate() {
-                let place_into = i*(t as usize) + j;
+                let place_into = i * (t as usize) + j;
                 let mut element = x;
                 element.sub_assign(y);
                 mds_matrix[place_into] = element;
@@ -339,10 +330,7 @@ fn generate_mds_matrix<E: RescueEngine, R: Rng>(t: u32, rng: &mut R) -> Vec<E::F
     }
 }
 
-pub fn make_keyed_params<E: RescueEngine>(
-    default_params: &E::Params,
-    key: &[E::Fr]
-) -> E::Params {
+pub fn make_keyed_params<E: RescueEngine>(default_params: &E::Params, key: &[E::Fr]) -> E::Params {
     // for this purpose we feed the master key through the rescue itself
     // in a sense that we make non-trivial initial state and run it with empty input
 
@@ -354,8 +342,10 @@ pub fn make_keyed_params<E: RescueEngine>(
     let mut mds_application_scratch = vec![E::Fr::zero(); state.len()];
     assert_eq!(state.len(), default_params.state_width() as usize);
     // add round constatnts
-    for (s, c)  in state.iter_mut()
-                .zip(default_params.round_constants(0).iter()) {
+    for (s, c) in state
+        .iter_mut()
+        .zip(default_params.round_constants(0).iter())
+    {
         s.add_assign(c);
     }
 
@@ -364,7 +354,7 @@ pub fn make_keyed_params<E: RescueEngine>(
 
     // parameters use number of rounds that is number of invocations of each SBox,
     // so we double
-    for round_num in 0..(2*default_params.num_rounds()) {
+    for round_num in 0..(2 * default_params.num_rounds()) {
         // apply corresponding sbox
         if round_num & 1u32 == 0 {
             default_params.sbox_0().apply(&mut state);
@@ -376,10 +366,9 @@ pub fn make_keyed_params<E: RescueEngine>(
         mds_application_scratch.copy_from_slice(default_params.round_constants(round_num + 1));
 
         // mul state by MDS
-        for (row, place_into) in mds_application_scratch.iter_mut()
-                                        .enumerate() {
-            let tmp = scalar_product::<E>(& state[..], default_params.mds_matrix_row(row as u32));
-            place_into.add_assign(&tmp);                                
+        for (row, place_into) in mds_application_scratch.iter_mut().enumerate() {
+            let tmp = scalar_product::<E>(&state[..], default_params.mds_matrix_row(row as u32));
+            place_into.add_assign(&tmp);
             // *place_into = scalar_product::<E>(& state[..], params.mds_matrix_row(row as u32));
         }
 
@@ -388,7 +377,7 @@ pub fn make_keyed_params<E: RescueEngine>(
 
         new_round_constants.extend_from_slice(&state);
     }
-    
+
     let mut new_params = default_params.clone();
 
     new_params.set_round_constants(new_round_constants);
@@ -398,37 +387,36 @@ pub fn make_keyed_params<E: RescueEngine>(
 #[derive(Clone, Debug)]
 pub enum RescueOpMode<E: RescueEngine> {
     AccumulatingToAbsorb(Vec<E::Fr>),
-    SqueezedInto(Vec<E::Fr>)
+    SqueezedInto(Vec<E::Fr>),
 }
 
 #[derive(Clone, Debug)]
 pub struct StatefulRescue<'a, E: RescueEngine> {
     pub params: &'a E::Params,
     pub internal_state: Vec<E::Fr>,
-    pub mode: RescueOpMode<E>
+    pub mode: RescueOpMode<E>,
 }
 
 impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
-    pub fn new(
-        params: &'a E::Params
-    ) -> Self {
+    pub fn new(params: &'a E::Params) -> Self {
         let op = RescueOpMode::AccumulatingToAbsorb(Vec::with_capacity(params.rate() as usize));
 
         StatefulRescue::<_> {
             params,
             internal_state: vec![E::Fr::zero(); params.state_width() as usize],
-            mode: op
+            mode: op,
         }
     }
 
-    pub fn specialize(
-        &mut self,
-        dst: u8
-    ) {
+    pub fn specialize(&mut self, dst: u8) {
         match self.mode {
             RescueOpMode::AccumulatingToAbsorb(ref into) => {
-                assert_eq!(into.len(), 0, "can not specialize sponge that absorbed something")
-            },
+                assert_eq!(
+                    into.len(),
+                    0,
+                    "can not specialize sponge that absorbed something"
+                )
+            }
             _ => {
                 panic!("can not specialized sponge in squeezing state");
             }
@@ -441,14 +429,11 @@ impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
         self.internal_state[last_state_elem_idx] = as_fe;
     }
 
-    pub fn absorb_single_value(
-        &mut self,
-        value: E::Fr
-    ) {
+    pub fn absorb_single_value(&mut self, value: E::Fr) {
         match self.mode {
             RescueOpMode::AccumulatingToAbsorb(ref mut into) => {
                 // two cases
-                // either we have accumulated enough already and should to 
+                // either we have accumulated enough already and should to
                 // a mimc round before accumulating more, or just accumulate more
                 let rate = self.params.rate() as usize;
                 if into.len() < rate {
@@ -463,7 +448,7 @@ impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
                     into.truncate(0);
                     into.push(value);
                 }
-            },
+            }
             RescueOpMode::SqueezedInto(_) => {
                 // we don't need anything from the output, so it's dropped
 
@@ -476,10 +461,7 @@ impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
         }
     }
 
-    pub fn absorb(
-        &mut self,
-        input: &[E::Fr]
-    ) {
+    pub fn absorb(&mut self, input: &[E::Fr]) {
         assert!(input.len() > 0);
         let rate = self.params.rate() as usize;
         let mut absorbtion_cycles = input.len() / rate;
@@ -503,20 +485,18 @@ impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
                 if into.len() != rate {
                     into.resize(rate, E::Fr::one());
                 }
-            },
+            }
             RescueOpMode::SqueezedInto(_) => {}
         }
     }
 
-    pub fn squeeze_out_single(
-        &mut self,
-    ) -> E::Fr {
+    pub fn squeeze_out_single(&mut self) -> E::Fr {
         match self.mode {
             RescueOpMode::AccumulatingToAbsorb(ref mut into) => {
                 let rate = self.params.rate() as usize;
                 assert_eq!(into.len(), rate, "padding was necessary!");
                 // two cases
-                // either we have accumulated enough already and should to 
+                // either we have accumulated enough already and should to
                 // a mimc round before accumulating more, or just accumulate more
                 for i in 0..rate {
                     self.internal_state[i].add_assign(&into[i]);
@@ -531,7 +511,7 @@ impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
                 self.mode = op;
 
                 return output;
-            },
+            }
             RescueOpMode::SqueezedInto(ref mut into) => {
                 assert!(into.len() > 0, "squeezed state is depleted!");
                 let output = into.drain(0..1).next().unwrap();
@@ -541,4 +521,3 @@ impl<'a, E: RescueEngine> StatefulRescue<'a, E> {
         }
     }
 }
-

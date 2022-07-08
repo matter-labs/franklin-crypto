@@ -1,30 +1,21 @@
-use crate::bellman::pairing::{
-    Engine,
-    GenericCurveAffine,
-    GenericCurveProjective
-};
+use crate::bellman::pairing::{Engine, GenericCurveAffine, GenericCurveProjective};
 
-use crate::bellman::pairing::ff::{
-    Field,
-    PrimeField,
-    PrimeFieldRepr,
-    BitIterator,
-    ScalarEngine
-};
+use crate::bellman::pairing::ff::{BitIterator, Field, PrimeField, PrimeFieldRepr, ScalarEngine};
 
-use crate::bellman::{
-    SynthesisError,
-};
+use crate::bellman::SynthesisError;
+use crate::plonk::circuit::allocated_num::Num;
+use plonk::circuit::allocated_num::AllocatedNum;
+use bellman::plonk::better_better_cs::cs::ConstraintSystem;
 
 use num_bigint::BigUint;
 use num_integer::Integer;
-use num_traits::Num;
+use num_traits::Num as OtherNum;
 
 use crate::plonk::circuit::bigint::bigint::*;
 
-// we use parameters for decomposition as 
+// we use parameters for decomposition as
 // k = k1 - \lambda * k2
-// so affine point is transformed as 
+// so affine point is transformed as
 // G1 -> (beta*x, -y) to be multiplied by +k2
 #[derive(Clone, Debug)]
 pub struct EndomorphismParameters<E: Engine> {
@@ -38,7 +29,7 @@ pub struct EndomorphismParameters<E: Engine> {
     pub target_scalar_width: usize,
 }
 
-impl <E: Engine> EndomorphismParameters<E>  {
+impl<E: Engine> EndomorphismParameters<E> {
     pub fn calculate_decomposition(&self, val: E::Fr) -> (E::Fr, E::Fr) {
         // fast variant
         let value = repr_to_biguint::<E::Fr>(&val.into_repr());
@@ -67,6 +58,49 @@ impl <E: Engine> EndomorphismParameters<E>  {
 
         (k1, k2)
     }
+    pub fn calculate_decomposition_num<CS: ConstraintSystem<E>>(&self, cs: &mut CS, val: Num<E>) -> (Num<E>, Num<E>) {
+        use num_traits::Zero;
+        let mut value = BigUint::zero();
+        match val {
+            Num::Constant(a) => {
+                value = fe_to_biguint(&a);
+            }
+
+            Num::Variable(var) =>{
+                let mut w = var.get_value().unwrap();
+                value = fe_to_biguint(&w);
+            }
+        }
+
+        // here we take high limbs
+        let c1 = (&value * &self.a1) >> self.scalar_width;
+        let c2 = (&value * &self.a2) >> self.scalar_width;
+
+        let q1 = c1 * &self.minus_b1;
+        let q2 = c2 * &self.b2;
+
+        // this will take lowest limbs only
+        let q1 = biguint_to_repr::<E::Fr>(q1);
+        let q2 = biguint_to_repr::<E::Fr>(q2);
+        let q1 = E::Fr::from_repr(q1).unwrap();
+        let q2 = E::Fr::from_repr(q2).unwrap();
+
+        // k1
+        let mut k2 = q2;
+        k2.sub_assign(&q1);
+
+        // k1 = k2 * lambda + val
+        let mut k1 = k2;
+        k1.mul_assign(&self.lambda);
+        let value = biguint_to_repr::<E::Fr>(value);
+        let val = E::Fr::from_repr(value).unwrap();
+        k1.add_assign(&val);
+
+        let k1_num = Num::Variable(AllocatedNum::alloc(cs, || Ok(k1)).unwrap());
+        let k2_num = Num::Variable(AllocatedNum::alloc(cs, || Ok(k2)).unwrap());
+
+        (k1_num, k2_num)
+    }
 
     pub fn apply_to_g1_point(&self, point: E::G1Affine) -> E::G1Affine {
         let (mut x, mut y) = point.into_xy_unchecked();
@@ -79,7 +113,8 @@ impl <E: Engine> EndomorphismParameters<E>  {
     }
 }
 
-pub fn bn254_endomorphism_parameters() -> EndomorphismParameters<crate::bellman::pairing::bn256::Bn256> {
+pub fn bn254_endomorphism_parameters(
+) -> EndomorphismParameters<crate::bellman::pairing::bn256::Bn256> {
     let empty_fr_repr = crate::bellman::pairing::bn256::Fr::zero().into_repr();
     let mut lambda_repr = empty_fr_repr;
     lambda_repr.as_mut()[0] = 0x93e7cede4a0329b3;
@@ -114,7 +149,7 @@ pub fn bn254_endomorphism_parameters() -> EndomorphismParameters<crate::bellman:
         minus_b1: BigUint::from_str_radix("6f4d8248eeb859fc8211bbeb7d4f1128", 16).unwrap(),
         b2: BigUint::from_str_radix("89d3256894d213e3", 16).unwrap(),
         scalar_width: 256,
-        target_scalar_width: 127
+        target_scalar_width: 127,
     }
 }
 
@@ -152,7 +187,7 @@ mod test {
     //         assert!(k1_bits <= params.target_scalar_width as u32);
     //         let k2_bits = k2.into_repr().num_bits();
     //         assert!(k2_bits <= params.target_scalar_width as u32);
-    
+
     //         let endo_point = params.apply_to_g1_point(point);
 
     //         let k1_by_point = point.mul(k1.into_repr());

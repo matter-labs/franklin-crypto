@@ -1,9 +1,9 @@
+use crate::bellman::pairing::ff::*;
 use crate::bellman::plonk::better_better_cs::cs::*;
 use crate::bellman::plonk::better_better_cs::lookup_tables::*;
 use crate::bellman::plonk::better_better_cs::utils;
-use crate::bellman::pairing::ff::*;
-use crate::bellman::SynthesisError;
 use crate::bellman::Engine;
+use crate::bellman::SynthesisError;
 
 use super::utils::*;
 
@@ -12,11 +12,10 @@ use itertools::Itertools;
 // GENERAL PURPOSE TABLES (so to say)
 // ----------------------------------------------------------------------------------------------------------------------------
 
-
 // for given bit_width, rotation parameter, extraction parameter and base construct the following table:
 // first column containts all values of x in the range [0, 2^bits - 1]
-// the corresponding value in the second column is sparse representation of x (with extraction) 
-// while the value in the thrid column is sparse representation of shifted and extracted value of x 
+// the corresponding value in the second column is sparse representation of x (with extraction)
+// while the value in the thrid column is sparse representation of shifted and extracted value of x
 // (if shift = 0) then the third column is simpy zero
 // see utils file for more details
 #[derive(Clone)]
@@ -31,8 +30,13 @@ pub struct SparseRotateTable<E: Engine> {
 }
 
 impl<E: Engine> SparseRotateTable<E> {
-
-    pub fn new(bits: usize, rotation: usize, extraction: usize, base: u64, name: &'static str) -> Self {
+    pub fn new(
+        bits: usize,
+        rotation: usize,
+        extraction: usize,
+        base: u64,
+        name: &'static str,
+    ) -> Self {
         let mut key = Vec::with_capacity(1 << bits);
         let mut value_0 = Vec::with_capacity(1 << bits);
         let mut value_1 = Vec::with_capacity(1 << bits);
@@ -44,15 +48,18 @@ impl<E: Engine> SparseRotateTable<E> {
         for x in 0..(1 << bits) {
             let y = if extraction > 0 {
                 map_into_sparse_form(rotate_extract(x, 0, extraction), base as usize)
-            }
-            else {
+            } else {
                 map_into_sparse_form(x, base as usize)
             };
             let z = map_into_sparse_form(rotate_extract(x, rotation, extraction), base as usize);
 
             let x = E::Fr::from_str(&x.to_string()).unwrap();
             let y = E::Fr::from_str(&y.to_string()).unwrap();
-            let z = if flag { zero.clone() } else { E::Fr::from_str(&z.to_string()).unwrap() };
+            let z = if flag {
+                zero.clone()
+            } else {
+                E::Fr::from_str(&z.to_string()).unwrap()
+            };
 
             key.push(x);
             value_0.push(y);
@@ -101,7 +108,11 @@ impl<E: Engine> LookupTableInternal<E> for SparseRotateTable<E> {
         true
     }
     fn get_table_values_for_polys(&self) -> Vec<Vec<E::Fr>> {
-        vec![self.table_entries[0].clone(), self.table_entries[1].clone(), self.table_entries[2].clone()]
+        vec![
+            self.table_entries[0].clone(),
+            self.table_entries[1].clone(),
+            self.table_entries[2].clone(),
+        ]
     }
     fn table_id(&self) -> E::Fr {
         table_id_from_string(self.name)
@@ -131,15 +142,14 @@ impl<E: Engine> LookupTableInternal<E> for SparseRotateTable<E> {
         assert!(keys.len() == self.num_keys());
 
         if let Some(entry) = self.table_lookup_map.get(&keys[0]) {
-            return Ok(vec![entry.0, entry.1])
+            return Ok(vec![entry.0, entry.1]);
         }
 
         Err(SynthesisError::Unsatisfiable)
     }
 }
 
-
-// Sha256 normalization table is parametrized by the following parameters: 
+// Sha256 normalization table is parametrized by the following parameters:
 // sparse representation INPUT base inp_base, num of input chunks, two OUTPUT bases out_base0, out_base1,
 // and corresponding transformation functions:
 // f0: [0, inp_base) -> [0, out_base0); f1: [0, inp_base) -> [0, out_base1).
@@ -161,8 +171,18 @@ pub struct MultiBaseNormalizationTable<E: Engine> {
 }
 
 impl<E: Engine> MultiBaseNormalizationTable<E> {
-    pub fn new<F0, F1>(num_chunks: usize, inp_base: u64, out_base0: u64, out_base1: u64, f0: F0, f1: F1, name: &'static str) -> Self 
-    where F0 : Fn(u64) -> u64, F1 : Fn(u64) -> u64
+    pub fn new<F0, F1>(
+        num_chunks: usize,
+        inp_base: u64,
+        out_base0: u64,
+        out_base1: u64,
+        f0: F0,
+        f1: F1,
+        name: &'static str,
+    ) -> Self
+    where
+        F0: Fn(u64) -> u64,
+        F1: Fn(u64) -> u64,
     {
         let table_size = pow(inp_base as usize, num_chunks);
         let mut keys_vec = Vec::with_capacity(table_size);
@@ -175,7 +195,10 @@ impl<E: Engine> MultiBaseNormalizationTable<E> {
         let second_output_base_fr = u64_to_ff::<E::Fr>(out_base1);
         let zero_fr = E::Fr::zero();
 
-        for coefs in (0..num_chunks).map(|_| 0..inp_base).multi_cartesian_product() {
+        for coefs in (0..num_chunks)
+            .map(|_| 0..inp_base)
+            .multi_cartesian_product()
+        {
             let key = coefs.iter().fold(zero_fr.clone(), |acc, x| {
                 let mut tmp = acc;
                 tmp.mul_assign(&input_base_fr);
@@ -206,10 +229,10 @@ impl<E: Engine> MultiBaseNormalizationTable<E> {
         Self {
             table_entries: [keys_vec, values0_vec, values1_vec],
             table_lookup_map: map,
-            num_chunks : num_chunks,
+            num_chunks: num_chunks,
             input_base: inp_base,
-            first_output_base : out_base0,
-            second_output_base : out_base1,
+            first_output_base: out_base0,
+            second_output_base: out_base1,
             name,
         }
     }
@@ -243,7 +266,11 @@ impl<E: Engine> LookupTableInternal<E> for MultiBaseNormalizationTable<E> {
         true
     }
     fn get_table_values_for_polys(&self) -> Vec<Vec<E::Fr>> {
-        vec![self.table_entries[0].clone(), self.table_entries[1].clone(), self.table_entries[2].clone()]
+        vec![
+            self.table_entries[0].clone(),
+            self.table_entries[1].clone(),
+            self.table_entries[2].clone(),
+        ]
     }
     fn table_id(&self) -> E::Fr {
         table_id_from_string(self.name)
@@ -273,13 +300,12 @@ impl<E: Engine> LookupTableInternal<E> for MultiBaseNormalizationTable<E> {
         assert!(keys.len() == self.num_keys());
 
         if let Some(entry) = self.table_lookup_map.get(&keys[0]) {
-            return Ok(vec![entry.0, entry.1])
+            return Ok(vec![entry.0, entry.1]);
         }
 
         Err(SynthesisError::Unsatisfiable)
     }
 }
-
 
 // for columns (a, b, c) this table asserts that c = (a ^ b) >>> shift (cyclic shift of 32 bit values)
 // if shift is zero, than it is simple xor table: c = a ^ b;
@@ -292,7 +318,6 @@ pub struct XorRotateTable<E: Engine> {
     name: &'static str,
 }
 
-
 impl<E: Engine> XorRotateTable<E> {
     pub fn new(bits: usize, shift: u32, name: &'static str) -> Self {
         let mut keys1 = Vec::with_capacity(1 << bits);
@@ -303,10 +328,9 @@ impl<E: Engine> XorRotateTable<E> {
         for x in 0..(1 << bits) {
             for y in 0..(1 << bits) {
                 let tmp: u32 = x ^ y;
-                let z : u32 = if shift > 0 {
+                let z: u32 = if shift > 0 {
                     tmp.rotate_right(shift)
-                }
-                else {
+                } else {
                     tmp
                 };
 
@@ -319,7 +343,7 @@ impl<E: Engine> XorRotateTable<E> {
                 values.push(z);
 
                 map.insert((x, y), z);
-            }    
+            }
         }
 
         Self {
@@ -332,7 +356,6 @@ impl<E: Engine> XorRotateTable<E> {
     }
 }
 
-
 impl<E: Engine> std::fmt::Debug for XorRotateTable<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("XorRotateTable")
@@ -341,7 +364,6 @@ impl<E: Engine> std::fmt::Debug for XorRotateTable<E> {
             .finish()
     }
 }
-
 
 impl<E: Engine> LookupTableInternal<E> for XorRotateTable<E> {
     fn name(&self) -> &'static str {
@@ -360,7 +382,11 @@ impl<E: Engine> LookupTableInternal<E> for XorRotateTable<E> {
         true
     }
     fn get_table_values_for_polys(&self) -> Vec<Vec<E::Fr>> {
-        vec![self.table_entries[0].clone(), self.table_entries[1].clone(), self.table_entries[2].clone()]
+        vec![
+            self.table_entries[0].clone(),
+            self.table_entries[1].clone(),
+            self.table_entries[2].clone(),
+        ]
     }
     fn table_id(&self) -> E::Fr {
         table_id_from_string(self.name)
@@ -390,13 +416,12 @@ impl<E: Engine> LookupTableInternal<E> for XorRotateTable<E> {
         assert!(keys.len() == self.num_keys());
 
         if let Some(entry) = self.table_lookup_map.get(&(keys[0], keys[1])) {
-            return Ok(vec![*entry])
+            return Ok(vec![*entry]);
         }
 
         Err(SynthesisError::Unsatisfiable)
     }
 }
-
 
 // The following tables check booleanity of three elemets at once:
 // it contains all possible triples [a0, a1, a2] where each a_i \in {0, 1}
@@ -405,7 +430,6 @@ pub struct BooleanityTable<E: Engine> {
     table_entries: Vec<[E::Fr; 3]>,
     name: &'static str,
 }
-
 
 impl<E: Engine> BooleanityTable<E> {
     pub fn new(name: &'static str) -> Self {
@@ -427,13 +451,11 @@ impl<E: Engine> BooleanityTable<E> {
     }
 }
 
-
 impl<E: Engine> std::fmt::Debug for BooleanityTable<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BooleanityTable").finish()
     }
 }
-
 
 impl<E: Engine> LookupTableInternal<E> for BooleanityTable<E> {
     fn name(&self) -> &'static str {
@@ -478,7 +500,8 @@ impl<E: Engine> LookupTableInternal<E> for BooleanityTable<E> {
         assert!(keys.len() == self.num_keys());
         assert!(values.len() == self.num_values());
 
-        let check_booleanity = |fr: &E::Fr| -> bool { (*fr == E::Fr::zero()) || (*fr == E::Fr::one()) };
+        let check_booleanity =
+            |fr: &E::Fr| -> bool { (*fr == E::Fr::zero()) || (*fr == E::Fr::one()) };
         values.iter().all(|x| check_booleanity(x))
     }
 
@@ -495,4 +518,3 @@ impl<E: Engine> LookupTableInternal<E> for BooleanityTable<E> {
         // Err(SynthesisError::Unsatisfiable)
     }
 }
-

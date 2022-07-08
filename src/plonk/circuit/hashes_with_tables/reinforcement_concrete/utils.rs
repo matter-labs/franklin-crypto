@@ -1,7 +1,6 @@
 use crate::bellman::pairing::ff::*;
 use crate::bellman::pairing::ff::{PrimeField, PrimeFieldRepr};
-use sha3::{digest::ExtendableOutput, digest::Update, Sha3XofReader, Shake128, digest::XofReader};
-
+use sha3::{digest::ExtendableOutput, digest::Update, digest::XofReader, Sha3XofReader, Shake128};
 
 pub fn from_u64<F: PrimeField>(val: u64) -> F {
     F::from_repr(F::Repr::from(val)).unwrap()

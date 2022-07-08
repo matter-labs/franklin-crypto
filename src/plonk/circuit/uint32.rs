@@ -1,49 +1,22 @@
-use crate::bellman::pairing::{
-    Engine,
-};
+use crate::bellman::pairing::Engine;
 
-use crate::bellman::pairing::ff::{
-    Field,
-    PrimeField,
-    PrimeFieldRepr,
-    BitIterator
-};
+use crate::bellman::pairing::ff::{BitIterator, Field, PrimeField, PrimeFieldRepr};
 
-use crate::bellman::{
-    SynthesisError,
-};
+use crate::bellman::SynthesisError;
 
 use crate::bellman::plonk::better_better_cs::cs::{
-    Variable, 
-    ConstraintSystem,
-    ArithmeticTerm,
-    MainGateTerm,
-    Width4MainGateWithDNext,
-    MainGate,
-    GateInternal,
-    Gate,
-    LinearCombinationOfTerms,
-    PolynomialMultiplicativeTerm,
-    PolynomialInConstraint,
-    TimeDilation,
-    Coefficient,
+    ArithmeticTerm, Coefficient, ConstraintSystem, Gate, GateInternal, LinearCombinationOfTerms,
+    MainGate, MainGateTerm, PolynomialInConstraint, PolynomialMultiplicativeTerm, TimeDilation,
+    Variable, Width4MainGateWithDNext,
 };
-
 
 use crate::plonk::circuit::Assignment;
 
-use super::allocated_num::{
-    AllocatedNum
-};
+use super::allocated_num::AllocatedNum;
 
-use super::linear_combination::{
-    LinearCombination
-};
+use super::linear_combination::LinearCombination;
 
-use super::boolean::{
-    AllocatedBit,
-    Boolean
-};
+use super::boolean::{AllocatedBit, Boolean};
 
 use super::multieq::MultiEq;
 
@@ -53,13 +26,12 @@ use super::multieq::MultiEq;
 pub struct UInt32 {
     // Least significant bit first
     bits: Vec<Boolean>,
-    value: Option<u32>
+    value: Option<u32>,
 }
 
 impl UInt32 {
     /// Construct a constant `UInt32` from a `u32`
-    pub fn constant(value: u32) -> Self
-    {
+    pub fn constant(value: u32) -> Self {
         let mut bits = Vec::with_capacity(32);
 
         let mut tmp = value;
@@ -75,16 +47,15 @@ impl UInt32 {
 
         UInt32 {
             bits: bits,
-            value: Some(value)
+            value: Some(value),
         }
     }
 
     /// Allocate a `UInt32` in the constraint system
     pub fn alloc<E: Engine, CS: ConstraintSystem<E>>(
         cs: &mut CS,
-        value: Option<u32>
-    ) -> Result<Self, SynthesisError>
-    {
+        value: Option<u32>,
+    ) -> Result<Self, SynthesisError> {
         let values = match value {
             Some(mut val) => {
                 let mut v = Vec::with_capacity(32);
@@ -95,23 +66,19 @@ impl UInt32 {
                 }
 
                 v
-            },
-            None => vec![None; 32]
+            }
+            None => vec![None; 32],
         };
 
-        let bits = values.into_iter()
-                         .enumerate()
-                         .map(|(_i, v)| {
-                            Ok(Boolean::from(AllocatedBit::alloc(
-                                cs,
-                                v
-                            )?))
-                         })
-                         .collect::<Result<Vec<_>, SynthesisError>>()?;
+        let bits = values
+            .into_iter()
+            .enumerate()
+            .map(|(_i, v)| Ok(Boolean::from(AllocatedBit::alloc(cs, v)?)))
+            .collect::<Result<Vec<_>, SynthesisError>>()?;
 
         Ok(UInt32 {
             bits: bits,
-            value: value
+            value: value,
         })
     }
 
@@ -127,18 +94,21 @@ impl UInt32 {
             value.as_mut().map(|v| *v <<= 1);
 
             match b.get_value() {
-                Some(true) => { value.as_mut().map(|v| *v |= 1); },
-                Some(false) => {},
-                None => { value = None; }
+                Some(true) => {
+                    value.as_mut().map(|v| *v |= 1);
+                }
+                Some(false) => {}
+                None => {
+                    value = None;
+                }
             }
         }
 
         UInt32 {
             value: value,
-            bits: bits.iter().rev().cloned().collect()
+            bits: bits.iter().rev().cloned().collect(),
         }
     }
-
 
     /// Turns this `UInt32` into its little-endian byte order representation.
     pub fn into_bits(&self) -> Vec<Boolean> {
@@ -147,8 +117,7 @@ impl UInt32 {
 
     /// Converts a little-endian byte order representation of bits into a
     /// `UInt32`.
-    pub fn from_bits(bits: &[Boolean]) -> Self
-    {
+    pub fn from_bits(bits: &[Boolean]) -> Self {
         assert_eq!(bits.len(), 32);
 
         let new_bits = bits.to_vec();
@@ -162,43 +131,45 @@ impl UInt32 {
                     if b {
                         value.as_mut().map(|v| *v |= 1);
                     }
-                },
-                &Boolean::Is(ref b) => {
-                    match b.get_value() {
-                        Some(true) => { value.as_mut().map(|v| *v |= 1); },
-                        Some(false) => {},
-                        None => { value = None }
-                    }
-                },
-                &Boolean::Not(ref b) => {
-                    match b.get_value() {
-                        Some(false) => { value.as_mut().map(|v| *v |= 1); },
-                        Some(true) => {},
-                        None => { value = None }
-                    }
                 }
+                &Boolean::Is(ref b) => match b.get_value() {
+                    Some(true) => {
+                        value.as_mut().map(|v| *v |= 1);
+                    }
+                    Some(false) => {}
+                    None => value = None,
+                },
+                &Boolean::Not(ref b) => match b.get_value() {
+                    Some(false) => {
+                        value.as_mut().map(|v| *v |= 1);
+                    }
+                    Some(true) => {}
+                    None => value = None,
+                },
             }
         }
 
         UInt32 {
             value: value,
-            bits: new_bits
+            bits: new_bits,
         }
     }
 
     pub fn rotr(&self, by: usize) -> Self {
         let by = by % 32;
 
-        let new_bits = self.bits.iter()
-                                .skip(by)
-                                .chain(self.bits.iter())
-                                .take(32)
-                                .cloned()
-                                .collect();
+        let new_bits = self
+            .bits
+            .iter()
+            .skip(by)
+            .chain(self.bits.iter())
+            .take(32)
+            .cloned()
+            .collect();
 
         UInt32 {
             bits: new_bits,
-            value: self.value.map(|v| v.rotate_right(by as u32))
+            value: self.value.map(|v| v.rotate_right(by as u32)),
         }
     }
 
@@ -207,17 +178,18 @@ impl UInt32 {
 
         let fill = Boolean::constant(false);
 
-        let new_bits = self.bits
-                           .iter() // The bits are least significant first
-                           .skip(by) // Skip the bits that will be lost during the shift
-                           .chain(Some(&fill).into_iter().cycle()) // Rest will be zeros
-                           .take(32) // Only 32 bits needed!
-                           .cloned()
-                           .collect();
+        let new_bits = self
+            .bits
+            .iter() // The bits are least significant first
+            .skip(by) // Skip the bits that will be lost during the shift
+            .chain(Some(&fill).into_iter().cycle()) // Rest will be zeros
+            .take(32) // Only 32 bits needed!
+            .cloned()
+            .collect();
 
         UInt32 {
             bits: new_bits,
-            value: self.value.map(|v| v >> by as u32)
+            value: self.value.map(|v| v >> by as u32),
         }
     }
 
@@ -227,30 +199,31 @@ impl UInt32 {
         b: &Self,
         c: &Self,
         tri_fn: F,
-        circuit_fn: U
+        circuit_fn: U,
     ) -> Result<Self, SynthesisError>
-        where E: Engine,
-              CS: ConstraintSystem<E>,
-              F: Fn(u32, u32, u32) -> u32,
-              U: Fn(&mut CS, usize, &Boolean, &Boolean, &Boolean) -> Result<Boolean, SynthesisError>
+    where
+        E: Engine,
+        CS: ConstraintSystem<E>,
+        F: Fn(u32, u32, u32) -> u32,
+        U: Fn(&mut CS, usize, &Boolean, &Boolean, &Boolean) -> Result<Boolean, SynthesisError>,
     {
         let new_value = match (a.value, b.value, c.value) {
-            (Some(a), Some(b), Some(c)) => {
-                Some(tri_fn(a, b, c))
-            },
-            _ => None
+            (Some(a), Some(b), Some(c)) => Some(tri_fn(a, b, c)),
+            _ => None,
         };
 
-        let bits = a.bits.iter()
-                            .zip(b.bits.iter())
-                            .zip(c.bits.iter())
-                            .enumerate()
-                            .map(|(i, ((a, b), c))| circuit_fn(cs, i, a, b, c))
-                            .collect::<Result<_, _>>()?;
+        let bits = a
+            .bits
+            .iter()
+            .zip(b.bits.iter())
+            .zip(c.bits.iter())
+            .enumerate()
+            .map(|(i, ((a, b), c))| circuit_fn(cs, i, a, b, c))
+            .collect::<Result<_, _>>()?;
 
         Ok(UInt32 {
             bits: bits,
-            value: new_value
+            value: new_value,
         })
     }
 
@@ -260,20 +233,19 @@ impl UInt32 {
         cs: &mut CS,
         a: &Self,
         b: &Self,
-        c: &Self
+        c: &Self,
     ) -> Result<Self, SynthesisError>
-        where E: Engine,
-              CS: ConstraintSystem<E>
+    where
+        E: Engine,
+        CS: ConstraintSystem<E>,
     {
-        Self::triop(cs, a, b, c, |a, b, c| (a & b) ^ (a & c) ^ (b & c),
-            |cs, _i, a, b, c| {
-                Boolean::sha256_maj(
-                    cs,
-                    a,
-                    b,
-                    c
-                )
-            }
+        Self::triop(
+            cs,
+            a,
+            b,
+            c,
+            |a, b, c| (a & b) ^ (a & c) ^ (b & c),
+            |cs, _i, a, b, c| Boolean::sha256_maj(cs, a, b, c),
         )
     }
 
@@ -283,20 +255,19 @@ impl UInt32 {
         cs: &mut CS,
         a: &Self,
         b: &Self,
-        c: &Self
+        c: &Self,
     ) -> Result<Self, SynthesisError>
-        where E: Engine,
-              CS: ConstraintSystem<E>
+    where
+        E: Engine,
+        CS: ConstraintSystem<E>,
     {
-        Self::triop(cs, a, b, c, |a, b, c| (a & b) ^ ((!a) & c),
-            |cs, _i, a, b, c| {
-                Boolean::sha256_ch(
-                    cs,
-                    a,
-                    b,
-                    c
-                )
-            }
+        Self::triop(
+            cs,
+            a,
+            b,
+            c,
+            |a, b, c| (a & b) ^ ((!a) & c),
+            |cs, _i, a, b, c| Boolean::sha256_ch(cs, a, b, c),
         )
     }
 
@@ -304,41 +275,32 @@ impl UInt32 {
     pub fn xor<E: Engine, CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,
-        other: &Self
-    ) -> Result<Self, SynthesisError>
-    {
+        other: &Self,
+    ) -> Result<Self, SynthesisError> {
         let new_value = match (self.value, other.value) {
-            (Some(a), Some(b)) => {
-                Some(a ^ b)
-            },
-            _ => None
+            (Some(a), Some(b)) => Some(a ^ b),
+            _ => None,
         };
 
-        let bits = self.bits.iter()
-                            .zip(other.bits.iter())
-                            .enumerate()
-                            .map(|(_i, (a, b))| {
-                                Boolean::xor(
-                                    cs,
-                                    a,
-                                    b
-                                )
-                            })
-                            .collect::<Result<_, _>>()?;
+        let bits = self
+            .bits
+            .iter()
+            .zip(other.bits.iter())
+            .enumerate()
+            .map(|(_i, (a, b))| Boolean::xor(cs, a, b))
+            .collect::<Result<_, _>>()?;
 
         Ok(UInt32 {
             bits: bits,
-            value: new_value
+            value: new_value,
         })
     }
 
     /// Perform modular addition of several `UInt32` objects.
-    pub fn addmany<E, CS>(
-        cs: &mut CS,
-        operands: &[Self]
-    ) -> Result<Self, SynthesisError>
-        where E: Engine,
-              CS: ConstraintSystem<E>
+    pub fn addmany<E, CS>(cs: &mut CS, operands: &[Self]) -> Result<Self, SynthesisError>
+    where
+        E: Engine,
+        CS: ConstraintSystem<E>,
     {
         // Make some arbitrary bounds for ourselves to avoid overflows
         // in the scalar field
@@ -367,7 +329,7 @@ impl UInt32 {
             match op.value {
                 Some(val) => {
                     result_value.as_mut().map(|v| *v += val as u64);
-                },
+                }
                 None => {
                     // If any of our operands have unknown value, we won't
                     // know the value of the result
@@ -411,10 +373,10 @@ impl UInt32 {
             // Allocate the bit
             let b = AllocatedBit::alloc(
                 multieq_gadget.as_cs(),
-                result_value.map(|v| (v >> i) & 1 == 1)
+                result_value.map(|v| (v >> i) & 1 == 1),
             )?;
 
-                        // Add this bit to the result combination
+            // Add this bit to the result combination
             result_lc.add_assign_bit_with_coeff(&b, coeff);
 
             result_bits.push(b.into());
@@ -434,7 +396,7 @@ impl UInt32 {
 
         Ok(UInt32 {
             bits: result_bits,
-            value: modular_value
+            value: modular_value,
         })
     }
 }
@@ -442,7 +404,7 @@ impl UInt32 {
 #[cfg(test)]
 mod test {
     use super::*;
-    use rand::{XorShiftRng, SeedableRng, Rng};
+    use rand::{Rng, SeedableRng, XorShiftRng};
 
     use bellman::pairing::bn256::{Bn256, Fr};
     use bellman::pairing::ff::{Field, PrimeField};
@@ -463,7 +425,9 @@ mod test {
         let mut rng = XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0653]);
 
         for _ in 0..1000 {
-            let v = (0..32).map(|_| Boolean::constant(rng.gen())).collect::<Vec<_>>();
+            let v = (0..32)
+                .map(|_| Boolean::constant(rng.gen()))
+                .collect::<Vec<_>>();
 
             let b = UInt32::from_bits_be(&v);
 
@@ -471,19 +435,18 @@ mod test {
                 match bit {
                     &Boolean::Constant(bit) => {
                         assert!(bit == ((b.value.unwrap() >> i) & 1 == 1));
-                    },
-                    _ => unreachable!()
+                    }
+                    _ => unreachable!(),
                 }
             }
 
             let expected_to_be_same = b.into_bits_be();
 
-            for x in v.iter().zip(expected_to_be_same.iter())
-            {
+            for x in v.iter().zip(expected_to_be_same.iter()) {
                 match x {
-                    (&Boolean::Constant(true), &Boolean::Constant(true)) => {},
-                    (&Boolean::Constant(false), &Boolean::Constant(false)) => {},
-                    _ => unreachable!()
+                    (&Boolean::Constant(true), &Boolean::Constant(true)) => {}
+                    (&Boolean::Constant(false), &Boolean::Constant(false)) => {}
+                    _ => unreachable!(),
                 }
             }
         }
@@ -494,7 +457,9 @@ mod test {
         let mut rng = XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0653]);
 
         for _ in 0..1000 {
-            let v = (0..32).map(|_| Boolean::constant(rng.gen())).collect::<Vec<_>>();
+            let v = (0..32)
+                .map(|_| Boolean::constant(rng.gen()))
+                .collect::<Vec<_>>();
 
             let b = UInt32::from_bits(&v);
 
@@ -502,19 +467,18 @@ mod test {
                 match bit {
                     &Boolean::Constant(bit) => {
                         assert!(bit == ((b.value.unwrap() >> i) & 1 == 1));
-                    },
-                    _ => unreachable!()
+                    }
+                    _ => unreachable!(),
                 }
             }
 
             let expected_to_be_same = b.into_bits();
 
-            for x in v.iter().zip(expected_to_be_same.iter())
-            {
+            for x in v.iter().zip(expected_to_be_same.iter()) {
                 match x {
-                    (&Boolean::Constant(true), &Boolean::Constant(true)) => {},
-                    (&Boolean::Constant(false), &Boolean::Constant(false)) => {},
-                    _ => unreachable!()
+                    (&Boolean::Constant(true), &Boolean::Constant(true)) => {}
+                    (&Boolean::Constant(false), &Boolean::Constant(false)) => {}
+                    _ => unreachable!(),
                 }
             }
         }
@@ -525,7 +489,11 @@ mod test {
         let mut rng = XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0653]);
 
         for _ in 0..1000 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = TrivialAssembly::<
+                Bn256,
+                PlonkCsWidth4WithNextStepParams,
+                Width4MainGateWithDNext,
+            >::new();
 
             let a: u32 = rng.gen();
             let b: u32 = rng.gen();
@@ -548,10 +516,10 @@ mod test {
                 match b {
                     &Boolean::Is(ref b) => {
                         assert!(b.get_value().unwrap() == (expected & 1 == 1));
-                    },
+                    }
                     &Boolean::Not(ref b) => {
                         assert!(!b.get_value().unwrap() == (expected & 1 == 1));
-                    },
+                    }
                     &Boolean::Constant(b) => {
                         assert!(b == (expected & 1 == 1));
                     }
@@ -567,7 +535,11 @@ mod test {
         let mut rng = XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for _ in 0..1000 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = TrivialAssembly::<
+                Bn256,
+                PlonkCsWidth4WithNextStepParams,
+                Width4MainGateWithDNext,
+            >::new();
 
             let a: u32 = rng.gen();
             let b: u32 = rng.gen();
@@ -606,7 +578,11 @@ mod test {
         let mut rng = XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for _ in 0..1000 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = TrivialAssembly::<
+                Bn256,
+                PlonkCsWidth4WithNextStepParams,
+                Width4MainGateWithDNext,
+            >::new();
 
             let a: u32 = rng.gen();
             let b: u32 = rng.gen();
@@ -635,10 +611,10 @@ mod test {
                 match b {
                     &Boolean::Is(ref b) => {
                         assert!(b.get_value().unwrap() == (expected & 1 == 1));
-                    },
+                    }
                     &Boolean::Not(ref b) => {
                         assert!(!b.get_value().unwrap() == (expected & 1 == 1));
-                    },
+                    }
                     &Boolean::Constant(_) => {
                         unreachable!()
                     }
@@ -668,8 +644,8 @@ mod test {
                 match b {
                     &Boolean::Constant(b) => {
                         assert_eq!(b, tmp & 1 == 1);
-                    },
-                    _ => unreachable!()
+                    }
+                    _ => unreachable!(),
                 }
 
                 tmp >>= 1;
@@ -704,7 +680,11 @@ mod test {
         let mut rng = XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0653]);
 
         for _ in 0..1000 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = TrivialAssembly::<
+                Bn256,
+                PlonkCsWidth4WithNextStepParams,
+                Width4MainGateWithDNext,
+            >::new();
 
             let a: u32 = rng.gen();
             let b: u32 = rng.gen();
@@ -726,10 +706,10 @@ mod test {
                 match b {
                     &Boolean::Is(ref b) => {
                         assert!(b.get_value().unwrap() == (expected & 1 == 1));
-                    },
+                    }
                     &Boolean::Not(ref b) => {
                         assert!(!b.get_value().unwrap() == (expected & 1 == 1));
-                    },
+                    }
                     &Boolean::Constant(b) => {
                         assert!(b == (expected & 1 == 1));
                     }
@@ -745,7 +725,11 @@ mod test {
         let mut rng = XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0653]);
 
         for _ in 0..1000 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = TrivialAssembly::<
+                Bn256,
+                PlonkCsWidth4WithNextStepParams,
+                Width4MainGateWithDNext,
+            >::new();
 
             let a: u32 = rng.gen();
             let b: u32 = rng.gen();
@@ -767,10 +751,10 @@ mod test {
                 match b {
                     &Boolean::Is(ref b) => {
                         assert!(b.get_value().unwrap() == (expected & 1 == 1));
-                    },
+                    }
                     &Boolean::Not(ref b) => {
                         assert!(!b.get_value().unwrap() == (expected & 1 == 1));
-                    },
+                    }
                     &Boolean::Constant(b) => {
                         assert!(b == (expected & 1 == 1));
                     }

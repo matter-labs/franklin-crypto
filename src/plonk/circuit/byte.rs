@@ -1,24 +1,21 @@
+use super::allocated_num::*;
+use super::boolean::Boolean;
+use super::linear_combination::*;
+use super::utils::*;
 use crate::bellman::pairing::ff::*;
 use crate::bellman::pairing::*;
 use crate::bellman::SynthesisError;
-use crate::plonk::circuit::bigint::{split_into_slices, split_some_into_slices};
 use crate::plonk::circuit::bigint::constraint_num_bits;
-use super::allocated_num::*;
-use super::linear_combination::*;
-use super::boolean::Boolean;
-use super::utils::*;
+use crate::plonk::circuit::bigint::{split_into_slices, split_some_into_slices};
 use crate::plonk::circuit::Assignment;
 
 use crate::bellman::plonk::better_better_cs::cs::{
-    Variable, 
-    ConstraintSystem,
-    ArithmeticTerm,
-    MainGateTerm
+    ArithmeticTerm, ConstraintSystem, MainGateTerm, Variable,
 };
 
 #[derive(Clone, Debug)]
 pub struct Byte<E: Engine> {
-    pub inner: Num<E>
+    pub inner: Num<E>,
 }
 
 impl<E: Engine> Copy for Byte<E> {}
@@ -26,12 +23,14 @@ impl<E: Engine> Copy for Byte<E> {}
 impl<E: Engine> Byte<E> {
     pub fn empty() -> Self {
         Self {
-            inner: Num::Constant(E::Fr::zero())
+            inner: Num::Constant(E::Fr::zero()),
         }
     }
 
     pub fn zero() -> Self {
-        Self {inner: Num::Constant(E::Fr::zero())}
+        Self {
+            inner: Num::Constant(E::Fr::zero()),
+        }
     }
 
     pub fn into_num(&self) -> Num<E> {
@@ -54,28 +53,27 @@ impl<E: Engine> Byte<E> {
             None
         }
     }
-    
-    pub fn from_u8_witness<CS: ConstraintSystem<E>>(cs: &mut CS, value: Option<u8>) -> Result<Self, SynthesisError> {
-        let var = AllocatedNum::alloc(
-            cs,
-            || {
-                let as_u8 = *value.get()?;
-                let fe = u64_to_fe(as_u8 as u64);
 
-                Ok(fe)
-            }
-        )?;
+    pub fn from_u8_witness<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        value: Option<u8>,
+    ) -> Result<Self, SynthesisError> {
+        let var = AllocatedNum::alloc(cs, || {
+            let as_u8 = *value.get()?;
+            let fe = u64_to_fe(as_u8 as u64);
+
+            Ok(fe)
+        })?;
         let num = Num::Variable(var);
         constraint_num_bits(cs, &num, 8)?;
 
-        Ok(
-            Self {
-                inner: num
-            }
-        )
+        Ok(Self { inner: num })
     }
 
-    pub fn from_u8_witness_multiple<CS: ConstraintSystem<E>, const N: usize>(cs: &mut CS, value: Option<[u8; N]>) -> Result<[Self; N], SynthesisError> {
+    pub fn from_u8_witness_multiple<CS: ConstraintSystem<E>, const N: usize>(
+        cs: &mut CS,
+        value: Option<[u8; N]>,
+    ) -> Result<[Self; N], SynthesisError> {
         let mut result = [Self::zero(); N];
 
         for i in 0..N {
@@ -86,26 +84,23 @@ impl<E: Engine> Byte<E> {
         Ok(result)
     }
 
-    pub fn from_num<CS: ConstraintSystem<E>>(cs: &mut CS, value: Num<E>) -> Result<Self, SynthesisError> {
+    pub fn from_num<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        value: Num<E>,
+    ) -> Result<Self, SynthesisError> {
         constraint_num_bits(cs, &value, 8)?;
-        
-        Ok(
-            Self {
-                inner: value
-            }
-        )
+
+        Ok(Self { inner: value })
     }
 
     pub fn from_num_unconstrained<CS: ConstraintSystem<E>>(_cs: &mut CS, value: Num<E>) -> Self {
-        Self {
-            inner: value
-        }
+        Self { inner: value }
     }
 
     pub fn constant(value: u8) -> Self {
         let value = E::Fr::from_str(&value.to_string()).expect("must convert constant u8");
         Self {
-            inner : Num::Constant(value)
+            inner: Num::Constant(value),
         }
     }
 
@@ -115,7 +110,7 @@ impl<E: Engine> Byte<E> {
             panic!("Invalid bit length of Byte constant");
         }
         Self {
-            inner : Num::Constant(value)
+            inner: Num::Constant(value),
         }
     }
 
@@ -123,20 +118,15 @@ impl<E: Engine> Byte<E> {
         cs: &mut CS,
         flag: &Boolean,
         a: &Self,
-        b: &Self
+        b: &Self,
     ) -> Result<Self, SynthesisError> {
         let new_inner = Num::conditionally_select(cs, flag, &a.inner, &b.inner)?;
-        let new = Self {
-            inner : new_inner
-        };
+        let new = Self { inner: new_inner };
 
         Ok(new)
     }
 
-    pub fn is_zero<CS: ConstraintSystem<E>>(
-        &self,
-        cs: &mut CS
-    ) -> Result<Boolean, SynthesisError> {
+    pub fn is_zero<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Boolean, SynthesisError> {
         self.inner.is_zero(cs)
     }
 
@@ -172,13 +162,19 @@ pub trait IntoBytes<E: Engine> {
     fn encoding_len() -> usize {
         unimplemented!("Usually there is an outside known constant for it. Later on we should move to const generics here");
     }
-    fn into_le_bytes<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Vec<Byte<E>>, SynthesisError> {
+    fn into_le_bytes<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+    ) -> Result<Vec<Byte<E>>, SynthesisError> {
         let mut tmp = self.into_be_bytes(cs)?;
         tmp.reverse();
 
         Ok(tmp)
     }
-    fn into_be_bytes<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Vec<Byte<E>>, SynthesisError> {
+    fn into_be_bytes<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+    ) -> Result<Vec<Byte<E>>, SynthesisError> {
         let mut tmp = self.into_le_bytes(cs)?;
         tmp.reverse();
 
@@ -247,14 +243,11 @@ pub fn uniquely_encode_be_bytes<E: Engine, CS: ConstraintSystem<E>>(
 
         results.push(result);
     }
-    
+
     Ok(results)
 }
 
-
-pub fn uniquely_encode_be_bytes_to_field_elements<F: PrimeField>(
-    bytes: &[u8],
-) -> Vec<F> {
+pub fn uniquely_encode_be_bytes_to_field_elements<F: PrimeField>(bytes: &[u8]) -> Vec<F> {
     let max_chunk = (F::CAPACITY / 8) as usize;
     let shift = F::from_str("256").unwrap();
 
@@ -274,14 +267,14 @@ pub fn uniquely_encode_be_bytes_to_field_elements<F: PrimeField>(
 
         results.push(result);
     }
-    
+
     results
 }
 
 pub fn num_into_bytes_le<E: Engine, CS: ConstraintSystem<E>>(
     cs: &mut CS,
     limb: Num<E>,
-    width: usize
+    width: usize,
 ) -> Result<Vec<Byte<E>>, SynthesisError> {
     assert!(width % 8 == 0);
 
@@ -297,12 +290,7 @@ pub fn num_into_bytes_le<E: Engine, CS: ConstraintSystem<E>>(
             lc.add_assign_number_with_coeff(&limb, minus_one);
             let witness = split_some_into_slices(var.get_value(), 8, num_bytes);
             for w in witness.into_iter() {
-                let allocated = AllocatedNum::alloc(
-                    cs,
-                    || {
-                        Ok(*w.get()?)
-                    }
-                )?;
+                let allocated = AllocatedNum::alloc(cs, || Ok(*w.get()?))?;
                 let num = Num::Variable(allocated);
                 let byte = Byte::from_num(cs, num.clone())?;
                 result.push(byte);
@@ -314,7 +302,7 @@ pub fn num_into_bytes_le<E: Engine, CS: ConstraintSystem<E>>(
             lc.enforce_zero(cs)?;
 
             result
-        },
+        }
         Num::Constant(constant) => {
             let mut result = Vec::with_capacity(num_bytes);
             let witness = split_into_slices(constant, 8, num_bytes);
@@ -327,14 +315,14 @@ pub fn num_into_bytes_le<E: Engine, CS: ConstraintSystem<E>>(
             result
         }
     };
-    
+
     Ok(result)
 }
 
 pub fn num_into_bytes_be<E: Engine, CS: ConstraintSystem<E>>(
     cs: &mut CS,
     limb: Num<E>,
-    width: usize
+    width: usize,
 ) -> Result<Vec<Byte<E>>, SynthesisError> {
     let mut encoding = num_into_bytes_le(cs, limb, width)?;
     encoding.reverse();
@@ -343,7 +331,10 @@ pub fn num_into_bytes_be<E: Engine, CS: ConstraintSystem<E>>(
 }
 
 impl<E: Engine> IntoBytes<E> for Num<E> {
-    fn into_le_bytes<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Vec<Byte<E>>, SynthesisError> {
+    fn into_le_bytes<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+    ) -> Result<Vec<Byte<E>>, SynthesisError> {
         let mut num_bytes = (E::Fr::NUM_BITS / 8) as usize;
         if E::Fr::NUM_BITS % 8 != 0 {
             num_bytes += 1;
@@ -360,12 +351,7 @@ impl<E: Engine> IntoBytes<E> for Num<E> {
                 lc.add_assign_number_with_coeff(&self, minus_one);
                 let witness = split_some_into_slices(var.get_value(), 8, num_bytes);
                 for w in witness.into_iter() {
-                    let allocated = AllocatedNum::alloc(
-                        cs,
-                        || {
-                            Ok(*w.get()?)
-                        }
-                    )?;
+                    let allocated = AllocatedNum::alloc(cs, || Ok(*w.get()?))?;
                     let num = Num::Variable(allocated);
                     let byte = Byte::from_num(cs, num.clone())?;
                     result.push(byte);
@@ -377,7 +363,7 @@ impl<E: Engine> IntoBytes<E> for Num<E> {
                 lc.enforce_zero(cs)?;
 
                 result
-            },
+            }
             Num::Constant(constant) => {
                 let mut result = Vec::with_capacity(num_bytes);
                 let witness = split_into_slices(constant, 8, num_bytes);
@@ -390,11 +376,14 @@ impl<E: Engine> IntoBytes<E> for Num<E> {
                 result
             }
         };
-        
+
         Ok(result)
     }
 
-    fn into_be_bytes<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Vec<Byte<E>>, SynthesisError> {
+    fn into_be_bytes<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+    ) -> Result<Vec<Byte<E>>, SynthesisError> {
         let mut tmp = self.into_le_bytes(cs)?;
         tmp.reverse();
 
@@ -402,44 +391,32 @@ impl<E: Engine> IntoBytes<E> for Num<E> {
     }
 }
 
-
 impl<E: Engine> IntoBytes<E> for Boolean {
-    fn into_le_bytes<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Vec<Byte<E>>, SynthesisError> {
+    fn into_le_bytes<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+    ) -> Result<Vec<Byte<E>>, SynthesisError> {
         let num_bytes = 1;
 
         let result = match self {
             Boolean::Is(bit) => {
-                let fe_value = bit.get_value().map(|el| {
-                    if el {
-                        E::Fr::one()
-                    } else {
-                        E::Fr::zero()
-                    }
+                let fe_value =
+                    bit.get_value()
+                        .map(|el| if el { E::Fr::one() } else { E::Fr::zero() });
+                let as_num = Num::Variable(AllocatedNum {
+                    variable: bit.get_variable(),
+                    value: fe_value,
                 });
-                let as_num = Num::Variable(
-                    AllocatedNum {
-                        variable: bit.get_variable(),
-                        value: fe_value
-                    }
-                );
-                
-                let byte = Byte {
-                    inner: as_num
-                };
+
+                let byte = Byte { inner: as_num };
 
                 vec![byte]
-            },
+            }
             s @ Boolean::Not(..) => {
-                let fe_value = s.get_value().map(|el| {
-                    if el {
-                        E::Fr::one()
-                    } else {
-                        E::Fr::zero()
-                    }
-                });
-                let as_num = Num::Variable(
-                    AllocatedNum::alloc(cs, || Ok(*fe_value.get()?))?
-                );
+                let fe_value =
+                    s.get_value()
+                        .map(|el| if el { E::Fr::one() } else { E::Fr::zero() });
+                let as_num = Num::Variable(AllocatedNum::alloc(cs, || Ok(*fe_value.get()?))?);
 
                 let mut minus_one = E::Fr::one();
                 minus_one.negate();
@@ -448,10 +425,8 @@ impl<E: Engine> IntoBytes<E> for Boolean {
                 lc.add_assign_number_with_coeff(&as_num, minus_one);
                 lc.add_assign_boolean_with_coeff(&s, E::Fr::one());
                 lc.enforce_zero(cs)?;
-                
-                let byte = Byte {
-                    inner: as_num
-                };
+
+                let byte = Byte { inner: as_num };
 
                 vec![byte]
             }
@@ -461,11 +436,14 @@ impl<E: Engine> IntoBytes<E> for Boolean {
         };
 
         assert_eq!(result.len(), num_bytes);
-        
+
         Ok(result)
     }
 
-    fn into_be_bytes<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Vec<Byte<E>>, SynthesisError> {
+    fn into_be_bytes<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+    ) -> Result<Vec<Byte<E>>, SynthesisError> {
         self.into_le_bytes(cs)
     }
 }

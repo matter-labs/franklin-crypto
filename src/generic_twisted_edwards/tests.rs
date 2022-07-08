@@ -3,9 +3,9 @@ mod test {
     use crate::alt_babyjubjub::edwards::Point;
     use crate::alt_babyjubjub::fs::Fs;
     use crate::alt_babyjubjub::AltJubjubBn256;
-    use crate::generic_twisted_edwards::edwards::*;
-    use crate::generic_twisted_edwards::bn256::*;
     use crate::bellman::pairing::bn256::{Bn256, Fr};
+    use crate::generic_twisted_edwards::bn256::*;
+    use crate::generic_twisted_edwards::edwards::*;
     use bellman::ScalarEngine;
     use rand::{Rand, Rng, SeedableRng, XorShiftRng};
 
@@ -133,7 +133,7 @@ mod test {
 
                 (expected_x, expected_y)
             };
-            
+
             assert_eq!(actual_x, expected_x);
             assert_eq!(actual_y, expected_y);
         }

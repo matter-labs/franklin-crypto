@@ -1,44 +1,23 @@
-use crate::bellman::pairing::{
-    Engine,
-};
+use crate::bellman::pairing::Engine;
 
-use crate::bellman::pairing::ff::{
-    Field,
-    PrimeField,
-    PrimeFieldRepr,
-    BitIterator
-};
+use crate::bellman::pairing::ff::{BitIterator, Field, PrimeField, PrimeFieldRepr};
 
-use crate::bellman::{
-    SynthesisError,
-};
+use crate::bellman::SynthesisError;
 
 use crate::bellman::plonk::better_better_cs::cs::{
-    Variable, 
-    ConstraintSystem,
-    ArithmeticTerm,
-    MainGateTerm,
+    ArithmeticTerm, Coefficient, ConstraintSystem, Gate, GateInternal, LinearCombinationOfTerms,
+    MainGate, MainGateTerm, PlonkConstraintSystemParams, PlonkCsWidth4WithNextStepParams,
+    PolynomialInConstraint, PolynomialMultiplicativeTerm, TimeDilation, TrivialAssembly, Variable,
     Width4MainGateWithDNext,
-    MainGate,
-    GateInternal,
-    Gate,
-    LinearCombinationOfTerms,
-    PolynomialMultiplicativeTerm,
-    PolynomialInConstraint,
-    TimeDilation,
-    Coefficient,
-    PlonkConstraintSystemParams,
-    PlonkCsWidth4WithNextStepParams,
-    TrivialAssembly
 };
 
-use crate::plonk::circuit::Assignment;
-use super::*;
 use super::bigint::*;
+use super::*;
+use crate::plonk::circuit::Assignment;
 
 use crate::plonk::circuit::allocated_num::{AllocatedNum, Num};
-use crate::plonk::circuit::simple_term::{Term};
 use crate::plonk::circuit::linear_combination::LinearCombination;
+use crate::plonk::circuit::simple_term::Term;
 
 use std::sync::Arc;
 
@@ -47,7 +26,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub static NUM_RANGE_CHECK_INVOCATIONS: AtomicUsize = AtomicUsize::new(0);
 pub static NUM_SHORT_RANGE_CHECK_INVOCATIONS: AtomicUsize = AtomicUsize::new(0);
 pub static NUM_GATES_SPENT_ON_RANGE_CHECKS: AtomicUsize = AtomicUsize::new(0);
-
 
 pub fn reset_stats() {
     NUM_RANGE_CHECK_INVOCATIONS.store(0, Ordering::Relaxed);
@@ -75,20 +53,25 @@ pub fn print_stats() {
     println!("Has made in total of {} range checks, with {} being short (singe gate) and {} gates in total", total_checks, short_checks, total_gates);
 }
 
-
-// enforces that this value is either `num_bits` long or a little longer 
+// enforces that this value is either `num_bits` long or a little longer
 // up to a single range constraint width from the table
-pub fn enforce_using_single_column_table_for_shifted_variable<E: Engine, CS: ConstraintSystem<E>>(
-    cs: &mut CS, 
-    to_constraint: &AllocatedNum<E>, 
+pub fn enforce_using_single_column_table_for_shifted_variable<
+    E: Engine,
+    CS: ConstraintSystem<E>,
+>(
+    cs: &mut CS,
+    to_constraint: &AllocatedNum<E>,
     shift: E::Fr,
-    num_bits: usize
+    num_bits: usize,
 ) -> Result<Vec<Num<E>>, SynthesisError> {
     // we ensure that var * shift <= N bits
     let strategies = get_range_constraint_info(&*cs);
     assert_eq!(CS::Params::STATE_WIDTH, 4);
     assert!(strategies.len() > 0);
-    assert_eq!(strategies[0].strategy, RangeConstraintStrategy::SingleTableInvocation);
+    assert_eq!(
+        strategies[0].strategy,
+        RangeConstraintStrategy::SingleTableInvocation
+    );
 
     let width_per_gate = strategies[0].optimal_multiple;
     let minimal_per_gate = strategies[0].minimal_multiple;
@@ -102,10 +85,10 @@ pub fn enforce_using_single_column_table_for_shifted_variable<E: Engine, CS: Con
             cs,
             to_constraint,
             shift,
-            num_bits
+            num_bits,
         )?;
 
-        return Ok(vec![chunk])
+        return Ok(vec![chunk]);
     }
 
     increment_invocation_count();
@@ -122,8 +105,14 @@ pub fn enforce_using_single_column_table_for_shifted_variable<E: Engine, CS: Con
     let dummy_var = CS::get_dummy_variable();
     let range_of_linear_terms = CS::MainGate::range_of_linear_terms();
     let mut next_term_range = CS::MainGate::range_of_next_step_linear_terms();
-    assert_eq!(next_term_range.len(), 1, "for now works only if only one variable is accessible on the next step");
-    let next_step_coeff_idx = next_term_range.next().expect("must give at least one index");
+    assert_eq!(
+        next_term_range.len(),
+        1,
+        "for now works only if only one variable is accessible on the next step"
+    );
+    let next_step_coeff_idx = next_term_range
+        .next()
+        .expect("must give at least one index");
     let mut minus_one = E::Fr::one();
     minus_one.negate();
 
@@ -147,7 +136,7 @@ pub fn enforce_using_single_column_table_for_shifted_variable<E: Engine, CS: Con
     let value_to_constraint = to_constraint.get_value().mul(&Some(shift));
     let slices = split_some_into_slices(value_to_constraint, width_per_gate, num_slices);
     let mut it = slices.into_iter().peekable();
-    
+
     let table = cs.get_table(RANGE_CHECK_SINGLE_APPLICATION_TABLE_NAME)?;
     let mut cur_value = to_constraint.clone();
     let mut coeffs = [minus_one, E::Fr::zero(), E::Fr::zero(), shift];
@@ -161,12 +150,17 @@ pub fn enforce_using_single_column_table_for_shifted_variable<E: Engine, CS: Con
         };
 
         let slice = AllocatedNum::alloc(cs, || slice_fr.grab())?;
-        let vars = [slice.get_variable(), dummy_var, dummy_var, cur_value.get_variable()];
+        let vars = [
+            slice.get_variable(),
+            dummy_var,
+            dummy_var,
+            cur_value.get_variable(),
+        ];
         chunks.push(Num::Variable(slice));
 
         cs.begin_gates_batch_for_step()?;
         cs.apply_single_lookup_gate(&vars[..table.width()], table.clone())?;
-    
+
         let gate_term = MainGateTerm::new();
         let (_, mut gate_coefs) = CS::MainGate::format_term(gate_term, dummy_var)?;
 
@@ -176,12 +170,7 @@ pub fn enforce_using_single_column_table_for_shifted_variable<E: Engine, CS: Con
         gate_coefs[next_step_coeff_idx] = d_next_coef;
 
         let mg = CS::MainGate::default();
-        cs.new_gate_in_batch(
-            &mg,
-            &gate_coefs,
-            &vars,
-            &[]
-        )?;
+        cs.new_gate_in_batch(&mg, &gate_coefs, &vars, &[])?;
         cs.end_gates_batch_for_step()?;
 
         cur_value = if it.peek().is_some() {
@@ -193,31 +182,36 @@ pub fn enforce_using_single_column_table_for_shifted_variable<E: Engine, CS: Con
                 res.mul_assign(&table_width_shift_inverse);
                 Ok(res)
             })?
-        }
-        else {
+        } else {
             AllocatedNum::zero(cs)
         };
         *coeffs.last_mut().unwrap() = E::Fr::one();
     }
-      
+
     increment_total_gates_count(num_gates_for_coarse_constraint + (remainder_bits != 0) as usize);
 
     Ok(chunks)
 }
 
-// enforces that this value is either `num_bits` long or a little longer 
+// enforces that this value is either `num_bits` long or a little longer
 // up to a single range constraint width from the table
-pub fn enforce_using_single_column_table_for_shifted_variable_optimized<E: Engine, CS: ConstraintSystem<E>>(
-    cs: &mut CS, 
-    to_constraint: &AllocatedNum<E>, 
+pub fn enforce_using_single_column_table_for_shifted_variable_optimized<
+    E: Engine,
+    CS: ConstraintSystem<E>,
+>(
+    cs: &mut CS,
+    to_constraint: &AllocatedNum<E>,
     shift: E::Fr,
-    num_bits: usize
+    num_bits: usize,
 ) -> Result<Vec<Num<E>>, SynthesisError> {
     // we ensure that var * shift <= N bits
     let strategies = get_range_constraint_info(&*cs);
     assert_eq!(CS::Params::STATE_WIDTH, 4);
     assert!(strategies.len() > 0);
-    assert_eq!(strategies[0].strategy, RangeConstraintStrategy::SingleTableInvocation);
+    assert_eq!(
+        strategies[0].strategy,
+        RangeConstraintStrategy::SingleTableInvocation
+    );
 
     let width_per_gate = strategies[0].optimal_multiple;
     let minimal_per_gate = strategies[0].minimal_multiple;
@@ -231,7 +225,7 @@ pub fn enforce_using_single_column_table_for_shifted_variable_optimized<E: Engin
             cs,
             to_constraint,
             shift,
-            num_bits
+            num_bits,
         )?;
 
         return Ok(vec![short_enforced]);
@@ -268,9 +262,15 @@ pub fn enforce_using_single_column_table_for_shifted_variable_optimized<E: Engin
     let dummy_var = CS::get_dummy_variable();
 
     let mut next_term_range = CS::MainGate::range_of_next_step_linear_terms();
-    assert_eq!(next_term_range.len(), 1, "for now works only if only one variable is accessible on the next step");
+    assert_eq!(
+        next_term_range.len(),
+        1,
+        "for now works only if only one variable is accessible on the next step"
+    );
 
-    let next_step_coeff_idx = next_term_range.next().expect("must give at least one index");
+    let next_step_coeff_idx = next_term_range
+        .next()
+        .expect("must give at least one index");
 
     let mut minus_one = E::Fr::one();
     minus_one.negate();
@@ -311,42 +311,46 @@ pub fn enforce_using_single_column_table_for_shifted_variable_optimized<E: Engin
 
         let mut term = MainGateTerm::<E>::new();
         let value = it.next().unwrap();
-        let chunk_allocated = AllocatedNum::alloc(cs, || {
-            Ok(*value.get()?)
-        })?;
+        let chunk_allocated = AllocatedNum::alloc(cs, || Ok(*value.get()?))?;
         chunks.push(Num::Variable(chunk_allocated));
         last_allocated_var = Some(chunk_allocated.clone());
         let scaled = value.mul(&Some(current_term_coeff));
         next_step_value = next_step_value.add(&scaled);
 
-        let next_step_allocated = AllocatedNum::alloc(cs, || {
-            Ok(*next_step_value.get()?)
-        })?;
+        let next_step_allocated = AllocatedNum::alloc(cs, || Ok(*next_step_value.get()?))?;
 
         // a * 2^k
-        term.add_assign(ArithmeticTerm::from_variable_and_coeff(chunk_allocated.get_variable(), current_term_coeff));
+        term.add_assign(ArithmeticTerm::from_variable_and_coeff(
+            chunk_allocated.get_variable(),
+            current_term_coeff,
+        ));
         current_term_coeff.mul_assign(&accumulation_shift);
 
         // add padding into B/C polys
         for _ in 1..linear_terms_used {
-            term.add_assign_allowing_duplicates(ArithmeticTerm::from_variable_and_coeff(explicit_zero_var, E::Fr::zero()));
+            term.add_assign_allowing_duplicates(ArithmeticTerm::from_variable_and_coeff(
+                explicit_zero_var,
+                E::Fr::zero(),
+            ));
         }
 
         if let Some(from_previous) = next_step_variable_from_previous_gate.take() {
             if is_last {
-
             } else {
                 // not the first gate and no the last
                 term.add_assign(ArithmeticTerm::from_variable(from_previous.get_variable()));
             }
-
         } else {
             // first gate
-            term.sub_assign(ArithmeticTerm::from_variable_and_coeff(to_constraint.get_variable(), shift));
+            term.sub_assign(ArithmeticTerm::from_variable_and_coeff(
+                to_constraint.get_variable(),
+                shift,
+            ));
         }
 
         // format taking into account the duplicates exist
-        let (variables, mut coeffs) = CS::MainGate::format_linear_term_with_duplicates(term, dummy_var)?;
+        let (variables, mut coeffs) =
+            CS::MainGate::format_linear_term_with_duplicates(term, dummy_var)?;
         if is_last {
             coeffs[next_step_coeff_idx] = E::Fr::zero();
         } else {
@@ -357,12 +361,7 @@ pub fn enforce_using_single_column_table_for_shifted_variable_optimized<E: Engin
 
         cs.begin_gates_batch_for_step()?;
 
-        cs.new_gate_in_batch(
-            &CS::MainGate::default(), 
-            &coeffs, 
-            &variables, 
-            &[]
-        )?;
+        cs.new_gate_in_batch(&CS::MainGate::default(), &coeffs, &variables, &[])?;
 
         cs.apply_single_lookup_gate(&variables[0..linear_terms_used], Arc::clone(&table))?;
 
@@ -372,33 +371,35 @@ pub fn enforce_using_single_column_table_for_shifted_variable_optimized<E: Engin
     if remainder_bits != 0 {
         // constraint the last segment
         let to_constraint = last_allocated_var.unwrap();
-        let short_enforced = enforce_shorter_range_into_single_gate(
-            cs,
-            &to_constraint,
-            remainder_bits
-        )?;
+        let short_enforced =
+            enforce_shorter_range_into_single_gate(cs, &to_constraint, remainder_bits)?;
 
         chunks.push(short_enforced);
     }
 
     increment_total_gates_count(num_gates_for_coarse_constraint + (remainder_bits != 0) as usize);
-    
+
     Ok(chunks)
 }
 
-
 /// enforces that variable is range checked and bit width is a multiple of the table
-pub fn enforce_using_single_column_table_for_shifted_variable_optimized_for_multiple_of_table<E: Engine, CS: ConstraintSystem<E>>(
-    cs: &mut CS, 
-    to_constraint: &AllocatedNum<E>, 
+pub fn enforce_using_single_column_table_for_shifted_variable_optimized_for_multiple_of_table<
+    E: Engine,
+    CS: ConstraintSystem<E>,
+>(
+    cs: &mut CS,
+    to_constraint: &AllocatedNum<E>,
     shift: E::Fr,
-    num_bits: usize
+    num_bits: usize,
 ) -> Result<Vec<Num<E>>, SynthesisError> {
     // we ensure that var * shift <= N bits
     let strategies = get_range_constraint_info(&*cs);
     assert_eq!(CS::Params::STATE_WIDTH, 4);
     assert!(strategies.len() > 0);
-    assert_eq!(strategies[0].strategy, RangeConstraintStrategy::SingleTableInvocation);
+    assert_eq!(
+        strategies[0].strategy,
+        RangeConstraintStrategy::SingleTableInvocation
+    );
 
     let width_per_gate = strategies[0].optimal_multiple;
     let minimal_per_gate = strategies[0].minimal_multiple;
@@ -432,9 +433,15 @@ pub fn enforce_using_single_column_table_for_shifted_variable_optimized_for_mult
     let dummy_var = CS::get_dummy_variable();
 
     let mut next_term_range = CS::MainGate::range_of_next_step_linear_terms();
-    assert_eq!(next_term_range.len(), 1, "for now works only if only one variable is accessible on the next step");
+    assert_eq!(
+        next_term_range.len(),
+        1,
+        "for now works only if only one variable is accessible on the next step"
+    );
 
-    let next_step_coeff_idx = next_term_range.next().expect("must give at least one index");
+    let next_step_coeff_idx = next_term_range
+        .next()
+        .expect("must give at least one index");
 
     let mut minus_one = E::Fr::one();
     minus_one.negate();
@@ -470,24 +477,26 @@ pub fn enforce_using_single_column_table_for_shifted_variable_optimized_for_mult
 
         let mut term = MainGateTerm::<E>::new();
         let value = it.next().unwrap();
-        let chunk_allocated = AllocatedNum::alloc(cs, || {
-            Ok(*value.get()?)
-        })?;
+        let chunk_allocated = AllocatedNum::alloc(cs, || Ok(*value.get()?))?;
         chunks.push(Num::Variable(chunk_allocated));
         let scaled = value.mul(&Some(current_term_coeff));
         next_step_value = next_step_value.add(&scaled);
 
-        let next_step_allocated = AllocatedNum::alloc(cs, || {
-            Ok(*next_step_value.get()?)
-        })?;
+        let next_step_allocated = AllocatedNum::alloc(cs, || Ok(*next_step_value.get()?))?;
 
         // a * 2^k
-        term.add_assign(ArithmeticTerm::from_variable_and_coeff(chunk_allocated.get_variable(), current_term_coeff));
+        term.add_assign(ArithmeticTerm::from_variable_and_coeff(
+            chunk_allocated.get_variable(),
+            current_term_coeff,
+        ));
         current_term_coeff.mul_assign(&accumulation_shift);
 
         // add padding into B/C polys
         for _ in 1..linear_terms_used {
-            term.add_assign_allowing_duplicates(ArithmeticTerm::from_variable_and_coeff(explicit_zero_var, E::Fr::zero()));
+            term.add_assign_allowing_duplicates(ArithmeticTerm::from_variable_and_coeff(
+                explicit_zero_var,
+                E::Fr::zero(),
+            ));
         }
 
         if let Some(from_previous) = next_step_variable_from_previous_gate.take() {
@@ -495,11 +504,15 @@ pub fn enforce_using_single_column_table_for_shifted_variable_optimized_for_mult
             term.add_assign(ArithmeticTerm::from_variable(from_previous.get_variable()));
         } else {
             // first gate
-            term.sub_assign(ArithmeticTerm::from_variable_and_coeff(to_constraint.get_variable(), shift));
+            term.sub_assign(ArithmeticTerm::from_variable_and_coeff(
+                to_constraint.get_variable(),
+                shift,
+            ));
         }
 
         // format taking into account the duplicates exist
-        let (variables, mut coeffs) = CS::MainGate::format_linear_term_with_duplicates(term, dummy_var)?;
+        let (variables, mut coeffs) =
+            CS::MainGate::format_linear_term_with_duplicates(term, dummy_var)?;
         if is_last {
             coeffs[next_step_coeff_idx] = E::Fr::zero();
         } else {
@@ -510,12 +523,7 @@ pub fn enforce_using_single_column_table_for_shifted_variable_optimized_for_mult
 
         cs.begin_gates_batch_for_step()?;
 
-        cs.new_gate_in_batch(
-            &CS::MainGate::default(), 
-            &coeffs, 
-            &variables, 
-            &[]
-        )?;
+        cs.new_gate_in_batch(&CS::MainGate::default(), &coeffs, &variables, &[])?;
 
         cs.apply_single_lookup_gate(&variables[0..linear_terms_used], Arc::clone(&table))?;
 
@@ -523,47 +531,49 @@ pub fn enforce_using_single_column_table_for_shifted_variable_optimized_for_mult
     }
 
     increment_total_gates_count(num_gates_for_coarse_constraint + (remainder_bits != 0) as usize);
-    
+
     Ok(chunks)
 }
 
-// enforces that this value is either `num_bits` long or a little longer 
+// enforces that this value is either `num_bits` long or a little longer
 // up to a single range constraint width from the table
 pub fn enforce_using_single_column_table<E: Engine, CS: ConstraintSystem<E>>(
-    cs: &mut CS, 
-    to_constraint: &AllocatedNum<E>, 
-    num_bits: usize
+    cs: &mut CS,
+    to_constraint: &AllocatedNum<E>,
+    num_bits: usize,
 ) -> Result<Vec<Num<E>>, SynthesisError> {
     enforce_using_single_column_table_for_shifted_variable(
         cs,
         to_constraint,
         E::Fr::one(),
-        num_bits
+        num_bits,
     )
 }
 
-// enforces that this value is either `num_bits` long or a little longer 
+// enforces that this value is either `num_bits` long or a little longer
 // up to a single range constraint width from the table
 pub fn enforce_using_single_column_table_optimized<E: Engine, CS: ConstraintSystem<E>>(
-    cs: &mut CS, 
-    to_constraint: &AllocatedNum<E>, 
-    num_bits: usize
+    cs: &mut CS,
+    to_constraint: &AllocatedNum<E>,
+    num_bits: usize,
 ) -> Result<Vec<Num<E>>, SynthesisError> {
     enforce_using_single_column_table_for_shifted_variable_optimized(
         cs,
         to_constraint,
         E::Fr::one(),
-        num_bits
+        num_bits,
     )
 }
 
-
 // enforces that this value * shift is exactly `num_bits` long
-fn enforce_shorter_range_into_single_gate_for_shifted_variable<E: Engine, CS: ConstraintSystem<E>>(
-    cs: &mut CS, 
-    to_constraint: &AllocatedNum<E>, 
+fn enforce_shorter_range_into_single_gate_for_shifted_variable<
+    E: Engine,
+    CS: ConstraintSystem<E>,
+>(
+    cs: &mut CS,
+    to_constraint: &AllocatedNum<E>,
     shift: E::Fr,
-    num_bits: usize
+    num_bits: usize,
 ) -> Result<Num<E>, SynthesisError> {
     // var * shift <= num bits
     increment_invocation_count();
@@ -586,7 +596,7 @@ fn enforce_shorter_range_into_single_gate_for_shifted_variable<E: Engine, CS: Co
     let mut shift = shift;
     let mut two = E::Fr::one();
     two.double();
-    for _ in 0..(width_per_gate-num_bits) {
+    for _ in 0..(width_per_gate - num_bits) {
         shift.mul_assign(&two);
     }
 
@@ -596,61 +606,58 @@ fn enforce_shorter_range_into_single_gate_for_shifted_variable<E: Engine, CS: Co
 
     let mut term = MainGateTerm::<E>::new();
     let value = to_constraint.get_value().mul(&Some(shift));
-    let allocated = AllocatedNum::alloc(cs, || {
-        Ok(*value.get()?)
-    })?;
+    let allocated = AllocatedNum::alloc(cs, || Ok(*value.get()?))?;
 
     term.add_assign(ArithmeticTerm::from_variable(allocated.get_variable()));
 
     for _ in 1..linear_terms_used {
-        term.add_assign_allowing_duplicates(ArithmeticTerm::from_variable_and_coeff(explicit_zero_var, E::Fr::zero()));
+        term.add_assign_allowing_duplicates(ArithmeticTerm::from_variable_and_coeff(
+            explicit_zero_var,
+            E::Fr::zero(),
+        ));
     }
 
-    term.sub_assign(ArithmeticTerm::from_variable_and_coeff(to_constraint.get_variable(), shift));
+    term.sub_assign(ArithmeticTerm::from_variable_and_coeff(
+        to_constraint.get_variable(),
+        shift,
+    ));
 
     let (variables, coeffs) = CS::MainGate::format_linear_term_with_duplicates(term, dummy_var)?;
 
     cs.begin_gates_batch_for_step()?;
 
-    cs.new_gate_in_batch(
-        &CS::MainGate::default(), 
-        &coeffs, 
-        &variables, 
-        &[]
-    )?;
+    cs.new_gate_in_batch(&CS::MainGate::default(), &coeffs, &variables, &[])?;
 
     let table = cs.get_table(RANGE_CHECK_SINGLE_APPLICATION_TABLE_NAME)?;
 
     cs.apply_single_lookup_gate(&variables[0..linear_terms_used], table)?;
 
     cs.end_gates_batch_for_step()?;
-    
+
     Ok(Num::Variable(*to_constraint))
 }
 
-
 // enforces that this value is exactly `num_bits` long
 fn enforce_shorter_range_into_single_gate<E: Engine, CS: ConstraintSystem<E>>(
-    cs: &mut CS, 
-    to_constraint: &AllocatedNum<E>, 
-    num_bits: usize
+    cs: &mut CS,
+    to_constraint: &AllocatedNum<E>,
+    num_bits: usize,
 ) -> Result<Num<E>, SynthesisError> {
     enforce_shorter_range_into_single_gate_for_shifted_variable(
         cs,
         to_constraint,
         E::Fr::one(),
-        num_bits
+        num_bits,
     )
 }
 
-
-// enforces that this value * shift is either `num_bits` long or a little longer 
+// enforces that this value * shift is either `num_bits` long or a little longer
 // up to a single range constraint width from the table
 fn enforce_range_into_single_gate_for_shifted_variable<E: Engine, CS: ConstraintSystem<E>>(
-    cs: &mut CS, 
-    to_constraint: &AllocatedNum<E>, 
+    cs: &mut CS,
+    to_constraint: &AllocatedNum<E>,
     shift: E::Fr,
-    num_bits: usize
+    num_bits: usize,
 ) -> Result<Num<E>, SynthesisError> {
     let strategies = get_range_constraint_info(&*cs);
     assert_eq!(CS::Params::STATE_WIDTH, 4);
@@ -663,20 +670,15 @@ fn enforce_range_into_single_gate_for_shifted_variable<E: Engine, CS: Constraint
     assert_eq!(linear_terms_used, 3);
     assert_eq!(num_bits, width_per_gate);
 
-    enforce_shorter_range_into_single_gate_for_shifted_variable(
-        cs,
-        to_constraint,
-        shift,
-        num_bits
-    )
+    enforce_shorter_range_into_single_gate_for_shifted_variable(cs, to_constraint, shift, num_bits)
 }
 
-// enforces that this value is either `num_bits` long or a little longer 
+// enforces that this value is either `num_bits` long or a little longer
 // up to a single range constraint width from the table
 fn enforce_range_into_single_gate<E: Engine, CS: ConstraintSystem<E>>(
-    cs: &mut CS, 
-    to_constraint: &AllocatedNum<E>, 
-    num_bits: usize
+    cs: &mut CS,
+    to_constraint: &AllocatedNum<E>,
+    num_bits: usize,
 ) -> Result<(), SynthesisError> {
     increment_invocation_count();
     increment_short_checks_count();
@@ -696,11 +698,17 @@ fn enforce_range_into_single_gate<E: Engine, CS: ConstraintSystem<E>>(
     let dummy_var = CS::get_dummy_variable();
 
     let mut term = MainGateTerm::<E>::new();
-    term.add_assign(ArithmeticTerm::from_variable_and_coeff(to_constraint.get_variable(), E::Fr::zero()));
+    term.add_assign(ArithmeticTerm::from_variable_and_coeff(
+        to_constraint.get_variable(),
+        E::Fr::zero(),
+    ));
 
     // add padding into B/C polys
     for _ in 1..linear_terms_used {
-        term.add_assign_allowing_duplicates(ArithmeticTerm::from_variable_and_coeff(explicit_zero_var, E::Fr::zero()));
+        term.add_assign_allowing_duplicates(ArithmeticTerm::from_variable_and_coeff(
+            explicit_zero_var,
+            E::Fr::zero(),
+        ));
     }
 
     // format taking into account the duplicates exist
@@ -709,25 +717,19 @@ fn enforce_range_into_single_gate<E: Engine, CS: ConstraintSystem<E>>(
 
     cs.begin_gates_batch_for_step()?;
 
-    cs.new_gate_in_batch(
-        &CS::MainGate::default(), 
-        &coeffs, 
-        &variables, 
-        &[]
-    )?;
+    cs.new_gate_in_batch(&CS::MainGate::default(), &coeffs, &variables, &[])?;
 
     cs.apply_single_lookup_gate(&variables[0..linear_terms_used], Arc::clone(&table))?;
 
     cs.end_gates_batch_for_step()?;
-    
+
     Ok(())
 }
-
 
 pub fn adaptively_constraint_multiple_with_single_table<E: Engine, CS: ConstraintSystem<E>>(
     cs: &mut CS,
     terms: &[Term<E>],
-    widths: &[usize]
+    widths: &[usize],
 ) -> Result<(), SynthesisError> {
     let strategies = get_range_constraint_info(&*cs);
     assert_eq!(CS::Params::STATE_WIDTH, 4);

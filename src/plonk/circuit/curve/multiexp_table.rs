@@ -1,55 +1,34 @@
-use crate::bellman::pairing::{
-    Engine,
-    GenericCurveAffine,
-    GenericCurveProjective
-};
+use crate::bellman::pairing::{Engine, GenericCurveAffine, GenericCurveProjective};
 
-use crate::bellman::pairing::ff::{
-    Field,
-    PrimeField,
-    PrimeFieldRepr,
-    BitIterator,
-    ScalarEngine
-};
+use crate::bellman::pairing::ff::{BitIterator, Field, PrimeField, PrimeFieldRepr, ScalarEngine};
 
-use crate::bellman::{
-    SynthesisError,
-};
+use crate::bellman::SynthesisError;
 
 use crate::bellman::plonk::better_better_cs::cs::{
-    Variable, 
-    ConstraintSystem,
-    ArithmeticTerm,
-    MainGateTerm,
+    ArithmeticTerm, Coefficient, ConstraintSystem, Gate, GateInternal, LinearCombinationOfTerms,
+    MainGate, MainGateTerm, PlonkConstraintSystemParams, PlonkCsWidth4WithNextStepParams,
+    PolynomialInConstraint, PolynomialMultiplicativeTerm, TimeDilation, TrivialAssembly, Variable,
     Width4MainGateWithDNext,
-    MainGate,
-    GateInternal,
-    Gate,
-    LinearCombinationOfTerms,
-    PolynomialMultiplicativeTerm,
-    PolynomialInConstraint,
-    TimeDilation,
-    Coefficient,
-    PlonkConstraintSystemParams,
-    TrivialAssembly,
-    PlonkCsWidth4WithNextStepParams,
 };
 
 use super::super::allocated_num::{AllocatedNum, Num};
+use super::super::boolean::{AllocatedBit, Boolean};
 use super::super::linear_combination::LinearCombination;
 use super::super::simple_term::Term;
-use super::super::boolean::{Boolean, AllocatedBit};
 
 use num_bigint::BigUint;
 use num_integer::Integer;
 
-use super::super::bigint::field::*;
 use super::super::bigint::bigint::*;
+use super::super::bigint::field::*;
 
-use super::sw_affine::*;
 use super::selection_table::*;
+use super::sw_affine::*;
 
-pub struct MultiexpTable<'a, E: Engine, G: GenericCurveAffine> where G::Base: PrimeField {
+pub struct MultiexpTable<'a, E: Engine, G: GenericCurveAffine>
+where
+    G::Base: PrimeField,
+{
     width_four_tables: Vec<Vec<[SelectorTable<E, Term<E>>; 2]>>,
     width_three_table: Option<Vec<[SelectorTable<E, Term<E>>; 2]>>,
     width_two_table: Option<Vec<[SelectorTable<E, Term<E>>; 2]>>,
@@ -61,11 +40,14 @@ pub struct MultiexpTable<'a, E: Engine, G: GenericCurveAffine> where G::Base: Pr
     pub width: usize,
 }
 
-impl<'a, E: Engine, G: GenericCurveAffine> MultiexpTable<'a, E, G> where G::Base: PrimeField {
+impl<'a, E: Engine, G: GenericCurveAffine> MultiexpTable<'a, E, G>
+where
+    G::Base: PrimeField,
+{
     #[track_caller]
     pub fn new<CS: ConstraintSystem<E>>(
         cs: &mut CS,
-        points: &[AffinePoint<'a, E, G>]
+        points: &[AffinePoint<'a, E, G>],
     ) -> Result<Self, SynthesisError> {
         let params = points[0].x.representation_params;
 
@@ -98,7 +80,7 @@ impl<'a, E: Engine, G: GenericCurveAffine> MultiexpTable<'a, E, G> where G::Base
         let mut width_two_table_elements = None;
 
         match remainder.len() {
-            0 => {},
+            0 => {}
             1 => {
                 let mut point = remainder[0].clone();
                 let (minus_y, y) = point.y.clone().negated(cs)?;
@@ -111,17 +93,17 @@ impl<'a, E: Engine, G: GenericCurveAffine> MultiexpTable<'a, E, G> where G::Base
                 }
 
                 single_bit_pair = Some([point_negated, point]);
-            },
+            }
             2 => {
                 let (t, e) = Self::make_width_two_table(cs, remainder)?;
                 width_two_table = Some(t);
                 width_two_table_elements = Some(e);
-            },
+            }
             3 => {
                 let (t, e) = Self::make_width_three_table(cs, remainder)?;
                 width_three_table = Some(t);
                 width_three_table_elements = Some(e);
-            },
+            }
             _ => {
                 unreachable!()
             }
@@ -136,7 +118,7 @@ impl<'a, E: Engine, G: GenericCurveAffine> MultiexpTable<'a, E, G> where G::Base
             width_three_table_elements,
             width_two_table_elements,
             params: params,
-            width
+            width,
         };
 
         Ok(table)
@@ -145,17 +127,25 @@ impl<'a, E: Engine, G: GenericCurveAffine> MultiexpTable<'a, E, G> where G::Base
     #[track_caller]
     fn make_width_four_table<CS: ConstraintSystem<E>>(
         cs: &mut CS,
-        chunk: &[AffinePoint<'a, E, G>]
-    ) -> Result<(Vec<[SelectorTable< E, Term<E>>; 2]>, Vec<AffinePoint<'a, E, G>>), SynthesisError> {
+        chunk: &[AffinePoint<'a, E, G>],
+    ) -> Result<
+        (
+            Vec<[SelectorTable<E, Term<E>>; 2]>,
+            Vec<AffinePoint<'a, E, G>>,
+        ),
+        SynthesisError,
+    > {
         assert_eq!(chunk.len(), 4);
         // first we need to shuffle points themselves
 
         let mut limb_selection_tables = vec![];
 
         // combination between pairs
-        let (tmp_0, (original_1, original_0)) = chunk[1].clone().add_unequal(cs, chunk[0].clone())?;
+        let (tmp_0, (original_1, original_0)) =
+            chunk[1].clone().add_unequal(cs, chunk[0].clone())?;
         let (tmp_1, _) = original_1.sub_unequal(cs, original_0)?;
-        let (tmp_2, (original_3, original_2)) = chunk[3].clone().add_unequal(cs, chunk[2].clone())?;
+        let (tmp_2, (original_3, original_2)) =
+            chunk[3].clone().add_unequal(cs, chunk[2].clone())?;
         let (tmp_3, _) = original_3.sub_unequal(cs, original_2)?;
 
         // combinations of combinations of pairs
@@ -175,7 +165,7 @@ impl<'a, E: Engine, G: GenericCurveAffine> MultiexpTable<'a, E, G> where G::Base
         let params = entry_0.x.representation_params;
 
         let entries = vec![
-            entry_0, entry_1, entry_2, entry_3, entry_4, entry_5, entry_6, entry_7
+            entry_0, entry_1, entry_2, entry_3, entry_4, entry_5, entry_6, entry_7,
         ];
 
         // now make individual lookup tables for each limb
@@ -203,15 +193,22 @@ impl<'a, E: Engine, G: GenericCurveAffine> MultiexpTable<'a, E, G> where G::Base
     #[track_caller]
     fn make_width_three_table<CS: ConstraintSystem<E>>(
         cs: &mut CS,
-        chunk: &[AffinePoint<'a, E, G>]
-    ) -> Result<(Vec<[SelectorTable< E, Term<E>>; 2]>, Vec<AffinePoint<'a, E, G>>), SynthesisError> {
+        chunk: &[AffinePoint<'a, E, G>],
+    ) -> Result<
+        (
+            Vec<[SelectorTable<E, Term<E>>; 2]>,
+            Vec<AffinePoint<'a, E, G>>,
+        ),
+        SynthesisError,
+    > {
         assert_eq!(chunk.len(), 3);
         // first we need to shuffle points themselves
 
         let mut limb_selection_tables = vec![];
 
         // combination between pairs
-        let (tmp_0, (original_1, original_0)) = chunk[1].clone().add_unequal(cs, chunk[0].clone())?;
+        let (tmp_0, (original_1, original_0)) =
+            chunk[1].clone().add_unequal(cs, chunk[0].clone())?;
         let (tmp_1, _) = original_1.sub_unequal(cs, original_0)?;
 
         let original_2 = chunk[2].clone();
@@ -226,9 +223,7 @@ impl<'a, E: Engine, G: GenericCurveAffine> MultiexpTable<'a, E, G> where G::Base
 
         let params = entry_0.x.representation_params;
 
-        let entries = vec![
-            entry_0, entry_1, entry_2, entry_3
-        ];
+        let entries = vec![entry_0, entry_1, entry_2, entry_3];
 
         // now make individual lookup tables for each limb
 
@@ -255,22 +250,27 @@ impl<'a, E: Engine, G: GenericCurveAffine> MultiexpTable<'a, E, G> where G::Base
     #[track_caller]
     fn make_width_two_table<CS: ConstraintSystem<E>>(
         cs: &mut CS,
-        chunk: &[AffinePoint<'a, E, G>]
-    ) -> Result<(Vec<[SelectorTable< E, Term<E>>; 2]>, Vec<AffinePoint<'a, E, G>>), SynthesisError> {
+        chunk: &[AffinePoint<'a, E, G>],
+    ) -> Result<
+        (
+            Vec<[SelectorTable<E, Term<E>>; 2]>,
+            Vec<AffinePoint<'a, E, G>>,
+        ),
+        SynthesisError,
+    > {
         assert_eq!(chunk.len(), 2);
         // first we need to shuffle points themselves
 
         let mut limb_selection_tables = vec![];
 
         // combination between pairs
-        let (entry_0, (original_1, original_0)) = chunk[1].clone().add_unequal(cs, chunk[0].clone())?;
+        let (entry_0, (original_1, original_0)) =
+            chunk[1].clone().add_unequal(cs, chunk[0].clone())?;
         let (entry_1, _) = original_1.sub_unequal(cs, original_0)?;
 
         let params = entry_0.x.representation_params;
 
-        let entries = vec![
-            entry_0, entry_1
-        ];
+        let entries = vec![entry_0, entry_1];
 
         // now make individual lookup tables for each limb
 
@@ -298,7 +298,7 @@ impl<'a, E: Engine, G: GenericCurveAffine> MultiexpTable<'a, E, G> where G::Base
         cs: &mut CS,
         tables: &Vec<[SelectorTable<E, Term<E>>; 2]>,
         bits: &[Boolean],
-        params: &'a RnsParameters<E, G::Base>
+        params: &'a RnsParameters<E, G::Base>,
     ) -> Result<AffinePoint<'a, E, G>, SynthesisError> {
         assert!(bits.len() >= 2);
         assert!(bits.len() <= 4);
@@ -306,7 +306,7 @@ impl<'a, E: Engine, G: GenericCurveAffine> MultiexpTable<'a, E, G> where G::Base
 
         let mut selection_bits = Vec::with_capacity(bits.len() - 1);
 
-        for i in (0..(bits.len()-1)).rev() {
+        for i in (0..(bits.len() - 1)).rev() {
             let bb = Boolean::xor(cs, &negation_bit, &bits[i])?;
 
             selection_bits.push(bb);
@@ -323,7 +323,7 @@ impl<'a, E: Engine, G: GenericCurveAffine> MultiexpTable<'a, E, G> where G::Base
             selected_y_limb_terms.push(selected_y_term);
         }
 
-        // now reconstruct limbs (add bit width) and base field term 
+        // now reconstruct limbs (add bit width) and base field term
 
         let mut shift_constant = E::Fr::one();
 
@@ -338,29 +338,26 @@ impl<'a, E: Engine, G: GenericCurveAffine> MultiexpTable<'a, E, G> where G::Base
 
         let mut value_is_none = false;
 
-        for (limb_idx, ((x_term, y_term), max_value)) in selected_x_limb_terms.into_iter()
-                                            .zip(selected_y_limb_terms.into_iter())
-                                            .zip(params.binary_limbs_max_values.iter().cloned())
-                                            .enumerate()
+        for (limb_idx, ((x_term, y_term), max_value)) in selected_x_limb_terms
+            .into_iter()
+            .zip(selected_y_limb_terms.into_iter())
+            .zip(params.binary_limbs_max_values.iter().cloned())
+            .enumerate()
         {
-            let x_limb = Limb::new(
-                x_term.clone(),
-                max_value.clone()
-            );
+            let x_limb = Limb::new(x_term.clone(), max_value.clone());
 
             if let Some(v) = x_term.get_value() {
-                x_value += fe_to_biguint(&v) << (params.binary_limbs_params.limb_size_bits * limb_idx); 
+                x_value +=
+                    fe_to_biguint(&v) << (params.binary_limbs_params.limb_size_bits * limb_idx);
             } else {
                 value_is_none = true;
             }
 
-            let y_limb = Limb::new(
-                y_term.clone(),
-                max_value.clone()
-            );
+            let y_limb = Limb::new(y_term.clone(), max_value.clone());
 
             if let Some(v) = y_term.get_value() {
-                y_value += fe_to_biguint(&v) << (params.binary_limbs_params.limb_size_bits * limb_idx); 
+                y_value +=
+                    fe_to_biguint(&v) << (params.binary_limbs_params.limb_size_bits * limb_idx);
             } else {
                 value_is_none = true;
             }
@@ -404,14 +401,14 @@ impl<'a, E: Engine, G: GenericCurveAffine> MultiexpTable<'a, E, G> where G::Base
             binary_limbs: x_limbs,
             base_field_limb: x_base,
             value: x,
-            representation_params: params
+            representation_params: params,
         };
 
         let selected_y = FieldElement::<E, G::Base> {
             binary_limbs: y_limbs,
             base_field_limb: y_base,
             value: y,
-            representation_params: params
+            representation_params: params,
         };
 
         let (negated_y, selected_y) = selected_y.negated(cs)?;
@@ -425,16 +422,14 @@ impl<'a, E: Engine, G: GenericCurveAffine> MultiexpTable<'a, E, G> where G::Base
                 }
 
                 Some(val)
-            },
-            _ => {
-                None
             }
+            _ => None,
         };
 
         let point = AffinePoint::<_, _> {
             x: selected_x,
             y: final_y,
-            value: point_value
+            value: point_value,
         };
 
         Ok(point)
@@ -443,7 +438,7 @@ impl<'a, E: Engine, G: GenericCurveAffine> MultiexpTable<'a, E, G> where G::Base
     #[track_caller]
     pub fn make_base<CS: ConstraintSystem<E>>(
         &self,
-        cs: &mut CS
+        cs: &mut CS,
     ) -> Result<AffinePoint<'a, E, G>, SynthesisError> {
         let mut queries = vec![];
         for w_4 in self.width_four_table_elements.iter() {
@@ -476,7 +471,7 @@ impl<'a, E: Engine, G: GenericCurveAffine> MultiexpTable<'a, E, G> where G::Base
     pub fn lookup_for_skewed_entries<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,
-        bits: &[Boolean]
+        bits: &[Boolean],
     ) -> Result<AffinePoint<'a, E, G>, SynthesisError> {
         let mut queries = vec![];
 
@@ -496,10 +491,11 @@ impl<'a, E: Engine, G: GenericCurveAffine> MultiexpTable<'a, E, G> where G::Base
         assert!(remainder.len() < 4);
 
         match remainder.len() {
-            0 => {},
+            0 => {}
             1 => {
                 let w1 = self.width_one_elements.as_ref().unwrap();
-                let (y, _) = FieldElement::select(cs, &remainder[0], w1[0].y.clone(), w1[1].y.clone())?;
+                let (y, _) =
+                    FieldElement::select(cs, &remainder[0], w1[0].y.clone(), w1[1].y.clone())?;
                 let x = w1[0].x.clone();
 
                 let new_value = if let Some(b) = remainder[0].get_value() {
@@ -515,21 +511,21 @@ impl<'a, E: Engine, G: GenericCurveAffine> MultiexpTable<'a, E, G> where G::Base
                 let point = AffinePoint::<_, _> {
                     x: x,
                     y: y,
-                    value: new_value
+                    value: new_value,
                 };
 
                 queries.push(point);
-            },
+            }
             2 => {
                 let w2 = self.width_two_table.as_ref().unwrap();
                 let q = Self::select_from_table_two_to_four(cs, w2, remainder, self.params)?;
                 queries.push(q);
-            },
+            }
             3 => {
                 let w3 = self.width_three_table.as_ref().unwrap();
                 let q = Self::select_from_table_two_to_four(cs, w3, remainder, self.params)?;
                 queries.push(q);
-            },
+            }
             _ => {
                 unreachable!()
             }

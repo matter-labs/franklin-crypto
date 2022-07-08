@@ -1,24 +1,25 @@
 pub mod allocated_num;
-pub mod custom_rescue_gate;
-pub mod rescue;
-pub mod linear_combination;
-pub mod boolean;
-pub mod uint32;
-pub mod multieq;
-pub mod sha256;
 pub mod blake2s;
+pub mod boolean;
+pub mod custom_rescue_gate;
+pub mod linear_combination;
+pub mod multieq;
+pub mod rescue;
+pub mod sha256;
+pub mod uint32;
 //pub mod poseidon;
 pub mod bigint;
-pub mod simple_term;
-pub mod curve;
-pub mod verifier_circuit;
-pub mod tables;
-pub mod counter;
+pub mod booleanwrapper;
 pub mod byte;
-pub mod utils;
-pub mod permutation_network;
-pub mod edwards;
+pub mod counter;
+pub mod curve;
 pub mod custom_5th_degree_gate_optimized;
+pub mod edwards;
+pub mod permutation_network;
+pub mod simple_term;
+pub mod tables;
+pub mod utils;
+pub mod verifier_circuit;
 
 pub mod assignment;
 pub mod hashes_with_tables;
@@ -49,8 +50,8 @@ impl<F: Field> SomeField<F> for Option<F> {
                 tmp.add_assign(&o);
 
                 Some(tmp)
-            },
-            _ => None
+            }
+            _ => None,
         }
     }
     fn sub(&self, other: &Self) -> Self {
@@ -60,8 +61,8 @@ impl<F: Field> SomeField<F> for Option<F> {
                 tmp.sub_assign(&o);
 
                 Some(tmp)
-            },
-            _ => None
+            }
+            _ => None,
         }
     }
     fn mul(&self, other: &Self) -> Self {
@@ -71,8 +72,8 @@ impl<F: Field> SomeField<F> for Option<F> {
                 tmp.mul_assign(&o);
 
                 Some(tmp)
-            },
-            _ => None
+            }
+            _ => None,
         }
     }
     fn fma(&self, to_mul: &Self, to_add: &Self) -> Self {
@@ -83,8 +84,8 @@ impl<F: Field> SomeField<F> for Option<F> {
                 tmp.add_assign(&a);
 
                 Some(tmp)
-            },
-            _ => None
+            }
+            _ => None,
         }
     }
     fn negate(&self) -> Self {
@@ -94,8 +95,8 @@ impl<F: Field> SomeField<F> for Option<F> {
                 tmp.negate();
 
                 Some(tmp)
-            },
-            _ => None
+            }
+            _ => None,
         }
     }
 }

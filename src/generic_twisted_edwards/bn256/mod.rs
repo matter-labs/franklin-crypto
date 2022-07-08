@@ -77,16 +77,16 @@ impl AltBabyJubjubParams {
 }
 
 #[cfg(test)]
-mod tests{
+mod tests {
     use super::*;
     use crate::alt_babyjubjub::fs::Fs;
-    use rand::{XorShiftRng, SeedableRng};
-    use std::time::Instant;    
+    use rand::{SeedableRng, XorShiftRng};
+    use std::time::Instant;
 
     #[test]
-    fn test_conditonal_select_for_point(){
+    fn test_conditonal_select_for_point() {
         let jubjub = AltBabyJubjubBn256::get_implementor();
-        
+
         let p = TwistedEdwardsPoint::<Bn256>::identity();
         let q = jubjub.double(&p);
 
@@ -97,17 +97,17 @@ mod tests{
     }
 
     #[test]
-    fn test_constant_time_mul(){
+    fn test_constant_time_mul() {
         let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         let jubjub = AltBabyJubjubBn256::get_implementor();
 
-        for _ in 0..100{
+        for _ in 0..100 {
             let p = jubjub.rand(rng);
             let scalar = Fs::rand(rng);
-    
+
             let expected = jubjub.mul(&p, scalar);
-    
+
             let actual = jubjub.ct_mul(&p, scalar);
             assert_ne!(actual, TwistedEdwardsPoint::<Bn256>::identity());
             assert_eq!(expected, actual);
@@ -115,17 +115,17 @@ mod tests{
     }
 
     #[test]
-    fn test_constant_time_mul_running_time(){
+    fn test_constant_time_mul_running_time() {
         let rng = &mut XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         let jubjub = AltBabyJubjubBn256::get_implementor();
 
-        for _ in 0..10{
+        for _ in 0..10 {
             let p = jubjub.rand(rng);
             let scalar = Fs::rand(rng);
-            
+
             let expected = jubjub.mul(&p, scalar);
-            let now = Instant::now();            
+            let now = Instant::now();
             let actual = jubjub.ct_mul(&p, scalar);
             println!("elapsed {}", now.elapsed().as_nanos());
             assert_ne!(actual, TwistedEdwardsPoint::<Bn256>::identity());

@@ -1,22 +1,21 @@
+use crate::bellman::pairing::ff::*;
 use crate::bellman::plonk::better_better_cs::cs::*;
 use crate::bellman::plonk::better_better_cs::lookup_tables::*;
 use crate::bellman::plonk::better_better_cs::utils;
-use crate::bellman::pairing::ff::*;
-use crate::bellman::SynthesisError;
 use crate::bellman::Engine;
+use crate::bellman::SynthesisError;
 use crate::plonk::circuit::bigint::fe_to_biguint;
 
 use itertools::Itertools;
 
 use super::super::utils::*;
 
-
-// for given bases (b, c), num_of_chunks n, 
-// base converter function f: [0, b) -> [0, c) 
+// for given bases (b, c), num_of_chunks n,
+// base converter function f: [0, b) -> [0, c)
 // and block counting function g : [0, n) -> u64
 // this table does the following transformation:
 // x = \sum_{i=0}^n x_i b^i -> y = \sum_{i=0}^m f(x_i) c^i.
-// first column - input x; 
+// first column - input x;
 // second column - g(k), where k is the number of actual non-zero chunks
 // third column - output y;
 #[derive(Clone)]
@@ -30,8 +29,17 @@ pub struct ExtendedBaseConverterTable<E: Engine> {
 }
 
 impl<E: Engine> ExtendedBaseConverterTable<E> {
-    pub fn new<F, G>(num_chunks: usize, base_b: u64, base_c: u64, transform_f: F, transform_counter: G, name: &'static str) -> Self 
-    where F: Fn(u64) -> u64, G: Fn(u64) -> u64
+    pub fn new<F, G>(
+        num_chunks: usize,
+        base_b: u64,
+        base_c: u64,
+        transform_f: F,
+        transform_counter: G,
+        name: &'static str,
+    ) -> Self
+    where
+        F: Fn(u64) -> u64,
+        G: Fn(u64) -> u64,
     {
         let table_size = pow(base_b as usize, num_chunks);
         let mut keys_vec = Vec::with_capacity(table_size);
@@ -105,7 +113,11 @@ impl<E: Engine> LookupTableInternal<E> for ExtendedBaseConverterTable<E> {
         true
     }
     fn get_table_values_for_polys(&self) -> Vec<Vec<E::Fr>> {
-        vec![self.table_entries[0].clone(), self.table_entries[1].clone(), self.table_entries[2].clone()]
+        vec![
+            self.table_entries[0].clone(),
+            self.table_entries[1].clone(),
+            self.table_entries[2].clone(),
+        ]
     }
     fn table_id(&self) -> E::Fr {
         table_id_from_string(self.name)
@@ -135,13 +147,12 @@ impl<E: Engine> LookupTableInternal<E> for ExtendedBaseConverterTable<E> {
         assert!(keys.len() == self.num_keys());
 
         if let Some(entry) = self.table_lookup_map.get(&keys[0]) {
-            return Ok(vec![entry.0, entry.1])
+            return Ok(vec![entry.0, entry.1]);
         }
 
         Err(SynthesisError::Unsatisfiable)
     }
 }
-
 
 #[derive(Clone)]
 pub struct OverflowCognizantConverterTable<E: Engine> {
@@ -155,17 +166,20 @@ pub struct OverflowCognizantConverterTable<E: Engine> {
 
 impl<E: Engine> OverflowCognizantConverterTable<E> {
     pub fn new<F: Fn(u64) -> u64>(
-        base_b: u64, base_c: u64, offset:u64, transform_f: F, name: &'static str
-    ) -> Self 
-    {
-        let table_size = (base_b * (base_b+1)/2) as usize;
+        base_b: u64,
+        base_c: u64,
+        offset: u64,
+        transform_f: F,
+        name: &'static str,
+    ) -> Self {
+        let table_size = (base_b * (base_b + 1) / 2) as usize;
         let mut map = std::collections::HashMap::with_capacity(table_size);
         let offset_fr = u64_exp_to_ff::<E::Fr>(base_b, offset);
         let zero_fr = E::Fr::zero();
         let mut unsorted_table = Vec::with_capacity(table_size);
 
         for i in 0..base_b {
-            for j in 0..(base_b-i) {
+            for j in 0..(base_b - i) {
                 let low = i;
                 let high = j;
 
@@ -215,8 +229,8 @@ impl<E: Engine> LookupTableInternal<E> for OverflowCognizantConverterTable<E> {
         self.name
     }
     fn table_size(&self) -> usize {
-        let table_size = (self.base_b * (self.base_b+1)/2) as usize;
-
+        let table_size = (self.base_b * (self.base_b + 1) / 2) as usize;
+        println!("SELF TABLE SIZE: {}", table_size);
         table_size
     }
     fn num_keys(&self) -> usize {
@@ -229,7 +243,11 @@ impl<E: Engine> LookupTableInternal<E> for OverflowCognizantConverterTable<E> {
         true
     }
     fn get_table_values_for_polys(&self) -> Vec<Vec<E::Fr>> {
-        vec![self.table_entries[0].clone(), self.table_entries[1].clone(), self.table_entries[2].clone()]
+        vec![
+            self.table_entries[0].clone(),
+            self.table_entries[1].clone(),
+            self.table_entries[2].clone(),
+        ]
     }
     fn table_id(&self) -> E::Fr {
         table_id_from_string(self.name)
@@ -259,7 +277,7 @@ impl<E: Engine> LookupTableInternal<E> for OverflowCognizantConverterTable<E> {
         assert!(keys.len() == self.num_keys());
 
         if let Some(entry) = self.table_lookup_map.get(&keys[0]) {
-            return Ok(vec![entry.0, entry.1])
+            return Ok(vec![entry.0, entry.1]);
         }
 
         Err(SynthesisError::Unsatisfiable)

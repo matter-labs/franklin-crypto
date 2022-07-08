@@ -1,13 +1,12 @@
-use std::sync::Arc;
+use super::utils;
+use crate::bellman::pairing::bls12_381::Bls12;
+use crate::bellman::pairing::bn256::Bn256;
 use crate::bellman::pairing::ff::*;
 use crate::bellman::pairing::ff::{PrimeField, PrimeFieldRepr};
 use crate::bellman::Engine;
-use crate::sha3::{digest::ExtendableOutput, digest::Update, Sha3XofReader, Shake128};
-use crate::bellman::pairing::bn256::Bn256;
-use crate::bellman::pairing::bls12_381::Bls12;
 use crate::lazy_static::lazy_static;
-use super::utils;
-
+use crate::sha3::{digest::ExtendableOutput, digest::Update, Sha3XofReader, Shake128};
+use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub struct ReinforcedConcreteParams<F: PrimeField> {
@@ -61,7 +60,7 @@ impl<F: PrimeField> ReinforcedConcreteParams<F> {
             norm_shift_i,
             sbox: Self::pad_sbox(sbox, si),
             d,
-            p_prime
+            p_prime,
         }
     }
 
@@ -106,7 +105,6 @@ impl<F: PrimeField> ReinforcedConcreteParams<F> {
         Self::TOTAL_ROUNDS
     }
 }
-
 
 #[derive(Clone, Debug)]
 pub struct ReinforcedConcrete<F: PrimeField> {
@@ -245,7 +243,7 @@ impl<F: PrimeField> ReinforcedConcrete<F> {
         }
 
         // bar round
-        current_state = self.bars(&current_state); 
+        current_state = self.bars(&current_state);
         self.concrete(
             &mut current_state,
             ReinforcedConcreteParams::<F>::PRE_ROUNDS + 1,
@@ -274,7 +272,6 @@ impl<F: PrimeField> ReinforcedConcrete<F> {
         self.permutation(&current_state)
     }
 }
-
 
 lazy_static! {
     // BLS12
@@ -370,8 +367,7 @@ lazy_static! {
         Arc::new(ReinforcedConcreteParams::new(5, &BN256_SI, &BN256_SBOX, BN256_AB.as_ref()));
 }
 
-
-pub trait DefaultRcParams : Engine {
+pub trait DefaultRcParams: Engine {
     fn get_default_rc_params() -> Arc<ReinforcedConcreteParams<<Self as ScalarEngine>::Fr>>;
 }
 
@@ -386,4 +382,3 @@ impl DefaultRcParams for Bls12 {
         RC_BLS_PARAMS.clone()
     }
 }
-

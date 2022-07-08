@@ -1,30 +1,18 @@
-use crate::bellman::pairing::{
-    Engine,
-};
+use crate::bellman::pairing::Engine;
 
-use crate::bellman::pairing::ff::{
-    Field,
-    PrimeField,
-    PrimeFieldRepr,
-    BitIterator
-};
+use crate::bellman::pairing::ff::{BitIterator, Field, PrimeField, PrimeFieldRepr};
 
-use crate::bellman::{
-    SynthesisError,
-};
+use crate::bellman::SynthesisError;
 
 use crate::bellman::plonk::better_better_cs::cs::{
-    Variable, 
-    ConstraintSystem,
-    ArithmeticTerm,
-    MainGateTerm
+    ArithmeticTerm, ConstraintSystem, MainGateTerm, Variable,
 };
 
 use crate::plonk::circuit::Assignment;
 
 use super::allocated_num::*;
-use super::linear_combination::*;
 use super::boolean::Boolean;
+use super::linear_combination::*;
 
 // a*X + b that is more lightweight than linear
 // combination but allows to better work with constants and scaling
@@ -34,7 +22,6 @@ pub struct Term<E: Engine> {
     pub coeff: E::Fr,
     pub constant_term: E::Fr,
 }
-
 
 impl<E: Engine> std::fmt::Display for Term<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -50,7 +37,7 @@ impl<E: Engine> Term<E> {
     pub fn is_constant(&self) -> bool {
         match self.num {
             Num::Constant(..) => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -58,7 +45,7 @@ impl<E: Engine> Term<E> {
         Self {
             num: Num::Constant(val),
             coeff: E::Fr::one(),
-            constant_term: E::Fr::zero()
+            constant_term: E::Fr::zero(),
         }
     }
 
@@ -66,7 +53,7 @@ impl<E: Engine> Term<E> {
         Self {
             num: Num::Variable(n),
             coeff: E::Fr::one(),
-            constant_term: E::Fr::zero()
+            constant_term: E::Fr::zero(),
         }
     }
 
@@ -74,11 +61,14 @@ impl<E: Engine> Term<E> {
         Self {
             num: n,
             coeff: E::Fr::one(),
-            constant_term: E::Fr::zero()
+            constant_term: E::Fr::zero(),
         }
     }
 
-    pub fn allocate<CS: ConstraintSystem<E>>(cs: &mut CS, witness: Option<E::Fr>) -> Result<Self, SynthesisError> {
+    pub fn allocate<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        witness: Option<E::Fr>,
+    ) -> Result<Self, SynthesisError> {
         let num = Num::alloc(cs, witness)?;
 
         Ok(Self::from_num(num))
@@ -96,25 +86,25 @@ impl<E: Engine> Term<E> {
                 } else {
                     Self::from_constant(E::Fr::zero())
                 }
-            },
+            }
             Boolean::Is(bit) => {
                 let var = bit.get_variable();
                 let val = bit.get_value_as_field_element::<E>();
 
                 let allocated = AllocatedNum::<E> {
                     variable: var,
-                    value: val
+                    value: val,
                 };
 
                 Self::from_allocated_num(allocated)
-            },
+            }
             Boolean::Not(bit) => {
                 let var = bit.get_variable();
                 let val = bit.get_value_as_field_element::<E>();
 
                 let allocated = AllocatedNum::<E> {
                     variable: var,
-                    value: val
+                    value: val,
                 };
 
                 let mut tmp = Self::from_allocated_num(allocated);
@@ -122,8 +112,7 @@ impl<E: Engine> Term<E> {
                 tmp.add_constant(&E::Fr::one());
 
                 tmp
-            },
-
+            }
         }
     }
 
@@ -135,8 +124,10 @@ impl<E: Engine> Term<E> {
                 tmp.add_assign(&self.constant_term);
 
                 tmp
-            },
-            _ => {panic!("variable")}
+            }
+            _ => {
+                panic!("variable")
+            }
         }
     }
 
@@ -148,16 +139,24 @@ impl<E: Engine> Term<E> {
                 tmp.add_assign(&self.constant_term);
 
                 tmp
-            },
-            _ => {panic!("variable")}
+            }
+            _ => {
+                panic!("variable")
+            }
         }
     }
 
     #[track_caller]
     pub fn into_num(&self) -> Num<E> {
         let one = E::Fr::one();
-        assert!(self.coeff == one, "term must not containt coefficient to cast into Num");
-        assert!(self.constant_term.is_zero(), "term must not containt additive constant to cast into Num");
+        assert!(
+            self.coeff == one,
+            "term must not containt coefficient to cast into Num"
+        );
+        assert!(
+            self.constant_term.is_zero(),
+            "term must not containt additive constant to cast into Num"
+        );
 
         self.num.clone()
     }
@@ -167,10 +166,8 @@ impl<E: Engine> Term<E> {
         match &self.num {
             Num::Constant(..) => {
                 panic!("this term is constant")
-            },
-            Num::Variable(v) => {
-                v.clone()
             }
+            Num::Variable(v) => v.clone(),
         }
     }
 
@@ -179,7 +176,7 @@ impl<E: Engine> Term<E> {
         match &self.num {
             Num::Constant(..) => {
                 panic!("this term is constant")
-            },
+            }
             Num::Variable(v) => {
                 assert_eq!(E::Fr::one(), self.coeff);
                 assert!(self.constant_term.is_zero());
@@ -204,9 +201,7 @@ impl<E: Engine> Term<E> {
 
     pub fn get_value(&self) -> Option<E::Fr> {
         match &self.num {
-            Num::Constant(..) => {
-                Some(self.get_constant_value())
-            },
+            Num::Constant(..) => Some(self.get_constant_value()),
             Num::Variable(v) => {
                 if let Some(v) = v.get_value() {
                     let mut tmp = self.coeff;
@@ -223,7 +218,7 @@ impl<E: Engine> Term<E> {
 
     pub fn collapse_into_num<CS: ConstraintSystem<E>>(
         &self,
-        cs: &mut CS
+        cs: &mut CS,
     ) -> Result<Num<E>, SynthesisError> {
         if self.is_constant() {
             return Ok(Num::Constant(self.get_constant_value()));
@@ -243,7 +238,8 @@ impl<E: Engine> Term<E> {
             Ok(tmp)
         })?;
 
-        let self_term = ArithmeticTerm::from_variable_and_coeff(self.get_variable().get_variable(), self.coeff);
+        let self_term =
+            ArithmeticTerm::from_variable_and_coeff(self.get_variable().get_variable(), self.coeff);
         let constant_term = ArithmeticTerm::constant(self.constant_term);
         let result_term = ArithmeticTerm::from_variable(result_var);
         let mut term = MainGateTerm::new();
@@ -255,7 +251,7 @@ impl<E: Engine> Term<E> {
 
         let allocated = AllocatedNum::<E> {
             variable: result_var,
-            value: new_value
+            value: new_value,
         };
 
         Ok(Num::Variable(allocated))
@@ -264,7 +260,7 @@ impl<E: Engine> Term<E> {
     pub fn add<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,
-        other: &Self
+        other: &Self,
     ) -> Result<Self, SynthesisError> {
         let this_is_constant = self.is_constant();
         let other_is_constant = other.is_constant();
@@ -274,8 +270,8 @@ impl<E: Engine> Term<E> {
                 let mut v = self.get_constant_value();
                 v.add_assign(&other.get_constant_value());
 
-                return Ok(Self::from_constant(v))
-            },
+                return Ok(Self::from_constant(v));
+            }
             (true, false) | (false, true) => {
                 let c = if this_is_constant {
                     self.get_constant_value()
@@ -294,7 +290,7 @@ impl<E: Engine> Term<E> {
                 let num = non_constant.collapse_into_num(cs)?;
 
                 return Ok(Self::from_num(num));
-            },
+            }
             (false, false) => {
                 let mut lc = LinearCombination::<E>::zero();
                 lc.add_assign_number_with_coeff(&self.num, self.coeff);
@@ -312,7 +308,7 @@ impl<E: Engine> Term<E> {
     pub fn sub<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,
-        other: &Self
+        other: &Self,
     ) -> Result<Self, SynthesisError> {
         let mut other = other.clone();
         other.negate();
@@ -323,7 +319,7 @@ impl<E: Engine> Term<E> {
     pub fn add_multiple<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,
-        other: &[Self]
+        other: &[Self],
     ) -> Result<Self, SynthesisError> {
         if other.len() == 0 {
             return Ok(self.clone());
@@ -348,7 +344,7 @@ impl<E: Engine> Term<E> {
     pub fn mul<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,
-        other: &Self
+        other: &Self,
     ) -> Result<Self, SynthesisError> {
         Self::fma(cs, self, other, &Self::zero())
     }
@@ -357,7 +353,7 @@ impl<E: Engine> Term<E> {
         cs: &mut CS,
         mul_x: &Self,
         mul_y: &Self,
-        add_z: &Self
+        add_z: &Self,
     ) -> Result<Self, SynthesisError> {
         let x_is_constant = mul_x.is_constant();
         let y_is_constant = mul_y.is_constant();
@@ -372,7 +368,7 @@ impl<E: Engine> Term<E> {
                 let n = Self::from_constant(result);
 
                 return Ok(n);
-            },
+            }
             (true, true, false) => {
                 let mut value = mul_x.get_constant_value();
                 value.mul_assign(&mul_y.get_constant_value());
@@ -381,8 +377,8 @@ impl<E: Engine> Term<E> {
                 result.add_constant(&value);
 
                 return Ok(result);
-            },
-            (true, false, true) | (false, true, true)=> {
+            }
+            (true, false, true) | (false, true, true) => {
                 let additive_constant = add_z.get_constant_value();
                 let multiplicative_constant = if x_is_constant {
                     mul_x.get_constant_value()
@@ -400,7 +396,7 @@ impl<E: Engine> Term<E> {
                 result.add_constant(&additive_constant);
 
                 return Ok(result);
-            },
+            }
             (true, false, false) | (false, true, false) => {
                 let multiplicative_constant = if x_is_constant {
                     mul_x.get_constant_value()
@@ -419,7 +415,7 @@ impl<E: Engine> Term<E> {
                 let tmp = tmp.add(cs, &add_z)?;
 
                 return Ok(tmp);
-            },
+            }
             (false, false, true) => {
                 let mut mul_coeff = mul_x.coeff;
                 mul_coeff.mul_assign(&mul_y.coeff);
@@ -444,19 +440,15 @@ impl<E: Engine> Term<E> {
                         new_value.add_assign(&z);
 
                         Some(new_value)
-                    },
-                    _ => {None}
+                    }
+                    _ => None,
                 };
 
-                let allocated_num = AllocatedNum::alloc(
-                    cs, 
-                    || {
-                        Ok(*new_value.get()?)
-                    }
-                )?;
+                let allocated_num = AllocatedNum::alloc(cs, || Ok(*new_value.get()?))?;
 
                 let mut term = MainGateTerm::<E>::new();
-                let mul_term = ArithmeticTerm::<E>::from_variable_and_coeff(x_var, mul_coeff).mul_by_variable(y_var);
+                let mul_term = ArithmeticTerm::<E>::from_variable_and_coeff(x_var, mul_coeff)
+                    .mul_by_variable(y_var);
                 let x_term = ArithmeticTerm::<E>::from_variable_and_coeff(x_var, x_coeff);
                 let y_term = ArithmeticTerm::<E>::from_variable_and_coeff(y_var, y_coeff);
                 let n_term = ArithmeticTerm::<E>::from_variable(allocated_num.get_variable());
@@ -473,12 +465,12 @@ impl<E: Engine> Term<E> {
                 let new = Self::from_allocated_num(allocated_num);
 
                 return Ok(new);
-            },
+            }
             (false, false, false) => {
                 // each term is something like a*X + b
                 // in this case we have do manually unroll it
 
-                // (a_0 * X + b_0) * (a_1 * Y + b_1) + (a_2 * Z + b_2) = 
+                // (a_0 * X + b_0) * (a_1 * Y + b_1) + (a_2 * Z + b_2) =
 
                 // a_0 * X * a_1 * Y + (a_0 * X * b_1 + a_1 * Y * b_0 + a_2 * Z) + (b_0 * b_1 + b_2)
 
@@ -506,19 +498,15 @@ impl<E: Engine> Term<E> {
                         new_value.add_assign(&z);
 
                         Some(new_value)
-                    },
-                    _ => {None}
+                    }
+                    _ => None,
                 };
 
-                let allocated_num = AllocatedNum::alloc(
-                    cs, 
-                    || {
-                        Ok(*new_value.get()?)
-                    }
-                )?;
+                let allocated_num = AllocatedNum::alloc(cs, || Ok(*new_value.get()?))?;
 
                 let mut term = MainGateTerm::<E>::new();
-                let mul_term = ArithmeticTerm::<E>::from_variable_and_coeff(x_var, mul_coeff).mul_by_variable(y_var);
+                let mul_term = ArithmeticTerm::<E>::from_variable_and_coeff(x_var, mul_coeff)
+                    .mul_by_variable(y_var);
                 let x_term = ArithmeticTerm::<E>::from_variable_and_coeff(x_var, x_coeff);
                 let y_term = ArithmeticTerm::<E>::from_variable_and_coeff(y_var, y_coeff);
                 let z_term = ArithmeticTerm::<E>::from_variable_and_coeff(z_var, add_z.coeff);
@@ -545,7 +533,7 @@ impl<E: Engine> Term<E> {
         cs: &mut CS,
         x: &Self,
         z: &Self,
-        factor: &E::Fr
+        factor: &E::Fr,
     ) -> Result<Self, SynthesisError> {
         let x_is_constant = x.is_constant();
         let z_is_constant = z.is_constant();
@@ -560,7 +548,7 @@ impl<E: Engine> Term<E> {
                 let n = Self::from_constant(result);
 
                 return Ok(n);
-            },
+            }
             (true, false) => {
                 let mut value = x.get_constant_value();
                 value.square();
@@ -570,7 +558,7 @@ impl<E: Engine> Term<E> {
                 result.add_constant(&value);
 
                 return Ok(result);
-            },
+            }
             (false, true) => {
                 let mut mul_coeff = x.coeff;
                 mul_coeff.square();
@@ -596,19 +584,15 @@ impl<E: Engine> Term<E> {
                         new_value.add_assign(&z);
 
                         Some(new_value)
-                    },
-                    _ => {None}
+                    }
+                    _ => None,
                 };
 
-                let allocated_num = AllocatedNum::alloc(
-                    cs, 
-                    || {
-                        Ok(*new_value.get()?)
-                    }
-                )?;
+                let allocated_num = AllocatedNum::alloc(cs, || Ok(*new_value.get()?))?;
 
                 let mut term = MainGateTerm::<E>::new();
-                let mul_term = ArithmeticTerm::<E>::from_variable_and_coeff(x_var, mul_coeff).mul_by_variable(x_var);
+                let mul_term = ArithmeticTerm::<E>::from_variable_and_coeff(x_var, mul_coeff)
+                    .mul_by_variable(x_var);
                 let x_term = ArithmeticTerm::<E>::from_variable_and_coeff(x_var, x_coeff);
                 let n_term = ArithmeticTerm::<E>::from_variable(allocated_num.get_variable());
                 let const_term = ArithmeticTerm::constant(constant_coeff);
@@ -623,7 +607,7 @@ impl<E: Engine> Term<E> {
                 let new = Self::from_allocated_num(allocated_num);
 
                 return Ok(new);
-            },
+            }
             (false, false) => {
                 let mut mul_coeff = x.coeff;
                 mul_coeff.square();
@@ -650,19 +634,15 @@ impl<E: Engine> Term<E> {
                         new_value.add_assign(&z);
 
                         Some(new_value)
-                    },
-                    _ => {None}
+                    }
+                    _ => None,
                 };
 
-                let allocated_num = AllocatedNum::alloc(
-                    cs, 
-                    || {
-                        Ok(*new_value.get()?)
-                    }
-                )?;
+                let allocated_num = AllocatedNum::alloc(cs, || Ok(*new_value.get()?))?;
 
                 let mut term = MainGateTerm::<E>::new();
-                let mul_term = ArithmeticTerm::<E>::from_variable_and_coeff(x_var, mul_coeff).mul_by_variable(x_var);
+                let mul_term = ArithmeticTerm::<E>::from_variable_and_coeff(x_var, mul_coeff)
+                    .mul_by_variable(x_var);
                 let x_term = ArithmeticTerm::<E>::from_variable_and_coeff(x_var, x_coeff);
                 let z_term = ArithmeticTerm::<E>::from_variable_and_coeff(z_var, z.coeff);
                 let n_term = ArithmeticTerm::<E>::from_variable(allocated_num.get_variable());
@@ -679,7 +659,7 @@ impl<E: Engine> Term<E> {
                 let new = Self::from_allocated_num(allocated_num);
 
                 return Ok(new);
-            },
+            }
         }
     }
 
@@ -688,7 +668,7 @@ impl<E: Engine> Term<E> {
         cs: &mut CS,
         flag: &Boolean,
         first: &Self,
-        second: &Self
+        second: &Self,
     ) -> Result<Self, SynthesisError> {
         match flag {
             Boolean::Constant(c) => {
@@ -697,7 +677,7 @@ impl<E: Engine> Term<E> {
                 } else {
                     return Ok(second.clone());
                 }
-            },
+            }
             _ => {}
         }
 
@@ -714,26 +694,35 @@ impl<E: Engine> Term<E> {
         Ok(new)
     }
 
-    pub fn inverse<CS: ConstraintSystem<E>>(
-        &self,
-        cs: &mut CS,
-    ) -> Result<Self, SynthesisError> {
+    pub fn inverse<CS: ConstraintSystem<E>>(&self, cs: &mut CS) -> Result<Self, SynthesisError> {
         if self.is_constant() {
-            let new_value = self.into_constant_value().inverse().expect("inverse must exist");
-            
+            let new_value = self
+                .into_constant_value()
+                .inverse()
+                .expect("inverse must exist");
+
             let new = Self::from_constant(new_value);
 
-            return Ok(new)
+            return Ok(new);
         }
 
-        let new_value = self.get_value().map(|el| el.inverse().expect("inverse must exist"));
+        let new_value = self
+            .get_value()
+            .map(|el| el.inverse().expect("inverse must exist"));
         let new = Self::allocate(cs, new_value)?;
 
         // (a*X + b) * Y - 1 = 0
         // a * X * Y + b * Y - 1 = 0
         let mut term = MainGateTerm::<E>::new();
-        let mul_term = ArithmeticTerm::<E>::from_variable_and_coeff(self.num.get_variable().get_variable(), self.coeff).mul_by_variable(new.num.get_variable().get_variable());
-        let y_term = ArithmeticTerm::<E>::from_variable_and_coeff(new.num.get_variable().get_variable(), self.constant_term);
+        let mul_term = ArithmeticTerm::<E>::from_variable_and_coeff(
+            self.num.get_variable().get_variable(),
+            self.coeff,
+        )
+        .mul_by_variable(new.num.get_variable().get_variable());
+        let y_term = ArithmeticTerm::<E>::from_variable_and_coeff(
+            new.num.get_variable().get_variable(),
+            self.constant_term,
+        );
         let const_term = ArithmeticTerm::constant(E::Fr::one());
 
         term.add_assign(mul_term);
@@ -741,23 +730,26 @@ impl<E: Engine> Term<E> {
         term.sub_assign(const_term);
 
         cs.allocate_main_gate(term)?;
-        
+
         Ok(new)
     }
 
     pub fn div<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,
-        other: &Self
+        other: &Self,
     ) -> Result<Self, SynthesisError> {
         match (self.is_constant(), other.is_constant()) {
             (true, true) => {
-                let mut new_value = other.into_constant_value().inverse().expect("inverse must exist");
+                let mut new_value = other
+                    .into_constant_value()
+                    .inverse()
+                    .expect("inverse must exist");
                 new_value.mul_assign(&self.into_constant_value());
                 let new = Self::from_constant(new_value);
-    
-                return Ok(new)
-            },
+
+                return Ok(new);
+            }
             (false, false) => {
                 let new_value = match (self.get_value(), other.get_value()) {
                     (Some(this), Some(other)) => {
@@ -766,7 +758,7 @@ impl<E: Engine> Term<E> {
 
                         Some(new_value)
                     }
-                    _ => None
+                    _ => None,
                 };
 
                 // (a * X + b) / (c * Y + d) = Z
@@ -774,20 +766,30 @@ impl<E: Engine> Term<E> {
                 let z = Self::allocate(cs, new_value)?;
 
                 let mut term = MainGateTerm::<E>::new();
-                let x_term = ArithmeticTerm::<E>::from_variable_and_coeff(self.num.get_variable().get_variable(), self.coeff);
-                let yz_term = ArithmeticTerm::<E>::from_variable_and_coeff(other.num.get_variable().get_variable(), other.coeff).mul_by_variable(z.num.get_variable().get_variable());
-                let z_term = ArithmeticTerm::<E>::from_variable_and_coeff(z.num.get_variable().get_variable(), other.constant_term);
+                let x_term = ArithmeticTerm::<E>::from_variable_and_coeff(
+                    self.num.get_variable().get_variable(),
+                    self.coeff,
+                );
+                let yz_term = ArithmeticTerm::<E>::from_variable_and_coeff(
+                    other.num.get_variable().get_variable(),
+                    other.coeff,
+                )
+                .mul_by_variable(z.num.get_variable().get_variable());
+                let z_term = ArithmeticTerm::<E>::from_variable_and_coeff(
+                    z.num.get_variable().get_variable(),
+                    other.constant_term,
+                );
                 let b_term = ArithmeticTerm::constant(self.constant_term);
-        
+
                 term.add_assign(x_term);
                 term.add_assign(b_term);
                 term.sub_assign(yz_term);
                 term.sub_assign(z_term);
-        
+
                 cs.allocate_main_gate(term)?;
 
-                return Ok(z)
-            },
+                return Ok(z);
+            }
             _ => {
                 unimplemented!()
             }
@@ -800,33 +802,25 @@ mod test {
     use super::*;
 
     use crate::bellman::plonk::better_better_cs::cs::{
-        Variable, 
-        ConstraintSystem,
-        ArithmeticTerm,
-        MainGateTerm,
-        Width4MainGateWithDNext,
-        MainGate,
-        GateInternal,
-        Gate,
-        LinearCombinationOfTerms,
-        PolynomialMultiplicativeTerm,
-        PolynomialInConstraint,
-        TimeDilation,
-        Coefficient,
-        PlonkConstraintSystemParams,
-        TrivialAssembly, 
-        PlonkCsWidth4WithNextStepParams,
+        ArithmeticTerm, Coefficient, ConstraintSystem, Gate, GateInternal,
+        LinearCombinationOfTerms, MainGate, MainGateTerm, PlonkConstraintSystemParams,
+        PlonkCsWidth4WithNextStepParams, PolynomialInConstraint, PolynomialMultiplicativeTerm,
+        TimeDilation, TrivialAssembly, Variable, Width4MainGateWithDNext,
     };
 
-    use crate::bellman::pairing::bn256::{Fq, Bn256, Fr};
+    use crate::bellman::pairing::bn256::{Bn256, Fq, Fr};
 
     #[test]
-    fn test_add_on_random_witness(){
-        use rand::{XorShiftRng, SeedableRng, Rng};
+    fn test_add_on_random_witness() {
+        use rand::{Rng, SeedableRng, XorShiftRng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for _ in 0..100 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = TrivialAssembly::<
+                Bn256,
+                PlonkCsWidth4WithNextStepParams,
+                Width4MainGateWithDNext,
+            >::new();
 
             let v0 = rng.gen();
             let v1 = rng.gen();
@@ -837,19 +831,9 @@ mod test {
             let c0 = rng.gen();
             let c1 = rng.gen();
 
-            let a = AllocatedNum::alloc(
-                &mut cs,
-                || {
-                    Ok(a0)
-                }
-            ).unwrap();
+            let a = AllocatedNum::alloc(&mut cs, || Ok(a0)).unwrap();
 
-            let b = AllocatedNum::alloc(
-                &mut cs,
-                || {
-                    Ok(a1)
-                }
-            ).unwrap();
+            let b = AllocatedNum::alloc(&mut cs, || Ok(a1)).unwrap();
 
             let mut a_term = Term::<Bn256>::from_allocated_num(a);
             a_term.scale(&v0);
@@ -875,16 +859,19 @@ mod test {
             assert!(cs.is_satisfied());
             assert!(a_b_term.get_value().unwrap() == res);
         }
-
     }
 
     #[test]
-    fn test_square_on_random_witness(){
-        use rand::{XorShiftRng, SeedableRng, Rng};
+    fn test_square_on_random_witness() {
+        use rand::{Rng, SeedableRng, XorShiftRng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for _ in 0..100 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = TrivialAssembly::<
+                Bn256,
+                PlonkCsWidth4WithNextStepParams,
+                Width4MainGateWithDNext,
+            >::new();
 
             let v0 = rng.gen();
             let v1 = rng.gen();
@@ -895,19 +882,9 @@ mod test {
             let c0 = rng.gen();
             let c1 = rng.gen();
 
-            let a = AllocatedNum::alloc(
-                &mut cs,
-                || {
-                    Ok(a0)
-                }
-            ).unwrap();
+            let a = AllocatedNum::alloc(&mut cs, || Ok(a0)).unwrap();
 
-            let b = AllocatedNum::alloc(
-                &mut cs,
-                || {
-                    Ok(a1)
-                }
-            ).unwrap();
+            let b = AllocatedNum::alloc(&mut cs, || Ok(a1)).unwrap();
 
             let mut a_term = Term::<Bn256>::from_allocated_num(a);
             a_term.scale(&v0);
@@ -919,7 +896,9 @@ mod test {
 
             let factor: Fr = rng.gen();
 
-            let a_b_term = Term::<Bn256>::square_with_factor_and_add(&mut cs, &a_term, &b_term, &factor).unwrap();
+            let a_b_term =
+                Term::<Bn256>::square_with_factor_and_add(&mut cs, &a_term, &b_term, &factor)
+                    .unwrap();
 
             let mut val0 = a0;
             val0.mul_assign(&v0);
@@ -937,17 +916,19 @@ mod test {
             assert!(cs.is_satisfied());
             assert!(a_b_term.get_value().unwrap() == res);
         }
-
     }
 
-
     #[test]
-    fn test_fma_on_random_witness(){
-        use rand::{XorShiftRng, SeedableRng, Rng};
+    fn test_fma_on_random_witness() {
+        use rand::{Rng, SeedableRng, XorShiftRng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
         for _ in 0..100 {
-            let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+            let mut cs = TrivialAssembly::<
+                Bn256,
+                PlonkCsWidth4WithNextStepParams,
+                Width4MainGateWithDNext,
+            >::new();
 
             let v0 = rng.gen();
             let v1 = rng.gen();
@@ -961,26 +942,11 @@ mod test {
             let c1 = rng.gen();
             let c2 = rng.gen();
 
-            let a = AllocatedNum::alloc(
-                &mut cs,
-                || {
-                    Ok(a0)
-                }
-            ).unwrap();
+            let a = AllocatedNum::alloc(&mut cs, || Ok(a0)).unwrap();
 
-            let b = AllocatedNum::alloc(
-                &mut cs,
-                || {
-                    Ok(a1)
-                }
-            ).unwrap();
+            let b = AllocatedNum::alloc(&mut cs, || Ok(a1)).unwrap();
 
-            let c = AllocatedNum::alloc(
-                &mut cs,
-                || {
-                    Ok(a2)
-                }
-            ).unwrap();
+            let c = AllocatedNum::alloc(&mut cs, || Ok(a2)).unwrap();
 
             let mut a_term = Term::<Bn256>::from_allocated_num(a);
             a_term.scale(&v0);
@@ -1015,6 +981,5 @@ mod test {
             assert!(cs.is_satisfied());
             assert!(a_b_term.get_value().unwrap() == res);
         }
-
     }
 }
