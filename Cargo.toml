@@ -31,8 +31,8 @@ itertools = "0.9"
 splitmut = "0.2"
 blake2 = "0.9"
 
-#bellman = { package = "bellman_ce", git = "https://github.com/matter-labs/bellman", default_features = false, branch = "beta" }
-bellman = { package = "bellman_ce", git = "https://github.com/PatrickWatters/bellman.git", default_features = false, branch = "beta" }
+bellman = { package = "bellman_ce", git = "https://github.com/matter-labs/bellman", default_features = false, branch = "beta" }
+#bellman = { package = "bellman_ce", git = "https://github.com/PatrickWatters/bellman.git", default_features = false, branch = "beta" }
 blake2-rfc_bellman_edition = "0.0.1"
 poseidon_hash = {git = "https://github.com/shamatar/poseidon_hash.git"}
 
