@@ -438,9 +438,9 @@ impl JubjubBls12 {
 //     assert!(p == q);
 // }
 
-// #[test]
-// fn test_jubjub_bls12_num_generators() {
-//     let params = JubjubBls12::new();
+#[test]
+fn test_jubjub_bls12_num_generators() {
+    let params = JubjubBls12::new();
 
-//     assert_eq!(params.pedersen_circuit_generators.len(), 5);
-// }
+    assert_eq!(params.pedersen_circuit_generators.len(), 5);
+}

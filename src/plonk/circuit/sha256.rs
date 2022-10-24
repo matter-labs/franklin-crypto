@@ -357,34 +357,34 @@ mod test {
 
     use crate::bellman::plonk::better_better_cs::cs::*;
 
-    #[test]
-    fn test_blank_hash() {
-        let iv = get_sha256_iv();
+    // #[test]
+    // fn test_blank_hash() {
+    //     let iv = get_sha256_iv();
 
-        let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
-        let mut input_bits: Vec<_> = (0..512).map(|_| Boolean::Constant(false)).collect();
-        input_bits[0] = Boolean::Constant(true);
-        let out = sha256_compression_function(
-            &mut cs,
-            &input_bits,
-            &iv
-        ).unwrap();
-        let out_bits: Vec<_> = out.into_iter().flat_map(|e| e.into_bits_be()).collect();
+    //     let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+    //     let mut input_bits: Vec<_> = (0..512).map(|_| Boolean::Constant(false)).collect();
+    //     input_bits[0] = Boolean::Constant(true);
+    //     let out = sha256_compression_function(
+    //         &mut cs,
+    //         &input_bits,
+    //         &iv
+    //     ).unwrap();
+    //     let out_bits: Vec<_> = out.into_iter().flat_map(|e| e.into_bits_be()).collect();
 
-        assert!(cs.is_satisfied());
-        assert_eq!(cs.n(), 0);
+    //     assert!(cs.is_satisfied());
+    //     assert_eq!(cs.n(), 0);
 
-        // let expected = hex!("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    //     let expected = hex!("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
 
-        // let mut out = out_bits.into_iter();
-        // for b in expected.iter() {
-        //     for i in (0..8).rev() {
-        //         let c = out.next().unwrap().get_value().unwrap();
+    //     let mut out = out_bits.into_iter();
+    //     for b in expected.iter() {
+    //         for i in (0..8).rev() {
+    //             let c = out.next().unwrap().get_value().unwrap();
 
-        //         assert_eq!(c, (b >> i) & 1u8 == 1u8);
-        //     }
-        // }
-    }
+    //             assert_eq!(c, (b >> i) & 1u8 == 1u8);
+    //         }
+    //     }
+    // }
 
     #[test]
     fn test_full_block() {

@@ -541,6 +541,26 @@ impl Field for Fs {
         let r7 = adc(r7, 0, &mut carry);
         self.mont_reduce(r0, r1, r2, r3, r4, r5, r6, r7);
     }
+
+    fn pow<S: AsRef<[u64]>>(&self, exp: S) -> Self {
+        let mut res = Self::one();
+
+        let mut found_one = false;
+
+        for i in BitIterator::new(exp) {
+            if found_one {
+                res.square();
+            } else {
+                found_one = i;
+            }
+
+            if i {
+                res.mul_assign(self);
+            }
+        }
+
+        res
+    }
 }
 
 impl Fs {

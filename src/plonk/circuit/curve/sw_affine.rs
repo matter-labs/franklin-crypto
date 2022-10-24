@@ -4,6 +4,8 @@ use crate::bellman::pairing::{
     GenericCurveProjective,
 };
 
+use crate::bellman::plonk::better_better_cs::cs::*;
+
 use crate::bellman::pairing::ff::{
     Field,
     PrimeField,
@@ -34,19 +36,120 @@ use crate::bellman::plonk::better_better_cs::cs::{
     TrivialAssembly,
     PlonkCsWidth4WithNextStepParams,
 };
+use super::super::bigint_new::range_checks::*;
 
-use crate::plonk::circuit::Assignment;
+use crate::plonk::circuit::{Assignment, boolean};
 
 use super::super::allocated_num::{AllocatedNum, Num};
 use super::super::linear_combination::LinearCombination;
 use super::super::simple_term::Term;
 use super::super::boolean::{Boolean, AllocatedBit};
+use plonk::circuit::curve::endomorphism::EndomorphismParameters;
 
 use num_bigint::BigUint;
 use num_integer::Integer;
 
 use super::super::bigint::field::*;
 use super::super::bigint::bigint::*;
+use plonk::circuit::curve::point_ram::*;
+
+use plonk::circuit::bigint_new::BITWISE_LOGICAL_OPS_TABLE_NAME;
+use plonk::circuit::hashes_with_tables::get_or_create_table;
+use plonk::circuit::curve::table_for_mul::*;
+use std::sync::Arc;
+
+/// Returns a boolean of the sign of the number
+pub fn sign_i64(i64: i64)-> Boolean{
+
+    let a = i64::abs(i64);
+    let diff = i64 - a;
+    if diff == 0{
+        Boolean::Constant(false)
+    } else{
+        Boolean::Constant(true)
+    }
+}
+pub fn vec_bool_for_skew(number: usize, window: usize) -> (Vec<Option<bool>>, i64){
+    let bits_str: &str = &format!("{number:b}");
+    let char3: Vec<char> = bits_str.chars().collect::<Vec<_>>();
+
+    let zero_count = window - bits_str.len();
+    let mut vec_bool = vec![Some(false); zero_count];
+
+    for i in char3.iter(){
+        let bool = match i {
+            '0' => false, 
+            '1' => true,
+            _ => panic!()
+        };
+        vec_bool.push(Some(bool));
+        
+    };
+
+    let mut constanta: i64 = 0;
+    for i in 0..vec_bool.len(){
+        constanta *= 2;
+        let high_bit = vec_bool[i].unwrap();
+        let high_contribution = if high_bit {
+            1
+        } else{
+            -1
+        };
+
+        constanta += high_contribution ;
+    }
+
+    (vec_bool, constanta)
+}
+/// Convert the number into skew form without the last element
+/// Example: 7 -> 111 -> -1-1-1 -> -7
+/// NoTe: depends on the width of the window specified in the input
+/// because the program will fill the constant with zeros to convert to skew
+pub fn vec_of_bit(number: usize, window: usize) -> (Vec<Option<bool>>, i64){
+    // assert!(window != 1);
+    let bits_str: &str = &format!("{number:b}");
+    let char3: Vec<char> = bits_str.chars().collect::<Vec<_>>();
+
+    let zero_count = window - bits_str.len();
+    let mut vec_bool = vec![Some(false); zero_count];
+
+    for i in char3.iter(){
+        let bool = match i {
+            '0' => false, 
+            '1' => true,
+            _ => panic!()
+        };
+        vec_bool.push(Some(bool));
+        
+    };
+
+    let mut constanta: i64 = 0;
+    for i in 0..vec_bool.len(){
+        constanta *= 2;
+        let high_bit = vec_bool[i].unwrap();
+        let high_contribution = if high_bit {
+            -1
+        } else{
+            1
+        };
+
+        constanta += high_contribution ;
+    }
+
+    (vec_bool, constanta)
+    
+}
+pub fn vec_boolean_to_usize(boolean: Vec<Boolean>)-> usize{
+    let mut number = 0;
+    for boo in boolean.iter(){
+        number *=2;
+        if boo.get_value().unwrap()== true{
+            number += 1 as usize;
+        }
+        
+    }
+    number
+}
 
 #[derive(Clone, Debug)]
 pub struct AffinePoint<'a, E: Engine, G: GenericCurveAffine> where <G as GenericCurveAffine>::Base: PrimeField {
@@ -113,6 +216,136 @@ impl<'a, E: Engine, G: GenericCurveAffine> AffinePoint<'a, E, G> where <G as Gen
 
         Ok(new)
     }
+
+    /// Get the last bit of the field element
+    /// It's a witness y for point compression
+    pub fn make_witness_y_odd<F: PrimeField>( value: Option<F>)->Option<bool>{
+        let values = match value {
+            Some(ref value) => {
+                let last_bit = value.into_repr().as_ref()[0] % 2;
+
+                match last_bit {
+                    0 => Some(false),
+                    1 => Some(true),
+                    _ => unreachable!(),
+                }
+                
+            }
+            None => None
+        };
+        values
+    }
+
+    /// compression of a point for the most optimal number of gates using the xor table
+    #[track_caller]
+    pub fn point_compression<CS: ConstraintSystem<E>>(self, cs: &mut CS) -> Result<(Boolean, RangeCheckDecomposition<E>), SynthesisError>{
+
+        let table =  cs.get_table(BITWISE_LOGICAL_OPS_TABLE_NAME)?;
+        let dummy = CS::get_dummy_variable();
+        let range_of_linear_terms = CS::MainGate::range_of_linear_terms();
+        
+        let mut two = E::Fr::one();
+        two.double();
+        let two_inv = two.inverse().unwrap();
+
+        let mut minus_one = E::Fr::one();
+        minus_one.negate();
+        let mut minus_two = two.clone();
+        minus_two.negate(); 
+
+        let y = self.y;
+        let y_limbs = FieldElement::into_limbs(y.clone());
+        let num_bits = y.representation_params.binary_limbs_bit_widths[0];
+        // decomposition by field
+        let rcd = constraint_bit_length_ext(cs,  &y_limbs[0].num.get_variable(), num_bits)?;
+
+        let a = rcd.get_vars()[0];
+
+        let y_odd_witness = Self::make_witness_y_odd(a.value);
+        let y_is_odd = AllocatedBit::alloc(cs, y_odd_witness)?;
+        let b = AllocatedNum::alloc(cs, || {
+            let mut tmp = a.get_value().grab()?;
+            tmp.sub_assign(&y_is_odd.get_value_as_field_element::<E>().grab()?);
+            tmp.mul_assign(&two_inv);
+            Ok(tmp)
+        })?;
+        let a_xor_b = match (a.get_value(), b.get_value()) {
+            (Some(a_val), Some(b_val)) => {
+                let res = table.query(&[a_val, b_val])?;
+                AllocatedNum::alloc(cs, || Ok(res[0]))?
+            },  
+            (_, _) => AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?
+        };
+
+        let y_is_odd_var = y_is_odd.get_variable();
+        let vars = [
+            a.get_variable(), b.get_variable(), a_xor_b.get_variable(), y_is_odd_var
+        ];
+        let coeffs = [E::Fr::one(), minus_two.clone(), E::Fr::zero(), E::Fr::one()];
+        cs.begin_gates_batch_for_step()?;
+        cs.apply_single_lookup_gate(&vars[..table.width()], table.clone())?;
+        
+        let gate_term = MainGateTerm::new();
+        let (_, mut gate_coefs) = CS::MainGate::format_term(gate_term, dummy)?;
+        for (idx, coef) in range_of_linear_terms.clone().zip(coeffs.iter()) {
+            gate_coefs[idx] = *coef;
+        }
+
+        let mg = CS::MainGate::default();
+        cs.new_gate_in_batch(&mg, &gate_coefs, &vars, &[])?;
+        cs.end_gates_batch_for_step()?;
+
+        let odd_bit = Boolean::from(y_is_odd);
+        Ok((odd_bit, rcd))
+
+
+    }
+
+    // pub fn point_decompression<CS: ConstraintSystem<E>>(odd_bit: Boolean, cs: &mut CS, y_decomposition: RangeCheckDecomposition<E>)->Result<RangeCheckDecomposition<E>, SynthesisError>{
+    //     let mut two = E::Fr::one();
+    //     two.double();
+    //     let two_inv = two.inverse().unwrap();
+    //     let mut minus_two = two.clone();
+    //     minus_two.negate(); 
+    //     let table =  cs.get_table(BITWISE_LOGICAL_OPS_TABLE_NAME)?;
+    //     let range_of_linear_terms = CS::MainGate::range_of_linear_terms();
+    //     let dummy = CS::get_dummy_variable();
+    //     let a = y_decomposition.get_vars()[0];
+    //     let b = AllocatedNum::alloc(cs, || {
+    //         let mut tmp = a.get_value().grab()?;
+    //         tmp.sub_assign(&odd_bit.get_value_in_field::<E>().grab()?);
+    //         tmp.mul_assign(&two_inv);
+    //         Ok(tmp)
+    //     })?;
+
+    //     let a_xor_b = match (a.get_value(), b.get_value()) {
+    //         (Some(a_val), Some(b_val)) => {
+    //             let res = table.query(&[a_val, b_val])?;
+    //             AllocatedNum::alloc(cs, || Ok(res[0]))?
+    //         },  
+    //         (_, _) => AllocatedNum::alloc(cs, || Err(SynthesisError::AssignmentMissing))?
+    //     };
+
+    //     let y_is_odd_var = odd_bit.get_variable().unwrap().get_variable();
+    //     let vars = [
+    //         a.get_variable(), b.get_variable(), a_xor_b.get_variable(), y_is_odd_var
+    //     ];
+    //     let coeffs = [E::Fr::one(), minus_two.clone(), E::Fr::zero(), E::Fr::one()];
+    
+    //     cs.begin_gates_batch_for_step()?;
+    //     cs.apply_single_lookup_gate(&vars[..table.width()], table.clone())?;
+        
+    //     let gate_term = MainGateTerm::new();
+    //     let (_, mut gate_coefs) = CS::MainGate::format_term(gate_term, dummy)?;
+    //     for (idx, coef) in range_of_linear_terms.clone().zip(coeffs.iter()) {
+    //         gate_coefs[idx] = *coef;
+    //     }
+    //     let mg = CS::MainGate::default();
+    //     cs.new_gate_in_batch(&mg, &gate_coefs, &vars, &[])?;
+    //     cs.end_gates_batch_for_step()?;
+    
+    //     Ok(y_decomposition)
+    // }
 
     pub fn from_xy_unchecked(
         x: FieldElement<'a, E, G::Base>,
@@ -702,6 +935,396 @@ impl<'a, E: Engine, G: GenericCurveAffine> AffinePoint<'a, E, G> where <G as Gen
 
         Ok((new, (this, other)))
     }
+    #[track_caller]
+    pub fn mul_by_fixed_point<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        window: usize,
+        params: &'a RnsParameters<E, G::Base>,
+        scalar: &Num<E>,
+        bit_limit: Option<usize>
+    )-> Result<Self, SynthesisError> {
+
+        let columns3 = vec![
+            PolyIdentifier::VariablesPolynomial(0), 
+            PolyIdentifier::VariablesPolynomial(1), 
+            PolyIdentifier::VariablesPolynomial(2)
+        ];
+        let name : &'static str = "table for affine point";
+        let affine_point_coord_table = get_or_create_table(
+            cs,
+            name,
+            || {
+                LookupTableApplication::new(
+                    name,
+                    ScalarPointTable::new::<_, G>(window, name, params),
+                    columns3.clone(),
+                    None,
+                    true
+                )
+            } 
+        ).unwrap();
+        let v = scalar.get_variable();
+
+        let entries = decompose_allocated_num_into_skewed_table(cs, &v, bit_limit)?;
+
+
+        let offset_generator = crate::constants::make_random_points_with_unknown_discrete_log_generic_proj::<G::Projective>(
+            &crate::constants::MULTIEXP_DST[..], 
+            1
+        )[0];
+
+        let generator = Self::constant(offset_generator, params);
+
+        let entries_without_first_and_last = &entries[1..(entries.len() - 1)];
+        let d = (bit_limit.unwrap()-1)/window; 
+        let d_last_block = bit_limit.unwrap()-1 - d*window;
+        // Break the scalar into chunks the size of the window width
+        let chunks: Vec<Vec<Boolean>> = entries_without_first_and_last.chunks(window).map(|s| s.into()).collect();
+
+        let mut num_doubles = 0;
+        let mut pre_point = generator.clone();
+        for i in 0..d{
+            let scalar = chunks[i].clone();
+            let point = AffinePoint::take_affine_point(cs, scalar, &affine_point_coord_table, params)?;
+            let (acc, _)  = pre_point.clone().double_and_add(cs, point)?;
+            num_doubles += 1;
+            pre_point = acc;
+
+        }
+
+        let name : &'static str = "table for latest scalar";
+        let affine_point_coord_table_last = get_or_create_table(
+            cs,
+            name,
+            || {
+                LookupTableApplication::new(
+                    name,
+                    ScalarPointTable::new::<_, G>(d_last_block, name, params),
+                    columns3.clone(),
+                    None,
+                    true
+                )
+            } 
+        ).unwrap();
+
+        let scalar = chunks.last().unwrap();
+        let point = AffinePoint::take_affine_point(cs, scalar.clone(), &affine_point_coord_table_last, params)?;
+        let (acc, _)  = pre_point.clone().double_and_add(cs, point)?;
+        num_doubles += 1;
+
+
+
+        let (with_skew, _ ) = acc.clone().sub_unequal(cs, generator.clone())?;
+
+        let last_entry = entries.last().unwrap();
+
+        let with_skew_value = with_skew.get_value();
+        let with_skew_x = with_skew.x;
+        let with_skew_y = with_skew.y;
+
+        let acc_value = acc.get_value();
+        let acc_x = acc.x;
+        let acc_y = acc.y;
+
+        let final_value = match (with_skew_value, acc_value, last_entry.get_value()) {
+            (Some(s_value), Some(a_value), Some(b)) => {
+                if b {
+                    Some(s_value)
+                } else {
+                    Some(a_value)
+                }
+            },
+            _ => None
+        };
+
+        let (final_acc_x, _) = FieldElement::select(cs, last_entry, with_skew_x, acc_x)?;
+        let (final_acc_y, _) = FieldElement::select(cs, last_entry, with_skew_y, acc_y)?;
+
+        let shift = BigUint::from(1u64) << num_doubles;
+        let as_scalar_repr = biguint_to_repr::<G::Scalar>(shift);
+        let offset_value = offset_generator.mul(as_scalar_repr).into_affine();
+        let offset = Self::constant(offset_value, params);
+
+        let result = Self {
+            x: final_acc_x,
+            y: final_acc_y,
+            value: final_value
+        };
+
+        let (result, _) = result.sub_unequal(cs, offset)?;
+
+        Ok(result)
+
+    }
+    #[track_caller]
+    pub fn take_affine_point<CS: ConstraintSystem<E>>(
+        cs: &mut CS, 
+        scalar: Vec<Boolean>, 
+        table: &Arc<LookupTableApplication<E>>, 
+        params: &'a RnsParameters<E, G::Base>
+    )-> Result<Self, SynthesisError>{
+
+        let key = vec_boolean_to_usize(scalar);
+
+        let flag_low_f = Boolean::Constant(false);
+        let flag_low_t = Boolean::Constant(true);
+
+        let flag_high_f = Boolean::Constant(false);
+        let flag_high_t = Boolean::Constant(true);
+
+        let key = E::Fr::from_str(&format!("{}", (key))).unwrap();
+
+        let low_limbs_x = Self::take_limb_of_point_from_table(cs, key, &flag_high_f, &flag_low_f, &table)?;
+        let high_limbs_x = Self::take_limb_of_point_from_table(cs, key, &flag_high_f, &flag_low_t, &table)?;
+        let low_limbs_y = Self::take_limb_of_point_from_table(cs, key, &flag_high_t, &flag_low_f, &table)?;
+        let high_limbs_y = Self::take_limb_of_point_from_table(cs, key, &flag_high_t, &flag_low_t, &table)?;
+
+        let limbs_x = [
+            Num::Variable(low_limbs_x[0].clone()),
+            Num::Variable(low_limbs_x[1].clone()),
+            Num::Variable(high_limbs_x[0].clone()),
+            Num::Variable(high_limbs_x[1].clone()),
+        ];
+        let limbs_y = [
+            Num::Variable(low_limbs_y[0].clone()),
+            Num::Variable(low_limbs_y[1].clone()),
+            Num::Variable(high_limbs_y[0].clone()),
+            Num::Variable(high_limbs_y[1].clone()),
+        ];
+
+        let x = FieldElement::from_single_limb_witnesses_unchecked(cs, &limbs_x, params)?;
+        let y = FieldElement::from_single_limb_witnesses_unchecked(cs, &limbs_y, params)?;
+
+        let g_value = match (x.get_field_value(), y.get_field_value()) {
+            (Some(x), Some(y)) => {
+                Some(G::from_xy_unchecked(x, y))
+            },
+            _ => {
+                None
+            }
+        };
+
+        let point = Self {
+            x: x,
+            y: y,
+            value: g_value
+        };
+
+        Ok(point)
+
+    }
+    #[track_caller]
+    pub fn take_affine_point_with_endo<CS: ConstraintSystem<E>>(
+        cs: &mut CS, 
+        scalar_for_flags: Vec<Boolean>, 
+        scalar_2: Vec<Boolean>,
+        table: &Arc<LookupTableApplication<E>>, 
+        params: &'a RnsParameters<E, G::Base>
+    )-> Result<Self, SynthesisError>{
+
+        let scalar_1 = vec_boolean_to_usize(scalar_for_flags);
+        let scalar_2 = vec_boolean_to_usize(scalar_2);
+        let flag_f = Boolean::Constant(false);
+        let flag_t = Boolean::Constant(true);
+
+        let key_1 = E::Fr::from_str(&format!("{}", (scalar_1))).unwrap();
+        let key_2 = E::Fr::from_str(&format!("{}", (scalar_2))).unwrap();
+        // scalar || 000
+        let low_limbs_x_0 = Self::take_limb_of_point_from_endotable(cs, key_1, key_2, &flag_f, &flag_f, &flag_f, &table)?;
+        // scalar || 001
+        let low_limbs_x_1 = Self::take_limb_of_point_from_endotable(cs, key_1, key_2, &flag_f, &flag_f, &flag_t, &table)?;
+        // scalar || 010
+        let high_limbs_x_0 = Self::take_limb_of_point_from_endotable(cs, key_1, key_2, &flag_f, &flag_t, &flag_f, &table)?;
+        // scalar || 011
+        let high_limbs_x_1 = Self::take_limb_of_point_from_endotable(cs, key_1, key_2, &flag_f, &flag_t, &flag_t, &table)?;
+        // scalar || 100 
+        let low_limbs_y_0 = Self::take_limb_of_point_from_endotable(cs, key_1, key_2, &flag_t, &flag_f, &flag_f, &table)?;
+        // scalar || 101
+        let low_limbs_y_1 = Self::take_limb_of_point_from_endotable(cs, key_1, key_2, &flag_t, &flag_f, &flag_t, &table)?;
+        // scalar || 110
+        let high_limbs_y_0 = Self::take_limb_of_point_from_endotable(cs, key_1, key_2, &flag_t, &flag_t, &flag_f, &table)?;
+        // scalar || 111
+        let high_limbs_y_1 = Self::take_limb_of_point_from_endotable(cs, key_1, key_2, &flag_t, &flag_t, &flag_t, &table)?;
+
+        let limbs_x = [
+            Num::Variable(low_limbs_x_0),
+            Num::Variable(low_limbs_x_1),
+            Num::Variable(high_limbs_x_0),
+            Num::Variable(high_limbs_x_1),
+        ];
+        let limbs_y = [
+            Num::Variable(low_limbs_y_0),
+            Num::Variable(low_limbs_y_1),
+            Num::Variable(high_limbs_y_0),
+            Num::Variable(high_limbs_y_1),
+        ];
+
+        let x = FieldElement::from_single_limb_witnesses_unchecked(cs, &limbs_x, params)?;
+        let y = FieldElement::from_single_limb_witnesses_unchecked(cs, &limbs_y, params)?;
+
+        let g_value = match (x.get_field_value(), y.get_field_value()) {
+            (Some(x), Some(y)) => {
+                Some(G::from_xy_unchecked(x, y))
+            },
+            _ => {
+                None
+            }
+        };
+
+        let point = Self {
+            x: x,
+            y: y,
+            value: g_value
+        };
+
+        Ok(point)
+
+    }
+    #[track_caller]
+    pub fn take_limb_of_point_from_table<CS: ConstraintSystem<E>>(cs: &mut CS, key: E::Fr, flag_high: &Boolean, flag_low: &Boolean, table: &Arc<LookupTableApplication<E>>)-> Result< [AllocatedNum<E>; 2], SynthesisError>{
+        let mut two = E::Fr::one();
+        two.double();
+        let mut minus_one = E::Fr::one();
+        minus_one.negate();
+        let mut minus_two = two.clone();
+        minus_two.negate(); 
+
+        let dummy = CS::get_dummy_variable();
+        let range_of_linear_terms = CS::MainGate::range_of_linear_terms();
+
+
+        let scalar_alloc = Num::alloc(cs, Some(key))?;
+        // expr = 4*n + 2*flag_high + flag_low
+        let mut expr_val = None;
+        if let Some(scalar_alloc) = scalar_alloc.get_value() {
+            let mut val = scalar_alloc;
+            val.double();
+            val.double();
+            let mut flag = flag_high.get_value_in_field::<E>().grab()?;
+            flag.double();
+            val.add_assign(&flag);
+            val.add_assign(&flag_low.get_value_in_field::<E>().grab()?);
+            expr_val = Some(val);
+        }
+
+        let expr = Num::alloc(cs, expr_val)?;
+        let res = table.query(&[expr_val.unwrap()])?;
+
+        let chunk_low_0 = AllocatedNum::alloc(cs, || Ok(res[0]))?;
+        let chunk_low_1 =  AllocatedNum::alloc(cs, || Ok(res[1]))?;
+        let vars = [
+            expr.get_variable().get_variable(), chunk_low_0.get_variable(), chunk_low_1.get_variable(), scalar_alloc.get_variable().get_variable()
+        ];
+        let coeffs = [E::Fr::one(),  E::Fr::zero(), E::Fr::zero(), minus_two.clone()];
+        cs.begin_gates_batch_for_step()?;
+        cs.apply_single_lookup_gate(&vars[..table.width()], table.clone())?;
+
+        let gate_term = MainGateTerm::new();
+        let (_, mut gate_coefs) = CS::MainGate::format_term(gate_term, dummy)?;
+        for (idx, coef) in range_of_linear_terms.clone().zip(coeffs.iter()) {
+            gate_coefs[idx] = *coef;
+        }
+        let index = CS::MainGate::index_for_constant_term();
+
+        let mut minus_flag = flag_high.get_value_in_field::<E>().grab()?; 
+        let mut val = minus_flag;
+        val.double();
+        val.add_assign(&flag_low.get_value_in_field::<E>().grab()?);
+        minus_flag = val;
+
+
+        minus_flag.negate();
+        gate_coefs[index] = minus_flag;
+
+        let mg = CS::MainGate::default();
+        cs.new_gate_in_batch(&mg, &gate_coefs, &vars, &[])?;
+        cs.end_gates_batch_for_step()?;
+
+
+
+        Ok([chunk_low_0, chunk_low_1])
+    }
+    #[track_caller]
+    pub fn take_limb_of_point_from_endotable<CS: ConstraintSystem<E>>(
+        cs: &mut CS, 
+        scalar_1: E::Fr, 
+        scalar_2: E::Fr, 
+        flag_1: &Boolean, 
+        flag_2: &Boolean,
+        flag_3: &Boolean, 
+        table: &Arc<LookupTableApplication<E>>
+    ) -> Result<AllocatedNum<E>, SynthesisError>{
+        let mut two = E::Fr::one();
+        two.double();
+        let mut minus_one = E::Fr::one();
+        minus_one.negate();
+        let mut minus_two = two.clone();
+        minus_two.negate(); 
+
+        let dummy = CS::get_dummy_variable();
+        let range_of_linear_terms = CS::MainGate::range_of_linear_terms();
+
+
+        let scalar_alloc = Num::alloc(cs, Some(scalar_1))?;
+        // expr = 8*n + 4*flag_1 + 2*flag_2 + flag_3
+        let mut expr_val = None;
+        if let Some(scalar_alloc) = scalar_alloc.get_value() {
+            let mut val = scalar_alloc;
+            val.double();
+            val.double();
+            val.double();
+            let mut flag = flag_1.get_value_in_field::<E>().grab()?;
+            flag.double();
+            flag.double();
+            val.add_assign(&flag);
+            let mut flag_2 = flag_2.get_value_in_field::<E>().grab()?;
+            flag_2.double();
+            val.add_assign(&flag_2);
+            val.add_assign(&flag_3.get_value_in_field::<E>().grab()?);
+            expr_val = Some(val);
+        }
+        let expr = Num::alloc(cs, expr_val)?;
+        let res = table.query(&[expr_val.unwrap(), scalar_2])?;
+
+        let chunk = AllocatedNum::alloc(cs, || Ok(res[0]))?;
+        let scalar_2 = AllocatedNum::alloc(cs, || Ok(scalar_2))?;
+        let vars = [
+            expr.get_variable().get_variable(), scalar_2.get_variable(), chunk.get_variable(), scalar_alloc.get_variable().get_variable()
+        ];
+        let coeffs = [E::Fr::one(),  E::Fr::zero(), E::Fr::zero(), minus_two.clone()];
+        cs.begin_gates_batch_for_step()?;
+        cs.apply_single_lookup_gate(&vars[..table.width()], table.clone())?;
+
+        let gate_term = MainGateTerm::new();
+        let (_, mut gate_coefs) = CS::MainGate::format_term(gate_term, dummy)?;
+        for (idx, coef) in range_of_linear_terms.clone().zip(coeffs.iter()) {
+            gate_coefs[idx] = *coef;
+        }
+        let index = CS::MainGate::index_for_constant_term();
+
+        let mut minus_flag = flag_1.get_value_in_field::<E>().grab()?; 
+        let mut val = minus_flag;
+        val.double();
+        val.double();
+        let mut flag_2 = flag_2.get_value_in_field::<E>().grab()?;
+        flag_2.double();
+        val.add_assign(&flag_2);
+        val.add_assign(&flag_3.get_value_in_field::<E>().grab()?);
+        minus_flag = val;
+
+
+        minus_flag.negate();
+        gate_coefs[index] = minus_flag;
+
+        let mg = CS::MainGate::default();
+        cs.new_gate_in_batch(&mg, &gate_coefs, &vars, &[])?;
+        cs.end_gates_batch_for_step()?;
+
+
+
+        Ok(chunk)
+    }
+
 
     pub fn mul_by_fixed_scalar<CS: ConstraintSystem<E>>(
         self,
@@ -887,6 +1510,980 @@ impl<'a, E: Engine, G: GenericCurveAffine> AffinePoint<'a, E, G> where <G as Gen
 }
 
 impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
+    
+    #[track_caller]
+    pub fn mul_by_fixed_point_with_endo<CS: ConstraintSystem<E>>(
+        cs: &mut CS,
+        window: usize,
+        params: &'a RnsParameters<E, E::Fq>,
+        scalar: &Num<E>,
+        bit_limit: Option<usize>, 
+        endomorphism_params: EndomorphismParameters<E>
+    )-> Result<Self, SynthesisError> {
+
+        let columns3 = vec![
+            PolyIdentifier::VariablesPolynomial(0), 
+            PolyIdentifier::VariablesPolynomial(1), 
+            PolyIdentifier::VariablesPolynomial(2)
+        ];
+        let name : &'static str = "table for affine point with endomorphism";
+        let affine_point_coord_table = get_or_create_table(
+            cs,
+            name,
+            || {
+                LookupTableApplication::new(
+                    name,
+                    ScalarPointEndoTable::<E>::new(window, name, params, endomorphism_params.clone()),
+                    columns3.clone(),
+                    None,
+                    true
+                )
+            } 
+        ).unwrap();
+        let mut minus_one = E::Fr::one();
+        minus_one.negate();
+        let (k1, k2) = endomorphism_params.calculate_decomposition_num(cs, *scalar);
+
+        // k = k1 - lambda * k2
+        // lambda * k2 + k - k1 = 0
+        let mut decomposition_lc = LinearCombination::zero();
+        decomposition_lc.add_assign_number_with_coeff(&k2, endomorphism_params.lambda);
+        decomposition_lc.add_assign_number_with_coeff(&scalar, E::Fr::one());
+        decomposition_lc.add_assign_number_with_coeff(&k1, minus_one);
+        decomposition_lc.enforce_zero(cs)?;
+
+        let v_1 = k1.get_variable();
+        let v_2 = k2.get_variable();
+
+        let entries_1 = Self::decompose_into_binary_for_skew(cs, &v_1, bit_limit)?;
+        let entries_2 = Self::decompose_into_binary_for_skew(cs, &v_2, bit_limit)?;
+
+        let offset_generator = crate::constants::make_random_points_with_unknown_discrete_log_generic_proj::<E::G1>(
+            &crate::constants::MULTIEXP_DST[..], 
+            1
+        )[0];
+
+        let generator = Self::constant(offset_generator, params);
+
+        let entries_1_without_first_and_last = &entries_1[1..(entries_1.len() - 1)];
+        let entries_2_without_first_and_last = &entries_2[1..(entries_2.len() - 1)];
+        let d = (bit_limit.unwrap()-1)/window; 
+        let d_last_block = bit_limit.unwrap()-1 - d*window;
+        // Break the scalar into chunks the size of the window width
+        let chunks_1: Vec<Vec<Boolean>> = entries_1_without_first_and_last.chunks(window).map(|s| s.into()).collect();
+        let chunks_2: Vec<Vec<Boolean>> = entries_2_without_first_and_last.chunks(window).map(|s| s.into()).collect();
+
+        let mut num_doubles = 0;
+        let mut pre_point = generator.clone();
+        for i in 0..d{
+            let scalar_for_flags = chunks_1[i].clone();
+            let scalar_2 = chunks_2[i].clone();
+            let point = AffinePoint::take_affine_point_with_endo(cs, scalar_for_flags, scalar_2, &affine_point_coord_table, params)?;
+            let (acc, _)  = pre_point.clone().double_and_add(cs, point)?;
+            num_doubles += 1;
+            pre_point = acc;
+
+        }
+        let name : &'static str = "table for latest scalar with endo";
+        let affine_point_coord_table_last = get_or_create_table(
+            cs,
+            name,
+            || {
+                LookupTableApplication::new(
+                    name,
+                    ScalarPointEndoTable::<E>::new(d_last_block, name, params, endomorphism_params),
+                    columns3.clone(),
+                    None,
+                    true
+                )
+            } 
+        ).unwrap();
+
+        let scalar_for_flags = chunks_1.last().unwrap();
+        let scalar_2 = chunks_2.last().unwrap();
+        let point = AffinePoint::take_affine_point_with_endo(cs, scalar_for_flags.clone(), scalar_2.clone(), &affine_point_coord_table_last, params)?;
+        let (acc, _)  = pre_point.clone().double_and_add(cs, point)?;
+        num_doubles += 1;
+
+
+
+        let (with_skew, _ ) = acc.clone().sub_unequal(cs, generator.clone())?;
+        let last_entry_1 = entries_1.last().unwrap();
+        let last_entry_2 = entries_2.last().unwrap();
+
+        let with_skew_value = with_skew.get_value();
+        let with_skew_x = with_skew.x;
+        let with_skew_y = with_skew.y;
+
+        let acc_value = acc.get_value();
+        let acc_x = acc.x;
+        let acc_y = acc.y;
+        let last_entry = last_entry_1.get_value().unwrap() && last_entry_2.get_value().unwrap();
+        let final_value = match (with_skew_value, acc_value, last_entry) {
+            (Some(s_value), Some(a_value), b) => {
+                if b {
+                    Some(s_value)
+                } else {
+                    Some(a_value)
+                }
+            }
+            _ => None,
+        };
+
+        let last_entry = Boolean::and(cs, last_entry_1, last_entry_2)?;
+        let (final_acc_x, _) = FieldElement::select(cs, &last_entry, with_skew_x, acc_x)?;
+        let (final_acc_y, _) = FieldElement::select(cs, &last_entry, with_skew_y, acc_y)?;
+
+        let shift = BigUint::from(1u64) << num_doubles;
+        let as_scalar_repr = biguint_to_repr::<E::Fr>(shift);
+        let offset_value = offset_generator.mul(as_scalar_repr).into_affine();
+        let offset = Self::constant(offset_value, params);
+
+        let result = Self {
+            x: final_acc_x,
+            y: final_acc_y,
+            value: final_value,
+        };
+
+        let (result, _) = result.sub_unequal(cs, offset)?;
+
+        Ok(result)
+
+    }
+
+    fn decompose_into_binary_for_skew<CS: ConstraintSystem<E>>(    
+        cs: &mut CS,
+        num: &AllocatedNum<E>,
+        bit_limit: Option<usize>
+    )-> Result<Vec<Boolean>, SynthesisError> {
+        let value = num.get_value();
+        let bit_limit = if let Some(limit) = bit_limit {
+            limit
+            } else {
+                E::Fr::NUM_BITS as usize
+            };
+        
+        assert!(bit_limit > 0);
+        
+        
+        // if value.is_none() {
+        //     return vec![None; bit_limit+1];
+        // }
+
+        let mut bits = vec![None; bit_limit+1];
+        let inner_bits = &mut bits[1..bit_limit];
+        let value_repr = value.unwrap().into_repr();
+
+        for (i, bit) in inner_bits.iter_mut().rev().enumerate() {
+            let b = get_bit(&value_repr, i+1);
+            if b {
+                *bit = Some(true);
+            } else {
+                *bit = Some(false);
+            }
+        }
+        
+        // x = [y_-1, x_{n-1}, ..., x_0, y_n] where y_-1 = 0 always
+        // and y_n = x_n * -1 always into dec repr
+        bits[0] = Some(false);
+
+        if *value_repr.as_ref().last().unwrap() == 0{
+            *bits.last_mut().unwrap() = Some(false);
+        } else{
+            *bits.last_mut().unwrap() = Some(true);
+        };
+
+        let mut bits_boolean = Vec::with_capacity(bits.len());
+        for b in bits {
+            let a = Boolean::from(AllocatedBit::alloc(
+                cs,
+                b
+            )?);
+            bits_boolean.push(a);
+        }
+        Ok(bits_boolean)
+
+    }
+    
+}
+
+impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
+
+    /// Multiplication of a point by a scalar using endomorphism. The method uses a tree as a precomputation
+    pub fn mul_split_scalar<CS: ConstraintSystem<E>>(
+        self,
+        cs: &mut CS,
+        scalar: &Num<E>,
+        endomorphism_params: EndomorphismParameters<E>,
+        window: usize
+    ) -> Result<(Self, Self), SynthesisError> {
+
+        let params = self.x.representation_params;
+        let (k1, k2, q_endo, bit_limit) = self.clone().endo_decomposition_scalar(cs, scalar, endomorphism_params)?;
+
+        let v_1 = k1.get_variable();
+        let v_2 = k2.get_variable();
+
+        let entries_1 = decompose_allocated_num_into_skewed_table(cs, &v_1, bit_limit)?;
+        let entries_2 = decompose_allocated_num_into_skewed_table(cs, &v_2, bit_limit)?;
+
+        let offset_generator = crate::constants::make_random_points_with_unknown_discrete_log_proj::<E>(
+            &crate::constants::MULTIEXP_DST[..], 
+            1
+        )[0];
+
+        let generator = Self::constant(offset_generator, params);
+
+        let (acc_1, (_, _)) = self.clone().add_unequal(cs, generator.clone())?;
+        let (mut acc, (_, _)) = acc_1.add_unequal(cs, q_endo.clone())?;
+        let entries_1_without_first_and_last = &entries_1[1..(entries_1.len() - 1)];
+        let entries_1_without_first_and_last_vec: Vec<_> = entries_1_without_first_and_last.iter().collect(); 
+        let entries_2_without_first_and_last = &entries_2[1..(entries_2.len() - 1)];
+        let entries_2_without_first_and_last_vec: Vec<_> = entries_2_without_first_and_last.into_iter().collect(); 
+
+        let mut num_doubles = 0;
+        //precompute 
+        let mut table =  self.clone().precomputation_for_tree_of_select(cs, &q_endo, window )?;
+        let table_copy = table.clone();
+
+        //We break the length of the scalar into window-sized blocks without the first and last bit
+        let d = (bit_limit.unwrap()-2)/window; 
+        let mut count =0;
+        let mut flag = vec![];
+
+        // Example:   010 000 101           window = 3
+        //            110 001 010
+        // flags contain [ 010110 000001 010010 ]
+        // it's easier that way
+        for _ in 0..d{
+            for i in 0..window{
+                flag.push(entries_2_without_first_and_last_vec[i + count])
+            }
+            for i in 0..window{
+                flag.push(entries_1_without_first_and_last_vec[i + count])
+            }
+            count += window;
+        }
+        let d_last_block = bit_limit.unwrap()-2 - d*window ;
+        let mut generated_table = vec![];
+
+        let mut step = 0;
+        for _ in 0..d{
+            table = table_copy.clone();
+            for j in 0..window*2{
+                for i in (0..table.len()-1).step_by(2){
+                    let (a, _) = AffinePoint::select(cs, flag[j+ step], table[i+1].clone(), table[i].clone())?;
+                    generated_table.push(a);
+
+                }
+                table = generated_table.clone();
+                generated_table = vec![];
+            }
+
+
+            let (new_acc, _) = acc.clone().double_and_add(cs, table[0].clone())?;
+
+            num_doubles += 1;
+            acc = new_acc;
+            step += window*2;
+        }
+
+
+        let mut x = self.x.clone();
+        let y = self.y.clone();
+        let this_value = self.get_value();
+
+        let (minus_y, y) = y.negated(cs)?;
+
+        let x2 = q_endo.x.clone();
+        let y2 = q_endo.y.clone();
+        let this_value2 = q_endo.get_value();
+
+        let (minus_y2, y2) = y2.negated(cs)?;
+
+        // remember that we split the scalar into whole blocks with
+        // the size of the window width. Therefore, we may have a tail left, 
+        // which also needs to be counted
+        let skip_len = entries_1_without_first_and_last_vec.len() - d_last_block;
+        for (e1, e2) in entries_1_without_first_and_last_vec[skip_len..].into_iter().zip(entries_2_without_first_and_last_vec[skip_len..].into_iter()) {
+            let (selected_y, _) = FieldElement::select(cs, e1, minus_y.clone(), y.clone())?;  
+            let (selected_y2, _) = FieldElement::select(cs, e2, minus_y2.clone(), y2.clone())?;  
+  
+            let t_value = match (this_value, e1.get_value()) {
+                (Some(val), Some(bit)) => {
+                    let mut val = val;
+                    if bit {
+                        val.negate();
+                    }
+
+                    Some(val)
+                },
+                _ => None
+            };
+            let t_value2 = match (this_value2, e2.get_value()) {
+                (Some(val), Some(bit)) => {
+                    let mut val = val;
+                    if bit {
+                        val.negate();
+                    }
+
+                    Some(val)
+                },
+                _ => None
+            };
+
+            let t = Self {
+                x: x,
+                y: selected_y,
+                value: t_value
+            };
+            let t2 = Self {
+                x: x2.clone(),
+                y: selected_y2,
+                value: t_value2
+            };
+
+            let (p_q, _) = t.add_unequal(cs, t2)?;
+            let (new_acc, (_, t)) = acc.double_and_add(cs, p_q)?;
+
+            num_doubles += 1;
+            acc = new_acc;
+            x = t.x;
+        }
+        let (_with_skew, (acc, _this)) = acc.sub_unequal(cs, self.clone())?;
+        let (with_skew, (acc, this)) = acc.sub_unequal(cs, q_endo.clone())?;
+        let last_entry_1 = entries_1.last().unwrap();
+        let last_entry_2 = entries_2.last().unwrap();
+
+        let with_skew_value = with_skew.get_value();
+        let with_skew_x = with_skew.x;
+        let with_skew_y = with_skew.y;
+
+        let acc_value = acc.get_value();
+        let acc_x = acc.x;
+        let acc_y = acc.y;
+        let last_entry = last_entry_1.get_value().unwrap() && last_entry_2.get_value().unwrap();
+        let final_value = match (with_skew_value, acc_value, last_entry) {
+            (Some(s_value), Some(a_value), b) => {
+                if b {
+                    Some(s_value)
+                } else {
+                    Some(a_value)
+                }
+            }
+            _ => None,
+        };
+
+        let last_entry = Boolean::and(cs, last_entry_1, last_entry_2)?;
+        let (final_acc_x, _) = FieldElement::select(cs, &last_entry, with_skew_x, acc_x)?;
+        let (final_acc_y, _) = FieldElement::select(cs, &last_entry, with_skew_y, acc_y)?;
+
+        let shift = BigUint::from(1u64) << num_doubles;
+        let as_scalar_repr = biguint_to_repr::<E::Fr>(shift);
+        let offset_value = offset_generator.mul(as_scalar_repr).into_affine();
+        let offset = Self::constant(offset_value, params);
+
+        let result = Self {
+            x: final_acc_x,
+            y: final_acc_y,
+            value: final_value,
+        };
+
+        let (result, _) = result.sub_unequal(cs, offset)?;
+
+        Ok((result, this))
+
+    }
+
+    pub fn endo_decomposition_scalar<CS: ConstraintSystem<E>>(
+        self,
+        cs: &mut CS,
+        scalar: &Num<E>,
+        endomorphism_params: EndomorphismParameters<E> 
+    )->Result<(Num<E>, Num<E>, Self, Option<usize>), SynthesisError>{
+        let params = self.x.representation_params;
+        let beta = FieldElement::new_constant(endomorphism_params.beta_g1, params);
+
+        let endo_value = self.value.map(|el| endomorphism_params.apply_to_g1_point(el));
+
+        let x = self.x.clone();
+        let y = self.y.clone();
+
+        let (x_beta, (_, _)) = x.mul(cs, beta.clone())?;
+        let (y_negated, _) = y.negated(cs)?;
+
+        let q_endo = AffinePoint {
+            x: x_beta,
+            y: y_negated,
+            value: endo_value,
+        };
+
+        let bit_limit = Some(127 as usize);
+
+
+        let mut minus_one = E::Fr::one();
+        minus_one.negate();
+        let (k1, k2) = endomorphism_params.calculate_decomposition_num(cs, *scalar);
+
+        // k = k1 - lambda * k2
+        // lambda * k2 + k - k1 = 0
+        let mut decomposition_lc = LinearCombination::zero();
+        decomposition_lc.add_assign_number_with_coeff(&k2, endomorphism_params.lambda);
+        decomposition_lc.add_assign_number_with_coeff(&scalar, E::Fr::one());
+        decomposition_lc.add_assign_number_with_coeff(&k1, minus_one);
+        decomposition_lc.enforce_zero(cs)?;
+        
+        Ok((k1, k2, q_endo, bit_limit))
+    }
+
+    pub fn precomputation_for_tree_of_select<CS: ConstraintSystem<E>>(self,  cs: &mut CS, other: &Self, window: usize)-> Result<Vec<AffinePoint<'a, E, <E as Engine>::G1Affine>>, SynthesisError>{
+        use plonk::circuit::hashes_with_tables::utils::u64_to_ff;
+        let mut table  = vec![];
+        let bit_window = (2 as u64).pow(window as u32);
+        for i in 0..bit_window{
+            let (_, number) = vec_of_bit(i as usize, window);
+            let is_ne_flag = sign_i64(number);
+            let unsign_nuber = i64::abs(number);
+            let q_point = self.clone();
+            let mut r_point :AffinePoint<E, <E as Engine>::G1Affine>;
+            if unsign_nuber == 1 {
+                r_point = q_point.clone();
+
+            } else{
+                (r_point, _) = q_point.clone().double(cs)?;
+
+                for i in 0..unsign_nuber-2{
+
+                    (r_point, _) = r_point.double_and_add(cs, q_point.clone())?;
+                }
+            }
+        
+            let y = r_point.y.clone();
+            let (minus_y, y) = y.negated(cs)?;
+            let (selected_y, _) = FieldElement::select(cs, &is_ne_flag, minus_y.clone(), y.clone())?;  
+  
+            let r_value = match (r_point.get_value(), is_ne_flag.get_value()) {
+                (Some(val), Some(bit)) => {
+                    let mut val = val;
+                    if bit {
+                        val.negate();
+                    }
+
+                    Some(val)
+                },
+                _ => None
+            };
+
+            let r = Self {
+                x: r_point.x,
+                y: selected_y,
+                value: r_value
+            };
+
+            for j in 0..bit_window{
+                let (_, number) = vec_of_bit(j as usize, window);
+                let is_ne_flag = sign_i64(number);
+                let unsign_nuber = i64::abs(number);
+                let q_point = other.clone();
+                let mut endo_point :AffinePoint<E, <E as Engine>::G1Affine>;
+
+                if unsign_nuber == 1 {
+                    endo_point = q_point.clone();
+    
+                } else{
+                    (endo_point, _) = q_point.clone().double(cs)?;
+    
+                    for _ in 0..unsign_nuber-2{
+    
+                        (endo_point, _) = endo_point.double_and_add(cs, q_point.clone())?;
+                    }
+                }
+
+                let y = endo_point.y.clone();
+                let (minus_y, y) = y.negated(cs)?;
+                let (selected_y, _) = FieldElement::select(cs, &is_ne_flag, minus_y.clone(), y.clone())?;  
+      
+                let endo_value = match (endo_point.get_value(), is_ne_flag.get_value()) {
+                    (Some(val), Some(bit)) => {
+                        let mut val = val;
+                        if bit {
+                            val.negate();
+                        }
+    
+                        Some(val)
+                    },
+                    _ => None
+                };
+    
+                let endo = Self {
+                    x: endo_point.x,
+                    y: selected_y,
+                    value: endo_value
+                };
+
+                let (c, (_, _)) = r.clone().add_unequal(cs, endo )?;
+                table.push(c);
+
+            }
+        }
+        Ok(table.to_vec())
+    }
+
+    pub fn precomputation_for_ram<CS: ConstraintSystem<E>>(self,  cs: &mut CS, other: &Self, window: usize, memory: &mut Memory<'a, E, <E as Engine>::G1Affine>)-> Result<(), SynthesisError>{
+        use plonk::circuit::hashes_with_tables::utils::u64_to_ff;
+        let bit_window = (2 as u64).pow(window as u32);
+        let mut count = 0 as u64;
+        for i in 0..bit_window{
+            let (_, number) = vec_of_bit(i as usize, window);
+            let is_ne_flag = sign_i64(number);
+            let unsign_nuber = i64::abs(number);
+            let q_point = self.clone();
+            let mut r_point :AffinePoint<E, <E as Engine>::G1Affine>;
+            if unsign_nuber == 1 {
+                r_point = q_point.clone();
+
+            } else{
+                (r_point, _) = q_point.clone().double(cs)?;
+
+                for _ in 0..unsign_nuber-2{
+
+                    (r_point, _) = r_point.double_and_add(cs, q_point.clone())?;
+                }
+            }
+
+            let y = r_point.y.clone();
+            let (minus_y, y) = y.negated(cs)?;
+            let (selected_y, _) = FieldElement::select(cs, &is_ne_flag, minus_y.clone(), y.clone())?;  
+  
+            let r_value = match (r_point.get_value(), is_ne_flag.get_value()) {
+                (Some(val), Some(bit)) => {
+                    let mut val = val;
+                    if bit {
+                        val.negate();
+                    }
+
+                    Some(val)
+                },
+                _ => None
+            };
+
+            let r = Self {
+                x: r_point.x,
+                y: selected_y,
+                value: r_value
+            };
+
+            for j in 0..bit_window{
+                let (_, number) = vec_of_bit(j as usize, window);
+                let is_ne_flag = sign_i64(number);
+                let unsign_nuber = i64::abs(number);
+                let q_point = other.clone();
+                let mut endo_point :AffinePoint<E, <E as Engine>::G1Affine>;
+
+                if unsign_nuber == 1 {
+                    endo_point = q_point.clone();
+    
+                } else{
+                    (endo_point, _) = q_point.clone().double(cs)?;
+    
+                    for _ in 0..unsign_nuber-2{
+    
+                        (endo_point, _) = endo_point.double_and_add(cs, q_point.clone())?;
+                    }
+                }
+
+                let y = endo_point.y.clone();
+                let (minus_y, y) = y.negated(cs)?;
+                let (selected_y, _) = FieldElement::select(cs, &is_ne_flag, minus_y.clone(), y.clone())?;  
+      
+                let endo_value = match (endo_point.get_value(), is_ne_flag.get_value()) {
+                    (Some(val), Some(bit)) => {
+                        let mut val = val;
+                        if bit {
+                            val.negate();
+                        }
+    
+                        Some(val)
+                    },
+                    _ => None
+                };
+    
+                let endo = Self {
+                    x: endo_point.x,
+                    y: selected_y,
+                    value: endo_value
+                };
+
+                let (c, (_, _)) = r.clone().add_unequal(cs, endo )?;
+
+                let number: E::Fr = u64_to_ff(count);
+                let address = Num::Variable(AllocatedNum::alloc(cs, || Ok(number))?);
+                memory.block.push((address, c.clone()));
+                memory.insert_witness(address, c);
+                count+=1;
+            }
+        }
+        Ok(())
+    }
+    #[track_caller]
+    pub fn mul_split_scalar_2<CS: ConstraintSystem<E>>(
+        self,
+        cs: &mut CS,
+        scalar: &Num<E>,
+        endomorphism_params: EndomorphismParameters<E>,
+        window: usize
+    ) -> Result<(Self, Self), SynthesisError> {
+        let params = self.x.representation_params;
+        let (k1, k2, q_endo, bit_limit) = self.clone().endo_decomposition_scalar(cs, scalar, endomorphism_params)?;
+
+        let v_1 = k1.get_variable();
+        let v_2 = k2.get_variable();
+
+        let entries_1 = decompose_allocated_num_into_skewed_table(cs, &v_1, bit_limit)?;
+        let entries_2 = decompose_allocated_num_into_skewed_table(cs, &v_2, bit_limit)?;
+
+        let offset_generator = crate::constants::make_random_points_with_unknown_discrete_log_proj::<E>(
+            &crate::constants::MULTIEXP_DST[..], 
+            1
+        )[0];
+
+        let generator = Self::constant(offset_generator, params);
+
+        let (acc_1, (_, _)) = self.clone().add_unequal(cs, generator.clone())?;
+
+        let entries_1_without_first_and_last = &entries_1[1..(entries_1.len() - 1)];
+        let entries_1_without_first_and_last_vec: Vec<_> = entries_1_without_first_and_last.iter().collect(); 
+        let entries_2_without_first_and_last = &entries_2[1..(entries_2.len() - 1)];
+        let entries_2_without_first_and_last_vec: Vec<_> = entries_2_without_first_and_last.into_iter().collect(); 
+
+        let mut num_doubles = 0;
+
+        let (mut acc, (_, _)) = acc_1.add_unequal(cs, q_endo.clone())?;
+
+        //precompute 
+        let mut memory =  Memory::new();
+ 
+        self.clone().precomputation_for_ram(cs, &q_endo, window, &mut memory)?;
+
+        //We break the length of the scalar into window-sized blocks without the first and last bit
+        let d = (bit_limit.unwrap()-2)/window; 
+        use plonk::circuit::bigint_new::compute_shifts;
+        let shifts = compute_shifts::<E::Fr>();
+        let mut step = 0;
+        // We create addresses according to the following scheme: 
+        // First, there is a simple numbering addres = 0 + 1, 0+2, 0+3 ... 0+n where n is bits of the window.
+        // Then the following happens. Just as a new cycle begins, we add n and add to the current number.
+        // This is done to prevent address overlap. For example: 2 P + 3 Q addrx will be 5 and 3 P + 2 Q addrx will also be 5.
+        // According to our trick, when n = 4, the address will be 11 in the first case, and 14 in the second.
+        let mut minus_one = E::Fr::one();
+        minus_one.negate();
+        for l in 0..d{
+            let mut lc = LinearCombination::zero();
+            let mut i = window;
+            for m in 0..window{
+                i-= 1;
+                lc.add_assign_boolean_with_coeff(entries_1_without_first_and_last_vec[m+step], shifts[window+i]);
+                lc.add_assign_boolean_with_coeff(entries_2_without_first_and_last_vec[m+step], shifts[i]);
+
+            }
+            let addres = lc.into_num(cs)?;
+
+            let point = unsafe { memory.read_and_alloc(cs, addres, params)? };
+            let (new_acc, (_, t)) = acc.clone().double_and_add(cs, point)?;
+
+            num_doubles += 1;
+            acc = new_acc;
+            step += window;
+        };
+
+
+        let mut x = self.x.clone();
+        let y = self.y.clone();
+        let this_value = self.get_value();
+
+        let (minus_y, y) = y.negated(cs)?;
+
+        let x2 = q_endo.x.clone();
+        let y2 = q_endo.y.clone();
+        let this_value2 = q_endo.get_value();
+
+        let (minus_y2, y2) = y2.negated(cs)?;
+
+        // remember that we split the scalar into whole blocks with
+        // the size of the window width. Therefore, we may have a tail left, 
+        // which also needs to be counted
+        let d_last_block = bit_limit.unwrap()-2 - d*window ;
+        let skip_len = entries_1_without_first_and_last_vec.len() - d_last_block;
+        for (e1, e2) in entries_1_without_first_and_last_vec[skip_len..].into_iter().zip(entries_2_without_first_and_last_vec[skip_len..].into_iter()) {
+            let (selected_y, _) = FieldElement::select(cs, e1, minus_y.clone(), y.clone())?;  
+            let (selected_y2, _) = FieldElement::select(cs, e2, minus_y2.clone(), y2.clone())?;  
+  
+            let t_value = match (this_value, e1.get_value()) {
+                (Some(val), Some(bit)) => {
+                    let mut val = val;
+                    if bit {
+                        val.negate();
+                    }
+
+                    Some(val)
+                },
+                _ => None
+            };
+            let t_value2 = match (this_value2, e2.get_value()) {
+                (Some(val), Some(bit)) => {
+                    let mut val = val;
+                    if bit {
+                        val.negate();
+                    }
+
+                    Some(val)
+                },
+                _ => None
+            };
+
+            let t = Self {
+                x: x,
+                y: selected_y,
+                value: t_value
+            };
+            let t2 = Self {
+                x: x2.clone(),
+                y: selected_y2,
+                value: t_value2
+            };
+
+            let (p_q, _) = t.add_unequal(cs, t2)?;
+            let (new_acc, (_, t)) = acc.double_and_add(cs, p_q)?;
+
+            num_doubles += 1;
+            acc = new_acc;
+            x = t.x;
+        }
+
+        let (_with_skew, (acc, _this)) = acc.sub_unequal(cs, self.clone())?;
+        let (with_skew, (acc, this)) = acc.sub_unequal(cs, q_endo.clone())?;
+        let last_entry_1 = entries_1.last().unwrap();
+        let last_entry_2 = entries_2.last().unwrap();
+
+        let with_skew_value = with_skew.get_value();
+        let with_skew_x = with_skew.x;
+        let with_skew_y = with_skew.y;
+
+        let acc_value = acc.get_value();
+        let acc_x = acc.x;
+        let acc_y = acc.y;
+        let last_entry = last_entry_1.get_value().unwrap() && last_entry_2.get_value().unwrap();
+        let final_value = match (with_skew_value, acc_value, last_entry) {
+            (Some(s_value), Some(a_value), b) => {
+                if b {
+                    Some(s_value)
+                } else {
+                    Some(a_value)
+                }
+            }
+            _ => None,
+        };
+
+        let last_entry = Boolean::and(cs, last_entry_1, last_entry_2)?;
+        let (final_acc_x, _) = FieldElement::select(cs, &last_entry, with_skew_x, acc_x)?;
+        let (final_acc_y, _) = FieldElement::select(cs, &last_entry, with_skew_y, acc_y)?;
+
+        let shift = BigUint::from(1u64) << num_doubles;
+        let as_scalar_repr = biguint_to_repr::<E::Fr>(shift);
+        let offset_value = offset_generator.mul(as_scalar_repr).into_affine();
+        let offset = Self::constant(offset_value, params);
+
+        let result = Self {
+            x: final_acc_x,
+            y: final_acc_y,
+            value: final_value,
+        };
+
+        let (result, _) = result.sub_unequal(cs, offset)?;
+
+        memory.waksman_permutation(cs, window)?;
+        Ok((result, this))
+
+    }
+    #[track_caller]
+    pub fn mul_split_scalar_entry_point<CS: ConstraintSystem<E>, R: CircuitArithmeticRoundFunction<E, 2, 3, StateElement = Num<E>>>(
+        self,
+        cs: &mut CS,
+        scalar: &Num<E>,
+        endomorphism_params: EndomorphismParameters<E>,
+        window: usize, 
+        round_function: &R
+    ) -> Result<(Self, Self), SynthesisError> {
+        let params = self.x.representation_params;
+        let (k1, k2, q_endo, bit_limit) = self.clone().endo_decomposition_scalar(cs, scalar, endomorphism_params)?;
+        let v_1 = k1.get_variable();
+        let v_2 = k2.get_variable();
+
+        let entries_1 = decompose_allocated_num_into_skewed_table(cs, &v_1, bit_limit)?;
+        let entries_2 = decompose_allocated_num_into_skewed_table(cs, &v_2, bit_limit)?;
+        let offset_generator = crate::constants::make_random_points_with_unknown_discrete_log_proj::<E>(
+            &crate::constants::MULTIEXP_DST[..], 
+            1
+        )[0];
+
+        let generator = Self::constant(offset_generator, params);
+
+        let (acc_1, (_, _)) = self.clone().add_unequal(cs, generator.clone())?;
+
+        let entries_1_without_first_and_last = &entries_1[1..(entries_1.len() - 1)];
+        let entries_1_without_first_and_last_vec: Vec<_> = entries_1_without_first_and_last.iter().collect(); 
+        let entries_2_without_first_and_last = &entries_2[1..(entries_2.len() - 1)];
+        let entries_2_without_first_and_last_vec: Vec<_> = entries_2_without_first_and_last.into_iter().collect(); 
+
+        let mut num_doubles = 0;
+
+        let (mut acc, (_, _)) = acc_1.add_unequal(cs, q_endo.clone())?;
+
+        //precompute 
+        let mut memory =  Memory::new();
+ 
+        self.clone().precomputation_for_ram(cs, &q_endo, window, &mut memory)?;
+
+        //We break the length of the scalar into window-sized blocks without the first and last bit
+        let d = (bit_limit.unwrap()-2)/window; 
+        use plonk::circuit::bigint_new::compute_shifts;
+        let shifts = compute_shifts::<E::Fr>();
+        let mut step = 0;
+        // We create addresses according to the following scheme: 
+        // First, there is a simple numbering addres = 0 + 1, 0+2, 0+3 ... 0+n where n is bits of the window.
+        // Then the following happens. Just as a new cycle begins, we add n and add to the current number.
+        // This is done to prevent address overlap. For example: 2 P + 3 Q addrx will be 5 and 3 P + 2 Q addrx will also be 5.
+        // According to our trick, when n = 4, the address will be 11 in the first case, and 14 in the second.
+        let mut minus_one = E::Fr::one();
+        minus_one.negate();
+        for l in 0..d{
+            let mut lc = LinearCombination::zero();
+            let mut i = window;
+            for m in 0..window{
+                i-= 1;
+                lc.add_assign_boolean_with_coeff(entries_1_without_first_and_last_vec[m+step], shifts[window+i]);
+                lc.add_assign_boolean_with_coeff(entries_2_without_first_and_last_vec[m+step], shifts[i]);
+
+            }
+            let addres = lc.into_num(cs)?;
+
+            let point = unsafe { memory.read_and_alloc(cs, addres, params)? };
+            let (new_acc, (_, t)) = acc.clone().double_and_add(cs, point)?;
+            num_doubles += 1;
+            acc = new_acc;
+            step += window;
+        };
+        memory.ram_permutation_entry_point(cs, round_function)?;
+
+        let mut x = self.x.clone();
+        let y = self.y.clone();
+        let this_value = self.get_value();
+
+        let (minus_y, y) = y.negated(cs)?;
+
+        let x2 = q_endo.x.clone();
+        let y2 = q_endo.y.clone();
+        let this_value2 = q_endo.get_value();
+
+        let (minus_y2, y2) = y2.negated(cs)?;
+
+        // remember that we split the scalar into whole blocks with
+        // the size of the window width. Therefore, we may have a tail left, 
+        // which also needs to be counted
+        let d_last_block = bit_limit.unwrap()-2 - d*window ;
+        let skip_len = entries_1_without_first_and_last_vec.len() - d_last_block;
+        for (e1, e2) in entries_1_without_first_and_last_vec[skip_len..].into_iter().zip(entries_2_without_first_and_last_vec[skip_len..].into_iter()) {
+            let (selected_y, _) = FieldElement::select(cs, e1, minus_y.clone(), y.clone())?;  
+            let (selected_y2, _) = FieldElement::select(cs, e2, minus_y2.clone(), y2.clone())?;  
+  
+            let t_value = match (this_value, e1.get_value()) {
+                (Some(val), Some(bit)) => {
+                    let mut val = val;
+                    if bit {
+                        val.negate();
+                    }
+
+                    Some(val)
+                },
+                _ => None
+            };
+            let t_value2 = match (this_value2, e2.get_value()) {
+                (Some(val), Some(bit)) => {
+                    let mut val = val;
+                    if bit {
+                        val.negate();
+                    }
+
+                    Some(val)
+                },
+                _ => None
+            };
+
+            let t = Self {
+                x: x,
+                y: selected_y,
+                value: t_value
+            };
+            let t2 = Self {
+                x: x2.clone(),
+                y: selected_y2,
+                value: t_value2
+            };
+
+            let (p_q, _) = t.add_unequal(cs, t2)?;
+            let (new_acc, (_, t)) = acc.double_and_add(cs, p_q)?;
+
+            num_doubles += 1;
+            acc = new_acc;
+            x = t.x;
+        }
+
+        let (_with_skew, (acc, _this)) = acc.sub_unequal(cs, self.clone())?;
+        let (with_skew, (acc, this)) = acc.sub_unequal(cs, q_endo.clone())?;
+        let last_entry_1 = entries_1.last().unwrap();
+        let last_entry_2 = entries_2.last().unwrap();
+
+        let with_skew_value = with_skew.get_value();
+        let with_skew_x = with_skew.x;
+        let with_skew_y = with_skew.y;
+
+        let acc_value = acc.get_value();
+        let acc_x = acc.x;
+        let acc_y = acc.y;
+        let last_entry = last_entry_1.get_value().unwrap() && last_entry_2.get_value().unwrap();
+        let final_value = match (with_skew_value, acc_value, last_entry) {
+            (Some(s_value), Some(a_value), b) => {
+                if b {
+                    Some(s_value)
+                } else {
+                    Some(a_value)
+                }
+            }
+            _ => None,
+        };
+
+        let last_entry = Boolean::and(cs, last_entry_1, last_entry_2)?;
+        let (final_acc_x, _) = FieldElement::select(cs, &last_entry, with_skew_x, acc_x)?;
+        let (final_acc_y, _) = FieldElement::select(cs, &last_entry, with_skew_y, acc_y)?;
+
+        let shift = BigUint::from(1u64) << num_doubles;
+        let as_scalar_repr = biguint_to_repr::<E::Fr>(shift);
+        let offset_value = offset_generator.mul(as_scalar_repr).into_affine();
+        let offset = Self::constant(offset_value, params);
+
+        let result = Self {
+            x: final_acc_x,
+            y: final_acc_y,
+            value: final_value,
+        };
+
+        let (result, _) = result.sub_unequal(cs, offset)?;
+
+        Ok((result, this))
+
+    }
+
+
     #[track_caller]
     pub fn mul<CS: ConstraintSystem<E>>(
         self,
@@ -936,7 +2533,7 @@ impl<'a, E: Engine> AffinePoint<'a, E, E::G1Affine> {
   
             let t_value = match (this_value, e.get_value()) {
                 (Some(val), Some(bit)) => {
-                    let mut val = val;
+                    let mut val = val;       
                     if bit {
                         val.negate();
                     }
@@ -1841,7 +3438,7 @@ mod test {
 
             // simulate_multiplication::<Bn256>(a_f, b_f, Some(2));
     
-            let (result, a) = a.mul(&mut cs, &b, Some(2)).unwrap();
+            let (result, a) = a.mul(&mut cs, &b, Some(257)).unwrap();
 
             let result_recalculated = a_f.mul(b_f.into_repr()).into_affine();
 
@@ -1885,7 +3482,8 @@ mod test {
             let mut cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
 
             let a_f: G1Affine = rng.gen();
-            let b_f: Fr = rng.gen();
+            // let b_f: Fr = rng.gen();
+            let b_f = Fr::from_str("9").unwrap();
 
             let a = AffinePoint::alloc(
                 &mut cs, 
@@ -1902,7 +3500,7 @@ mod test {
 
             let b = Num::Variable(b);
     
-            let (result, a) = a.mul(&mut cs, &b, None).unwrap();
+            let (result, a) = a.mul(&mut cs, &b, Some(254)).unwrap();
 
             let result_recalculated = a_f.mul(b_f.into_repr()).into_affine();
 
@@ -1929,7 +3527,7 @@ mod test {
 
             if i == 0 {
                 let base = cs.n();
-                let _ = a.mul(&mut cs, &b, None).unwrap();
+                let _ = a.mul(&mut cs, &b, Some(254)).unwrap();
                 println!("Affine single multiplication taken {} gates", cs.n() - base);
             }
         }
@@ -2791,4 +4389,436 @@ mod test {
 
         assert!(cs.is_satisfied());
     }
+    #[test]
+    fn test_base_curve_multiplication_by_split_scalar_with_range_table_and_endomorphism() {
+        use rand::{Rng, SeedableRng, XorShiftRng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
+
+        for i in 0..1 {
+            let mut cs =
+                TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+
+            let a_f: G1Affine = rng.gen();
+            let b_f: Fr = rng.gen();
+            use plonk::circuit::tables::inscribe_combined_bitwise_ops_and_range_table;
+            inscribe_combined_bitwise_ops_and_range_table(&mut cs, 8).unwrap();
+
+            let a = AffinePoint::alloc(&mut cs, Some(a_f), &params).unwrap();
+
+            let b = AllocatedNum::alloc(&mut cs, || Ok(b_f)).unwrap();
+
+            let b = Num::Variable(b);
+
+            let endo_parameters = super::super::endomorphism::bn254_endomorphism_parameters();
+
+            let result = a.clone().mul_split_scalar_2(&mut cs, &b, endo_parameters.clone(), 2);
+            // println!("{:?}", result);
+
+            // let result_recalculated = a_f.mul(b_f.into_repr()).into_affine();
+
+            // assert!(cs.is_satisfied());
+
+            // let x_fe = result.x.get_field_value().unwrap();
+            // let y_fe = result.y.get_field_value().unwrap();
+
+            // let (x, y) = result.get_value().unwrap().into_xy_unchecked();
+
+            // assert_eq!(x_fe, x, "x coords mismatch between value and coordinates");
+            // assert_eq!(y_fe, y, "y coords mismatch between value and coordinates");
+
+            // let (x, y) = result_recalculated.into_xy_unchecked();
+
+            // assert_eq!(
+            //     x_fe, x,
+            //     "x coords mismatch between expected result and circuit result"
+            // );
+            // assert_eq!(
+            //     y_fe, y,
+            //     "y coords mismatch between expected result and circuit result"
+            // );
+
+            // assert_eq!(
+            //     result.get_value().unwrap(),
+            //     result_recalculated,
+            //     "mismatch between expected result and circuit result"
+            // );
+
+            // let (x, y) = a_f.into_xy_unchecked();
+            // assert_eq!(
+            //     a.x.get_field_value().unwrap(),
+            //     x,
+            //     "x coords mismatch, input was mutated"
+            // );
+            // assert_eq!(
+            //     a.y.get_field_value().unwrap(),
+            //     y,
+            //     "y coords mismatch, input was mutated"
+            // );
+
+            if i == 0 {
+                crate::plonk::circuit::counter::reset_counter();
+                let base = cs.n();
+                let _ = a.mul_split_scalar_2(&mut cs, &b, endo_parameters, 2);
+                println!("single multiplication taken {} gates", cs.n() - base);
+                println!(
+                    "Affine spent {} gates in equality checks",
+                    crate::plonk::circuit::counter::output_counter()
+                );
+            }
+        }
+    }
+    #[test]
+    fn endomorphism_2() {
+        use rand::{Rng, SeedableRng, XorShiftRng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
+
+        for i in 0..1 {
+            let mut cs =
+                TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+
+            let a_f: G1Affine = rng.gen();
+            let b_f: Fr = rng.gen();
+
+
+            let a = AffinePoint::alloc(&mut cs, Some(a_f), &params).unwrap();
+
+            let b = AllocatedNum::alloc(&mut cs, || Ok(b_f)).unwrap();
+
+            let b = Num::Variable(b);
+
+            let endo_parameters = super::super::endomorphism::bn254_endomorphism_parameters();
+
+            let (result, a) = a.mul_split_scalar(&mut cs, &b, endo_parameters.clone(), 1).unwrap();
+
+            let result_recalculated = a_f.mul(b_f.into_repr()).into_affine();
+
+            assert!(cs.is_satisfied());
+
+            let x_fe = result.x.get_field_value().unwrap();
+            let y_fe = result.y.get_field_value().unwrap();
+
+            let (x, y) = result.get_value().unwrap().into_xy_unchecked();
+
+            // assert_eq!(x_fe, x, "x coords mismatch between value and coordinates");
+            // assert_eq!(y_fe, y, "y coords mismatch between value and coordinates");
+
+            let (x, y) = result_recalculated.into_xy_unchecked();
+
+            // assert_eq!(
+            //     x_fe, x,
+            //     "x coords mismatch between expected result and circuit result"
+            // );
+            // assert_eq!(
+            //     y_fe, y,
+            //     "y coords mismatch between expected result and circuit result"
+            // );
+
+            // assert_eq!(
+            //     result.get_value().unwrap(),
+            //     result_recalculated,
+            //     "mismatch between expected result and circuit result"
+            // );
+
+            // let (x, y) = a_f.into_xy_unchecked();
+            // assert_eq!(
+            //     a.x.get_field_value().unwrap(),
+            //     x,
+            //     "x coords mismatch, input was mutated"
+            // );
+            // assert_eq!(
+            //     a.y.get_field_value().unwrap(),
+            //     y,
+            //     "y coords mismatch, input was mutated"
+            // );
+
+            if i == 0 {
+                crate::plonk::circuit::counter::reset_counter();
+                let base = cs.n();
+                let _ = a.mul_split_scalar(&mut cs, &b, endo_parameters, 1).unwrap();
+                println!("single multiplication taken {} gates", cs.n() - base);
+                println!(
+                    "Affine spent {} gates in equality checks",
+                    crate::plonk::circuit::counter::output_counter()
+                );
+            }
+        }
+    }
+    #[test]
+    fn endomorphism_3() {
+        use rand::{Rng, SeedableRng, XorShiftRng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
+
+        for i in 0..1 {
+            let mut cs =
+                TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+
+            let a_f: G1Affine = rng.gen();
+            let b_f: Fr = rng.gen();
+            const RATE: usize = 2;
+            const WIDTH: usize = 3;
+            const INPUT_LENGTH: usize = 1;
+            use plonk::circuit::rescue_copy::sponge::GenericSponge;
+            use plonk::circuit::rescue_copy::rescue::params::RescueParams;
+            // let mut params = crate::utils::bn254_rescue_params();
+            let rescue_params = RescueParams::<Bn256, RATE, WIDTH>::default();
+            use plonk::circuit::curve::sponge::GenericHasher;
+            let committer = GenericHasher::<Bn256, RescueParams<Bn256, 2, 3>, 2, 3>::new_from_params(&rescue_params);
+            use plonk::circuit::tables::inscribe_combined_bitwise_ops_and_range_table;
+            inscribe_combined_bitwise_ops_and_range_table(&mut cs, 8).unwrap();
+
+
+            let a = AffinePoint::alloc(&mut cs, Some(a_f), &params).unwrap();
+
+            let b = AllocatedNum::alloc(&mut cs, || Ok(b_f)).unwrap();
+
+            let b = Num::Variable(b);
+
+            let endo_parameters = super::super::endomorphism::bn254_endomorphism_parameters();
+
+            let res = a.clone().mul_split_scalar_entry_point(&mut cs, &b, endo_parameters.clone(), 2, &committer);
+
+            let result_recalculated = a_f.mul(b_f.into_repr()).into_affine();
+
+            assert!(cs.is_satisfied());
+
+            // let x_fe = result.x.get_field_value().unwrap();
+            // let y_fe = result.y.get_field_value().unwrap();
+
+            // let (x, y) = result.get_value().unwrap().into_xy_unchecked();
+
+            // assert_eq!(x_fe, x, "x coords mismatch between value and coordinates");
+            // assert_eq!(y_fe, y, "y coords mismatch between value and coordinates");
+
+            // let (x, y) = result_recalculated.into_xy_unchecked();
+
+            // assert_eq!(
+            //     x_fe, x,
+            //     "x coords mismatch between expected result and circuit result"
+            // );
+            // assert_eq!(
+            //     y_fe, y,
+            //     "y coords mismatch between expected result and circuit result"
+            // );
+
+            // assert_eq!(
+            //     result.get_value().unwrap(),
+            //     result_recalculated,
+            //     "mismatch between expected result and circuit result"
+            // );
+
+            // let (x, y) = a_f.into_xy_unchecked();
+            // assert_eq!(
+            //     a.x.get_field_value().unwrap(),
+            //     x,
+            //     "x coords mismatch, input was mutated"
+            // );
+            // assert_eq!(
+            //     a.y.get_field_value().unwrap(),
+            //     y,
+            //     "y coords mismatch, input was mutated"
+            // );
+
+            if i == 0 {
+                crate::plonk::circuit::counter::reset_counter();
+                let base = cs.n();
+                let _ = a.mul_split_scalar_entry_point(&mut cs, &b, endo_parameters, 2, &committer);
+                println!("single multiplication taken {} gates", cs.n() - base);
+                println!(
+                    "Affine spent {} gates in equality checks",
+                    crate::plonk::circuit::counter::output_counter()
+                );
+            }
+        }
+    }
+    #[test]
+    fn test_sew_table(){
+        use plonk::circuit::utils::u64_to_fe;
+        for i in 0..3{
+
+            let (a, b) = vec_of_bit((3 as usize), 2);
+            let f: Fr = u64_to_fe((b as u64));
+            println!("{:?}", b);
+            println!("{:?}", a);
+            // let a_skew =compute_skewed_naf_table( &Some(f), Some(2));
+            // println!("a_skew {:?}", a_skew);
+            // println!("a {:?}", a);
+            // println!("b {:?}", b);
+
+            // {
+            //     let mut two = Fr::one();
+            //     two.double();
+        
+            //     let mut minus_one = Fr::one();
+            //     minus_one.negate();
+        
+            //     let mut reconstructed = Fr::zero();
+        
+            //     let even_limit = (2 / 2) * 2;
+        
+            //     for i in (0..even_limit).step_by(2) {
+            //         reconstructed.double();
+            //         reconstructed.double();
+        
+            //         let high_bit = a_skew[i].unwrap();
+            //         let mut high_contribution = if high_bit {
+            //             minus_one
+            //         } else {
+            //             Fr::one()
+            //         };
+            //         high_contribution.double();
+        
+            //         let low_bit = a_skew[i+1].unwrap();
+            //         let low_contribution = if low_bit {
+            //             minus_one
+            //         } else {
+            //             Fr::one()
+            //         };
+        
+            //         reconstructed.add_assign(&high_contribution);
+            //         reconstructed.add_assign(&low_contribution);
+            //     }
+        
+            //     if 2 & 1 == 1 {
+            //         reconstructed.double();
+        
+            //         let last_bit = a_skew[2-1].unwrap();
+            //         if last_bit {
+            //             reconstructed.add_assign(&minus_one);
+            //         } else {
+            //             reconstructed.add_assign(&Fr::one());
+            //         };
+            //     }
+        
+            //     if a_skew.last().unwrap().unwrap() {
+            //         reconstructed.add_assign(&minus_one);
+            //     }
+            //     use plonk::circuit::hashes_with_tables::utils::ff_to_u64;
+            //     let result = ff_to_u64(&reconstructed);
+            //     println!("{:?}", result);
+            // }
+
+
+        }
+
+
+    }
+
+    #[test]
+    fn test_sign(){
+        let a = sign_i64(12);
+        println!("{:?}", a);
+        
+    }
+    use plonk::circuit::bigint_new::inscribe_default_bitop_range_table;
+    #[test]
+    fn test_point_compresion(){
+        use rand::{XorShiftRng, SeedableRng, Rng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
+        let mut cs =
+                TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+
+        inscribe_default_bitop_range_table(&mut cs).unwrap();
+        let a_f: G1Affine = rng.gen();
+
+
+        let a = AffinePoint::alloc(&mut cs, Some(a_f), &params).unwrap();
+        let naive_mul_end = cs.get_current_step_number();
+        let (y_odd, _) = AffinePoint::point_compression(a.clone(), &mut cs).unwrap();
+        let naive_mul_end = cs.get_current_step_number();
+        let y_cord = a.y.clone();
+        let limbs = y_cord.clone().into_limbs();
+        let num_bits = y_cord.representation_params.binary_limbs_bit_widths[0];
+        let rcd = constraint_bit_length_ext(&mut cs,  &limbs[0].num.get_variable(), num_bits).unwrap();
+
+        let a = rcd.get_vars()[0];
+
+        let vec_boolean = a.into_bits_le(&mut cs, Some(8)).unwrap();
+        let y_odd_check = vec_boolean[0];
+        assert!(cs.is_satisfied());
+
+        assert_eq!(y_odd.get_variable().unwrap().get_value().unwrap(), y_odd_check.get_variable().unwrap().get_value().unwrap());
+    }
+
+    #[test]
+    fn test_vec_boolean_to_nuber(){
+        let vec_boolean = [Boolean::Constant(false), Boolean::Constant(false), Boolean::Constant(false)];
+        let number = vec_boolean_to_usize(vec_boolean.to_vec());
+        println!("{}", number);
+
+    }
+
+    #[test]
+    fn test_plonktable_mul(){
+        use rand::{Rng, SeedableRng, XorShiftRng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+        let mut cs =
+        TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+
+        let b_f: Fr = rng.gen();
+
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
+        let b = AllocatedNum::alloc(&mut cs, || Ok(b_f)).unwrap();
+
+        let b = Num::Variable(b);
+
+        let mul_begin = cs.get_current_step_number();
+        let point: AffinePoint<Bn256, G1Affine> = AffinePoint::mul_by_fixed_point(&mut cs, 2, &params, &b, Some(254)).unwrap();
+        let mul_end = cs.get_current_step_number();
+        println!("mul_begin{:?}", mul_begin);
+        println!("mul_end{:?}", mul_end);
+    }
+
+    #[test]
+    fn test_plonktable_mul_endo(){
+        use rand::{Rng, SeedableRng, XorShiftRng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+        let mut cs =
+        TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+
+        let b_f: Fr = rng.gen();
+
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
+        let b = AllocatedNum::alloc(&mut cs, || Ok(b_f)).unwrap();
+
+        let b = Num::Variable(b);
+
+        let endo_parameters = super::super::endomorphism::bn254_endomorphism_parameters();
+        let mul_begin = cs.get_current_step_number();
+
+        let point: AffinePoint<Bn256, G1Affine> = AffinePoint::mul_by_fixed_point_with_endo(
+            &mut cs, 
+            2,
+            &params, 
+            &b, 
+            Some(254), 
+            endo_parameters
+        ).unwrap();
+
+        let mul_end = cs.get_current_step_number();
+        println!("mul_begin{:?}", mul_begin);
+        println!("mul_end{:?}", mul_end);
+    }
+    
+    #[test]
+    fn test_decompose_into_binary_for_skew(){
+        let mut cs =
+        TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+        let scalar = Fr::from_str("3").unwrap();
+        let b = AllocatedNum::alloc(&mut cs, || Ok(scalar)).unwrap();
+        let mul_begin = cs.get_current_step_number();
+        let result = AffinePoint::decompose_into_binary_for_skew(&mut cs, &b, Some(254)).unwrap();
+        let mul_end = cs.get_current_step_number();
+        println!("mul_begin{:?}", mul_begin);
+        println!("mul_end{:?}", mul_end);
+
+    }
+
+   
 }

@@ -269,178 +269,179 @@ impl<E: Engine> OldCircuit<E, OldActualParams> for BenchmarkCircuitWithOneInput<
     }
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
+// #[cfg(test)]
+// mod test {
+//     use super::*;
 
-    use crate::bellman::pairing::{
-        Engine,
-        GenericCurveAffine,
-        GenericCurveProjective
-    };
+//     use crate::bellman::pairing::{
+//         Engine,
+//         GenericCurveAffine,
+//         GenericCurveProjective
+//     };
 
-    use crate::bellman::pairing::ff::{
-        Field,
-        PrimeField,
-        BitIterator,
-        ScalarEngine,
-    };
+//     use crate::bellman::pairing::ff::{
+//         Field,
+//         PrimeField,
+//         BitIterator,
+//         ScalarEngine,
+//     };
 
-    use crate::bellman::{
-        SynthesisError,
-    };
+//     use crate::bellman::{
+//         SynthesisError,
+//     };
 
-    use crate::bellman::plonk::better_better_cs::cs::{
-        Variable, 
-        ConstraintSystem,
-    };
+//     use crate::bellman::plonk::better_better_cs::cs::{
+//         Variable, 
+//         ConstraintSystem,
+//     };
 
-    use crate::bellman::plonk::better_cs::keys::{Proof, VerificationKey, SetupPolynomialsPrecomputations, SetupPolynomials};
-    use crate::bellman::plonk::better_cs::cs::PlonkConstraintSystemParams as OldCSParams;
-    use crate::bellman::plonk::better_cs::cs::Circuit as OldCircuit;
-    use crate::bellman::plonk::better_cs::cs::ConstraintSystem as OldConstraintSystem;
-    use crate::bellman::plonk::better_cs::cs::PlonkCsWidth4WithNextStepParams as OldActualParams;
+//     use crate::bellman::plonk::better_cs::keys::{Proof, VerificationKey, SetupPolynomialsPrecomputations, SetupPolynomials};
+//     use crate::bellman::plonk::better_cs::cs::PlonkConstraintSystemParams as OldCSParams;
+//     use crate::bellman::plonk::better_cs::cs::Circuit as OldCircuit;
+//     use crate::bellman::plonk::better_cs::cs::ConstraintSystem as OldConstraintSystem;
+//     use crate::bellman::plonk::better_cs::cs::PlonkCsWidth4WithNextStepParams as OldActualParams;
 
-    use crate::bellman::plonk::better_cs::generator::GeneratorAssembly as OldAssembly;
-    use crate::bellman::plonk::better_cs::generator::GeneratorAssembly4WithNextStep as OldActualAssembly;
-    use crate::bellman::plonk::better_cs::prover::ProverAssembly as OldProver;
-    use crate::bellman::plonk::better_cs::prover::ProverAssembly4WithNextStep as OldActualProver;
-    use crate::bellman::plonk::better_cs::verifier::verify;
-    use crate::bellman::worker::*;
-    use crate::bellman::plonk::commitments::transcript::*;
-    use crate::bellman::kate_commitment::*;
-    use crate::bellman::plonk::fft::cooley_tukey_ntt::*;
-    use crate::bellman::plonk::better_better_cs::cs::{
-        TrivialAssembly, 
-        Circuit, 
-        PlonkCsWidth4WithNextStepParams, 
-        Width4MainGateWithDNext
-    };
+//     use crate::bellman::plonk::better_cs::generator::GeneratorAssembly as OldAssembly;
+//     use crate::bellman::plonk::better_cs::generator::GeneratorAssembly4WithNextStep as OldActualAssembly;
+//     use crate::bellman::plonk::better_cs::prover::ProverAssembly as OldProver;
+//     use crate::bellman::plonk::better_cs::prover::ProverAssembly4WithNextStep as OldActualProver;
+//     use crate::bellman::plonk::better_cs::verifier::verify;
+//     use crate::bellman::worker::*;
+//     use crate::bellman::plonk::commitments::transcript::*;
+//     use crate::bellman::kate_commitment::*;
+//     use crate::bellman::plonk::fft::cooley_tukey_ntt::*;
+//     use crate::bellman::plonk::better_better_cs::cs::{
+//         TrivialAssembly, 
+//         Circuit, 
+//         PlonkCsWidth4WithNextStepParams, 
+//         Width4MainGateWithDNext
+//     };
 
-    use super::super::affine_point_wrapper::aux_data::*;
-    use super::super::affine_point_wrapper::*;
-    use super::super::data_structs::*;
-    use super::super::verifying_circuit::*;
-    use super::super::channel::*;
-    use crate::plonk::circuit::curve::sw_affine::*;
-    use crate::plonk::circuit::bigint::field::*;
-    use crate::plonk::circuit::rescue::*;
-    use crate::rescue::RescueEngine;
-    use crate::bellman::pairing::bn256::{Bn256};
-    use crate::rescue::bn256::Bn256RescueParams;
-    use crate::bellman::plonk::commitments::transcript::Transcript;
+//     use super::super::affine_point_wrapper::aux_data::*;
+//     use super::super::affine_point_wrapper::*;
+//     use super::super::data_structs::*;
+//     use super::super::verifying_circuit::*;
+//     use super::super::channel::*;
+//     use crate::plonk::circuit::curve::sw_affine::*;
+//     use crate::plonk::circuit::bigint::field::*;
+//     use crate::plonk::circuit::rescue::*;
+//     use crate::rescue::RescueEngine;
+//     use crate::bellman::pairing::bn256::{Bn256};
+//     use crate::rescue::bn256::Bn256RescueParams;
+//     use crate::rescue::rescue_transcript::RescueTranscriptForRNS;
+//     use crate::bellman::plonk::commitments::transcript::Transcript;
 
-    // use crate::plonk::circuit::verifier_circuit::affine_point_wrapper::with_zero_flag::WrapperWithFlag;
-    use crate::plonk::circuit::verifier_circuit::affine_point_wrapper::without_flag_unchecked::WrapperUnchecked;
+//     // use crate::plonk::circuit::verifier_circuit::affine_point_wrapper::with_zero_flag::WrapperWithFlag;
+//     use crate::plonk::circuit::verifier_circuit::affine_point_wrapper::without_flag_unchecked::WrapperUnchecked;
 
-    pub fn recursion_test<'a, E, T, CG, AD, WP>(
-        a: E::Fr, 
-        b: E::Fr, 
-        num_steps: usize,
-        channel_params: &'a CG::Params,
-        rns_params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
-        transcript_params: <T as Prng<E::Fr>>::InitializationParameters,
-    )
-    where E: Engine, T: Transcript<E::Fr>, CG: ChannelGadget<E>, AD: AuxData<E>, WP: WrappedAffinePoint<'a, E>
-    {
-        use crate::plonk::circuit::*;
+//     pub fn recursion_test<'a, E, T, CG, AD, WP>(
+//         a: E::Fr, 
+//         b: E::Fr, 
+//         num_steps: usize,
+//         channel_params: &'a CG::Params,
+//         rns_params: &'a RnsParameters<E, <E::G1Affine as GenericCurveAffine>::Base>,
+//         transcript_params: <T as Prng<E::Fr>>::InitializationParameters,
+//     )
+//     where E: Engine, T: Transcript<E::Fr>, CG: ChannelGadget<E>, AD: AuxData<E>, WP: WrappedAffinePoint<'a, E>
+//     {
+//         use crate::plonk::circuit::*;
 
-        let worker = Worker::new();
-        let output = fibbonacci(&a, &b, num_steps);
+//         let worker = Worker::new();
+//         let output = fibbonacci(&a, &b, num_steps);
     
-        let circuit = BenchmarkCircuit::<E> {
-            num_steps,
-            a,
-            b,
-            output,
-            _engine_marker: std::marker::PhantomData::<E>,
-        };
+//         let circuit = BenchmarkCircuit::<E> {
+//             num_steps,
+//             a,
+//             b,
+//             output,
+//             _engine_marker: std::marker::PhantomData::<E>,
+//         };
 
-        let mut assembly = OldActualAssembly::<E>::new();
-        circuit.clone().synthesize(&mut assembly).expect("should synthesize");
-        assembly.finalize();
-        let setup = assembly.setup(&worker).expect("should setup");
+//         let mut assembly = OldActualAssembly::<E>::new();
+//         circuit.clone().synthesize(&mut assembly).expect("should synthesize");
+//         assembly.finalize();
+//         let setup = assembly.setup(&worker).expect("should setup");
 
-        let crs_mons = Crs::<E, CrsForMonomialForm>::crs_42(setup.permutation_polynomials[0].size(), &worker);
-        let crs_vals = Crs::<E, CrsForLagrangeForm>::crs_42(setup.permutation_polynomials[0].size(), &worker);
+//         let crs_mons = Crs::<E, CrsForMonomialForm>::crs_42(setup.permutation_polynomials[0].size(), &worker);
+//         let crs_vals = Crs::<E, CrsForLagrangeForm>::crs_42(setup.permutation_polynomials[0].size(), &worker);
 
-        let verification_key = VerificationKey::from_setup(
-            &setup, 
-            &worker, 
-            &crs_mons
-        ).expect("should create vk");
+//         let verification_key = VerificationKey::from_setup(
+//             &setup, 
+//             &worker, 
+//             &crs_mons
+//         ).expect("should create vk");
 
-        let precomputations = SetupPolynomialsPrecomputations::from_setup(
-            &setup, 
-            &worker
-        ).expect("should create precomputations");
+//         let precomputations = SetupPolynomialsPrecomputations::from_setup(
+//             &setup, 
+//             &worker
+//         ).expect("should create precomputations");
 
-        let mut prover = OldActualProver::<E>::new();
-        circuit.synthesize(&mut prover).expect("should synthesize");
-        prover.finalize();
+//         let mut prover = OldActualProver::<E>::new();
+//         circuit.synthesize(&mut prover).expect("should synthesize");
+//         prover.finalize();
 
-        let size = setup.permutation_polynomials[0].size();
+//         let size = setup.permutation_polynomials[0].size();
 
-        let omegas_bitreversed = BitReversedOmegas::<E::Fr>::new_for_domain_size(size.next_power_of_two());
-        let omegas_inv_bitreversed = 
-            <OmegasInvBitreversed::<E::Fr> as CTPrecomputations::<E::Fr>>::new_for_domain_size(size.next_power_of_two());
+//         let omegas_bitreversed = BitReversedOmegas::<E::Fr>::new_for_domain_size(size.next_power_of_two());
+//         let omegas_inv_bitreversed = 
+//             <OmegasInvBitreversed::<E::Fr> as CTPrecomputations::<E::Fr>>::new_for_domain_size(size.next_power_of_two());
 
-        println!("BEFORE PROVE");
+//         println!("BEFORE PROVE");
 
-        let proof = prover.prove::<T, _, _>(
-            &worker,
-            &setup,
-            &precomputations,
-            &crs_vals,
-            &crs_mons,
-            &omegas_bitreversed,
-            &omegas_inv_bitreversed,
-            Some(transcript_params.clone()),
-        ).expect("should prove");
+//         let proof = prover.prove::<T, _, _>(
+//             &worker,
+//             &setup,
+//             &precomputations,
+//             &crs_vals,
+//             &crs_mons,
+//             &omegas_bitreversed,
+//             &omegas_inv_bitreversed,
+//             Some(transcript_params.clone()),
+//         ).expect("should prove");
 
-        println!("DONE");
+//         println!("DONE");
 
-        let is_valid = verify::<_, _, T>(&proof, &verification_key, Some(transcript_params)).expect("should verify");
+//         let is_valid = verify::<_, _, T>(&proof, &verification_key, Some(transcript_params)).expect("should verify");
 
-        assert!(is_valid);
+//         assert!(is_valid);
 
-        println!("PROOF IS VALID");
+//         println!("PROOF IS VALID");
 
-        let verifier_circuit = 
-        PlonkVerifierCircuit::<E, CG, Width4WithCustomGates, OldActualParams, AD, WP>::new(
-            channel_params, 
-            vec![a, b, output], 
-            vec![], 
-            proof, 
-            verification_key, 
-            AD::new(), 
-            rns_params,
-        );
+//         let verifier_circuit = 
+//         PlonkVerifierCircuit::<E, CG, Width4WithCustomGates, OldActualParams, AD, WP>::new(
+//             channel_params, 
+//             vec![a, b, output], 
+//             vec![], 
+//             proof, 
+//             verification_key, 
+//             AD::new(), 
+//             rns_params,
+//         );
 
-        let mut cs = TrivialAssembly::<E, Width4WithCustomGates, Width4MainGateWithDNext>::new();
-        verifier_circuit.synthesize(&mut cs).expect("should synthesize");
-        println!("Raw number of gates: {}", cs.n());
-        cs.finalize();
-        println!("Padded number of gates: {}", cs.n());
-        assert!(cs.is_satisfied());
-    }
+//         let mut cs = TrivialAssembly::<E, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+//         verifier_circuit.synthesize(&mut cs).expect("should synthesize");
+//         println!("Raw number of gates: {}", cs.n());
+//         cs.finalize();
+//         println!("Padded number of gates: {}", cs.n());
+//         assert!(cs.is_satisfied());
+//     }
 
-    #[test]
-    fn bn256_recursion_test() 
-    {   
-        let a = <Bn256 as ScalarEngine>::Fr::one();
-        let b = <Bn256 as ScalarEngine>::Fr::one();
-        let num_steps = 100;
+//     #[test]
+//     fn bn256_recursion_test() 
+//     {   
+//         let a = <Bn256 as ScalarEngine>::Fr::one();
+//         let b = <Bn256 as ScalarEngine>::Fr::one();
+//         let num_steps = 100;
 
-        let rns_params = RnsParameters::<Bn256, <Bn256 as Engine>::Fq>::new_for_field(68, 110, 4);
-        let rescue_params = Bn256RescueParams::new_checked_2_into_1();
+//         let rns_params = RnsParameters::<Bn256, <Bn256 as Engine>::Fq>::new_for_field(68, 110, 4);
+//         let rescue_params = Bn256RescueParams::new_checked_2_into_1();
 
-        let transcript_params = (&rescue_params, &rns_params);
+//         let transcript_params = (&rescue_params, &rns_params);
  
-        // recursion_test::<Bn256, RescueTranscriptForRNS<Bn256>, RescueChannelGadget<Bn256>, BN256AuxData, WrapperUnchecked<Bn256>>(
-        //     a, b, num_steps, &rescue_params, &rns_params, transcript_params,
-        // );
-    }
-}
+//         recursion_test::<Bn256, RescueTranscriptForRNS<Bn256>, RescueChannelGadget<Bn256>, BN256AuxData, WrapperUnchecked<Bn256>>(
+//             a, b, num_steps, &rescue_params, &rns_params, transcript_params,
+//         );
+//     }
+// }
 
         

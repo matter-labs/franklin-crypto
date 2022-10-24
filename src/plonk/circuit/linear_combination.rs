@@ -33,7 +33,6 @@ use super::boolean::{
 };
 
 use super::simple_term::Term;
-
 pub struct LinearCombination<E: Engine> {
     pub(crate) value: Option<E::Fr>,
     pub(crate) terms: Vec<(E::Fr, Variable)>,

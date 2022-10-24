@@ -2174,17 +2174,17 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
     pub(crate) fn div_from_addition_chain<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         nums: Vec<Self>,
-        den: Self
+        den: Self,
     ) -> Result<(Self, (Vec<Self>, Self)), SynthesisError> {
         let params = den.representation_params;
 
         // we do (a1 + a2 + ... + an) /den = result mod p
         // a1 + a2 + ... + an = result * den mod p
-        // result*den = q*p + (a1 + a2 + ... + an)
+        // result*den = (2k -1)q*p + (a1 + a2 + ... + an)
+        // k - Boolean which define result*den > or < num 
         // so we place nums into the remainders (don't need to negate here)
 
         let den = den.reduce_if_necessary(cs)?;
-
         let mut value_is_none = false;
 
         let inv = if let Some(den) = den.get_value() {
@@ -2213,37 +2213,43 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             all_constant = all_constant & n.is_constant();
             reduced_nums.push(n);
         }
-        let num_value = if value_is_none {
-            None
-        } else {
-            Some(num_value)
-        };
+        let num_value = if value_is_none { None } else { Some(num_value) };
 
-        let (result, q, _rem) = match (num_value, den.get_value(), inv.clone()) {
+        let (result, q, _) = match (num_value, den.get_value(), inv.clone()) {
             (Some(num_value), Some(den), Some(inv)) => {
                 let mut lhs = num_value.clone();
 
                 let mut rhs = BigUint::from(0u64);
-
                 let result = (num_value.clone() * &inv) % &params.represented_field_modulus;
 
                 rhs += result.clone() * &den;
-                let value = den * &result - num_value;
-        
-                let (q, rem) = value.div_rem(&params.represented_field_modulus);
+                let mut value = BigUint::zero();
+                if result.clone()*den.clone()>=num_value {
+                    value = den.clone() * &result - num_value.clone();
 
-                lhs += q.clone() * &params.represented_field_modulus;
+                }
+                else{
+                    value = num_value.clone() - (den.clone() * &result);
+                }
+
+
+                let (q, rem) = value.div_rem(&params.represented_field_modulus);
+                if result.clone()*den.clone()>=num_value {
+                    lhs += q.clone() * &params.represented_field_modulus ;
+
+                }
+                else{
+                    lhs -= q.clone() * &params.represented_field_modulus ;
+                }
 
                 assert_eq!(lhs, rhs);
-        
+
                 use crate::num_traits::Zero;
                 assert!(rem.is_zero(), "remainder = {}", rem.to_str_radix(16));
 
                 (Some(result), Some(q), Some(rem))
-            },
-            _ => {
-                (None, None, None)
             }
+            _ => (None, None, None),
         };
 
         if all_constant {
@@ -2252,28 +2258,26 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             return Ok((new, (reduced_nums, den)));
         }
 
-        let result_wit = Self::new_allocated(
-            cs, 
-            some_biguint_to_fe::<F>(&result),
-            params
-        )?;
+        let result_wit = Self::new_allocated(cs, some_biguint_to_fe::<F>(&result), params)?;
 
         // result*den = q*p + (a1 + a2 + ... + an), but since we have to subtract (a1 + a2 + ... + an) we do not use them
         // in this estimation
-        let q_max_value = result_wit.get_max_value() * den.get_max_value() / &params.represented_field_modulus;
+        let q_max_value =
+            result_wit.get_max_value() * den.get_max_value() / &params.represented_field_modulus;
         let q_max_bits = q_max_value.bits();
-        let q_elem = Self::coarsely_allocate_for_known_bit_width(cs, q, q_max_bits as usize, params)?;
+        let q_elem =
+            Self::coarsely_allocate_for_known_bit_width(cs, q, q_max_bits as usize, params)?;
 
         // let q_elem = Self::coarsely_allocate_for_unknown_width(cs, q, params)?;
 
-        Self::constraint_fma_with_multiple_additions(
-            cs, 
-            &den,
-            &result_wit,
-            &[],
-            &q_elem,
-            &reduced_nums,
-        )?;
+        // Self::constraint_fma_with_multiple_additions(
+        //     cs,
+        //     &den,
+        //     &result_wit,
+        //     &[],
+        //     &q_elem,
+        //     &reduced_nums,
+        // )?;
 
         Ok((result_wit, (reduced_nums, den)))
     }

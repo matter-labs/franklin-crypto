@@ -354,28 +354,28 @@ mod test {
 
     use crate::bellman::plonk::better_better_cs::cs::*;
 
-    #[test]
-    fn test_blank_hash() {
-        let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
-        let input_bits = vec![];
-        let out = blake2s(&mut cs, &input_bits, b"12345678").unwrap();
-        assert!(cs.is_satisfied());
-        assert_eq!(cs.n(), 0);
+    // #[test]
+    // fn test_blank_hash() {
+    //     let mut cs = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+    //     let input_bits = vec![];
+    //     let out = blake2s(&mut cs, &input_bits, b"12345678").unwrap();
+    //     assert!(cs.is_satisfied());
+    //     assert_eq!(cs.n(), 0);
 
-        // >>> import blake2s from hashlib
-        // >>> h = blake2s(digest_size=32, person=b'12345678')
-        // >>> h.hexdigest()
-        // let expected = hex!("c59f682376d137f3f255e671e207d1f2374ebe504e9314208a52d9f88d69e8c8");
+    //     // >>> import blake2s from hashlib
+    //     // >>> h = blake2s(digest_size=32, person=b'12345678')
+    //     // >>> h.hexdigest()
+    //     let expected = hex!("c59f682376d137f3f255e671e207d1f2374ebe504e9314208a52d9f88d69e8c8");
 
-        // let mut out = out.into_iter();
-        // for b in expected.iter() {
-        //     for i in 0..8 {
-        //         let c = out.next().unwrap().get_value().unwrap();
+    //     let mut out = out.into_iter();
+    //     for b in expected.iter() {
+    //         for i in 0..8 {
+    //             let c = out.next().unwrap().get_value().unwrap();
 
-        //         assert_eq!(c, (b >> i) & 1u8 == 1u8);
-        //     }
-        // }
-    }
+    //             assert_eq!(c, (b >> i) & 1u8 == 1u8);
+    //         }
+    //     }
+    // }
 
     #[test]
     fn test_blake2s_constraints() {

@@ -1,24 +1,16 @@
-use crate::bellman::pairing::{
-    Engine,
-    GenericCurveAffine,
-    GenericCurveProjective
-};
 
-use crate::bellman::pairing::ff::{
-    Field,
-    PrimeField,
-    PrimeFieldRepr,
-    BitIterator,
-    ScalarEngine
-};
+use crate::bellman::pairing::{Engine, GenericCurveAffine, GenericCurveProjective};
 
-use crate::bellman::{
-    SynthesisError,
-};
+use crate::bellman::pairing::ff::{BitIterator, Field, PrimeField, PrimeFieldRepr, ScalarEngine};
+
+use crate::bellman::SynthesisError;
+use crate::plonk::circuit::allocated_num::Num;
+use plonk::circuit::allocated_num::AllocatedNum;
+use bellman::plonk::better_better_cs::cs::ConstraintSystem;
 
 use num_bigint::BigUint;
 use num_integer::Integer;
-use num_traits::Num;
+use num_traits::Num as OtherNum;
 
 use crate::plonk::circuit::bigint::bigint::*;
 
@@ -67,6 +59,50 @@ impl <E: Engine> EndomorphismParameters<E>  {
 
         (k1, k2)
     }
+    pub fn calculate_decomposition_num<CS: ConstraintSystem<E>>(&self, cs: &mut CS, val: Num<E>) -> (Num<E>, Num<E>) {
+        use num_traits::Zero;
+        let mut value = BigUint::zero();
+        match val {
+            Num::Constant(a) => {
+                value = fe_to_biguint(&a);
+            }
+
+            Num::Variable(var) =>{
+                let w = var.get_value().unwrap();
+                value = fe_to_biguint(&w);
+            }
+        }
+
+        // here we take high limbs
+        let c1 = (&value * &self.a1) >> self.scalar_width;
+        let c2 = (&value * &self.a2) >> self.scalar_width;
+
+        let q1 = c1 * &self.minus_b1;
+        let q2 = c2 * &self.b2;
+
+        // this will take lowest limbs only
+        let q1 = biguint_to_repr::<E::Fr>(q1);
+        let q2 = biguint_to_repr::<E::Fr>(q2);
+        let q1 = E::Fr::from_repr(q1).unwrap();
+        let q2 = E::Fr::from_repr(q2).unwrap();
+
+        // k1
+        let mut k2 = q2;
+        k2.sub_assign(&q1);
+
+        // k1 = k2 * lambda + val
+        let mut k1 = k2;
+        k1.mul_assign(&self.lambda);
+        let value = biguint_to_repr::<E::Fr>(value);
+        let val = E::Fr::from_repr(value).unwrap();
+        k1.add_assign(&val);
+
+        let k1_num = Num::Variable(AllocatedNum::alloc(cs, || Ok(k1)).unwrap());
+        let k2_num = Num::Variable(AllocatedNum::alloc(cs, || Ok(k2)).unwrap());
+
+        (k1_num, k2_num)
+    }
+
 
     pub fn apply_to_g1_point(&self, point: E::G1Affine) -> E::G1Affine {
         let (mut x, mut y) = point.into_xy_unchecked();
