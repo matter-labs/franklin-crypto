@@ -19,7 +19,7 @@ allocator = ["bellman/allocator"]
 derivative = "2"
 
 # boojum = {package = "boojum", path = "../boojum" }
-boojum = {git = "https://github.com/matter-labs/boojum.git", branch = "main"}
+boojum = {git = "https://github.com/matter-labs/era-boojum.git", branch = "main"}
 
 rand = "0.4"
 digest = "0.9"
