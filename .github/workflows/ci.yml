@@ -30,9 +30,6 @@ jobs:
           rustup set profile minimal
           rustup toolchain install nightly-2022-08-23
           rustup default nightly-2022-08-23
-      - name: Install build dependencies
-        run: |
-          sudo apt update && sudo apt install -y pkg-config libssl-dev libclang-dev gcc g++
       - name: Compile
         run: |
           cargo build --verbose
