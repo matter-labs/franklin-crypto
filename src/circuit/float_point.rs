@@ -17,15 +17,11 @@ pub fn parse_with_exponent_le<E: Engine, CS: ConstraintSystem<E>>(
 {
     assert!(bits.len() == exponent_length + mantissa_length);
 
-    let one_allocated = AllocatedNum::alloc(
-        cs.namespace(|| "allocate one"),
-        || Ok(E::Fr::one())
-    )?;
+    // constant 1 provided by CS
+    let one_allocated = AllocatedNum::one::<CS>();
 
-    let mut exponent_result = AllocatedNum::alloc(
-        cs.namespace(|| "allocate exponent result"),
-        || Ok(E::Fr::one())
-    )?;
+    // initial exponent value is 1
+    let mut exponent_result = one_allocated.clone();
 
     let exponent_base_string = exponent_base.to_string();
     let exponent_base_value = E::Fr::from_str(&exponent_base_string.clone()).unwrap();
@@ -34,6 +30,8 @@ pub fn parse_with_exponent_le<E: Engine, CS: ConstraintSystem<E>>(
         cs.namespace(|| "allocate exponent base"), 
         || Ok(exponent_base_value)
     )?;
+    // we need to ensure it's a constant parameter
+    exponent_base.assert_number(cs.namespace(|| "enforce exponent"), &exponent_base_value)?;
 
     for i in 0..exponent_length {
         let thisbit = &bits[i];
@@ -53,11 +51,6 @@ pub fn parse_with_exponent_le<E: Engine, CS: ConstraintSystem<E>>(
         exponent_base = exponent_base.clone().square(
             cs.namespace(|| format!("make exponent base {}", i))
         )?;
-
-        // exponent_base = exponent_base.mul(
-        //     cs.namespace(|| format!("make exponent base {}", i)), 
-        //     &exponent_base.clone()
-        // )?;
     }
 
     let mut mantissa_result = Num::<E>::zero();
@@ -70,38 +63,12 @@ pub fn parse_with_exponent_le<E: Engine, CS: ConstraintSystem<E>>(
         mantissa_base.double();
     }
 
-    let mantissa = AllocatedNum::alloc(
-        cs.namespace(|| "allocating mantissa"),
-        || Ok(*mantissa_result.get_value().get()?)
-    )?;
+    let mantissa = mantissa_result.into_allocated_num(cs.namespace(|| "accumulate mantissa"))?;
 
     mantissa.mul(
         cs.namespace(|| "calculate floating point result"),
         &exponent_result
     )
-
-    // return 
-
-    // let mut result = mantissa_result.get_value().get()?.clone();
-
-    // let exponent_value = exponent_result.get_value().get()?.clone();
-
-    // result.mul_assign(&exponent_value);
-
-    // let result_allocated = AllocatedNum::alloc(
-    //     cs.namespace(|| "float point parsing result"),
-    //     || Ok(result)
-    // )?;
-
-    // // num * 1 = input
-    // cs.enforce(
-    //     || "float point result constraint",
-    //     |lc| lc + exponent_result.get_variable(),
-    //     |_| mantissa_result.lc(E::Fr::one()),
-    //     |lc| lc + result_allocated.get_variable()
-    // );
-
-    // Ok(result_allocated)
 }
 
 pub fn convert_to_float(
