@@ -20,6 +20,7 @@ use crate::bellman::plonk::better_better_cs::cs::{
     MainGateTerm
 };
 
+use crate::plonk::circuit::utils::is_naive_main_gate;
 use crate::plonk::circuit::Assignment;
 
 use super::allocated_num::{
@@ -365,7 +366,7 @@ impl<E: Engine> LinearCombination<E> {
                 self.constant
             )
         } else {
-            unimplemented!()
+            enforce_zero_naive(cs, &self.terms, self.constant)
         }
     }
 
@@ -406,7 +407,9 @@ impl<E: Engine> LinearCombination<E> {
                 terms,
                 self.constant
             )?;
-        } else {
+        } else if is_naive_main_gate::<E, CS>() {
+            enforce_zero_naive(cs, &terms, self.constant)?;
+        }else{
             unimplemented!()
         }
 
@@ -714,6 +717,86 @@ impl<E: Engine> LinearCombination<E> {
 
         Ok(result)
     }
+}
+
+pub fn enforce_zero_naive<E: Engine, CS: ConstraintSystem<E>>(
+    cs: &mut CS,
+    terms: &[(E::Fr, Variable)], // includes value as last term
+    constant: E::Fr,
+) -> Result<(), SynthesisError> {
+    assert!(is_naive_main_gate::<E, CS>());
+    use crate::bellman::plonk::better_better_cs::cs::PlonkConstraintSystemParams;
+    assert!(CS::Params::CAN_ACCESS_NEXT_TRACE_STEP == false);
+    let chunk_size = CS::Params::STATE_WIDTH -1;
+    // c0, c1, c2 + k
+    // v0, v1, v2
+
+    // c0*v0 + c1*v1 + k = s0
+    // s0 + c2*v2 = s1
+    // s1 - sum == 0
+    let mut intermediate_sums = vec![];
+    let mut used_constant = false;
+
+    let has_value = cs.get_value(terms[0].1).is_ok();
+
+    let mut sum_terms = |chunk: &[(E::Fr, Variable)]| -> Result<(), SynthesisError> {
+        assert!(chunk.len() <= 2);
+        let mut sum = if used_constant { E::Fr::zero() } else { constant };
+        for (c, v) in chunk.iter() {
+            assert_eq!(cs.get_value(*v).is_ok(), has_value);
+            let mut tmp = cs.get_value(*v).unwrap_or(E::Fr::zero());
+            tmp.mul_assign(&c);
+            sum.add_assign(&tmp);
+        }
+
+        let allocated_sum = AllocatedNum::alloc(cs, || {
+            if has_value{
+                Ok(sum)
+            }else{
+                Err(SynthesisError::AssignmentMissing)
+            }
+        })?;
+        let mut terms = MainGateTerm::new();
+        for (coeff, var) in chunk.iter() {
+            let term = ArithmeticTerm::from_variable_and_coeff(*var, *coeff);
+            terms.add_assign(term);
+        }
+
+        if used_constant == false {
+            let term = ArithmeticTerm::constant(constant);
+            terms.add_assign(term);
+            used_constant = true;
+        }
+        let term =
+            ArithmeticTerm::from_variable_and_coeff(allocated_sum.get_variable(), E::Fr::one());
+        terms.sub_assign(term);
+
+        cs.allocate_main_gate(terms)?;
+
+        intermediate_sums.push(allocated_sum);
+
+        Ok(())
+    };
+
+    for chunk in terms.chunks_exact(chunk_size){
+        sum_terms(chunk)?;
+    }
+    // remainder term can fit into single gate
+    sum_terms(terms.chunks_exact(chunk_size).remainder())?;
+
+    assert_eq!(used_constant, true);
+    
+    if used_constant == false {
+        intermediate_sums.push(AllocatedNum::alloc_cnst(cs, constant)?);
+    }
+
+    let mut final_sum = AllocatedNum::zero(cs);
+    for intermediate_sum in intermediate_sums.iter() {
+        final_sum = final_sum.add(cs, &intermediate_sum)?;
+    }
+    final_sum.is_zero(cs)?;
+
+    Ok(())
 }
 
 #[cfg(test)]

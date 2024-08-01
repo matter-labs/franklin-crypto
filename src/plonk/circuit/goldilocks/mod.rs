@@ -79,7 +79,7 @@ impl<E: Engine> Hash for GoldilocksField<E> {
     }
 }
 
-fn range_check_for_num_bits<E: Engine, CS: ConstraintSystem<E>>(
+pub fn range_check_for_num_bits<E: Engine, CS: ConstraintSystem<E>>(
     cs: &mut CS,
     num: &Num<E>,
     num_bits: usize
@@ -94,11 +94,34 @@ fn range_check_for_num_bits<E: Engine, CS: ConstraintSystem<E>>(
         // Name of the table should be checked
         if let Ok(table) = cs.get_table(BITWISE_LOGICAL_OPS_TABLE_NAME) {
             enforce_range_check_using_bitop_table(cs, &num.get_variable(), num_bits, table, true)?;
-        } else {
+        }else if <CS::Params as PlonkConstraintSystemParams<E>>::CAN_ACCESS_NEXT_TRACE_STEP {
             enforce_range_check_using_naive_approach(cs, &num.get_variable(), num_bits)?;
-        }
+        }else {           
+            use crate::plonk::circuit::boolean::*;
+            let has_value = num.get_value().is_some();
+            let value = num.get_value().unwrap_or(E::Fr::zero());
+            let bits: Vec<_> = BitIterator::new(value.into_repr()).collect();
+            let allocated_bits: Vec<AllocatedBit> = bits
+                .into_iter()
+                .rev()
+                .take(num_bits)
+                .map(|bit| {
+                    let t = if has_value { Some(bit) } else { None };
+                    AllocatedBit::alloc(cs, t)
+                })
+                .collect::<Result<Vec<_>, SynthesisError>>()?;
+            let mut lc = LinearCombination::zero();
+            let mut coeff = E::Fr::one();
+            for b in allocated_bits.iter() {
+                lc.add_assign_bit_with_coeff(b, coeff);
+                coeff.double();
+            }           
+            let mut minus_one = E::Fr::one();
+            minus_one.negate();
+            lc.add_assign_number_with_coeff(&num, minus_one);
+            lc.enforce_zero(cs)?;
+        }            
     }
-
     Ok(())
 }
 

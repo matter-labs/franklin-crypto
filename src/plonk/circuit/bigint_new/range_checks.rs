@@ -249,7 +249,9 @@ pub fn enforce_range_check_using_naive_approach<E: Engine, CS: ConstraintSystem<
             lc.add_assign_bit_with_coeff(bit, coef.clone());
             coef.double();
         }
-        lc.add_assign_variable_with_coeff(var, minus_one)
+        lc.add_assign_variable_with_coeff(var, minus_one);
+
+        lc.enforce_zero(cs)?;
     }
     else {
         let mut coef = E::Fr::one();
