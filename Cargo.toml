@@ -4,7 +4,7 @@ description = "Cryptographic library for SNARK gadgets"
 homepage = "https://github.com/matter-labs/franklin-crypto"
 license = "MIT/Apache-2.0"
 name = "franklin-crypto"
-version = "0.0.5"
+version = "0.1.0"
 
 [lib]
 crate-type = ["lib", "staticlib"]
@@ -35,8 +35,7 @@ num-derive = "0.2"
 indexmap = "1.9"
 smallvec = "1.10"
 
-# bellman = { package = "bellman_ce", path = "../../bellman/plonk" }
-bellman = { package = "bellman_ce", git = "https://github.com/matter-labs/bellman", branch = "dev" }
+bellman = { package = "bellman_ce", version = "0.7.0" }
 blake2-rfc_bellman_edition = "0.0.1"
 #poseidon_hash = { path = "../poseidon_hash" }
 #poseidon_hash = {git = "https://github.com/shamatar/poseidon_hash.git"}
