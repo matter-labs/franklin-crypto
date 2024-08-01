@@ -2,13 +2,9 @@ name: Build and compile
 
 on:
   push:
-    branches:
-      - dev
-      - snark_wrapper
+    branches: ["dev"]
   pull_request:
-    branches:
-      - dev
-      - snark_wrapper
+    branches: ["dev"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
