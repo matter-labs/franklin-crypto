@@ -15,7 +15,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: [ubuntu-latest]
 
     steps:
       - uses: actions/checkout@v3
@@ -28,8 +28,8 @@ jobs:
       - name: Setup rust
         run: |
           rustup set profile minimal
-          rustup toolchain install nightly-2022-08-23
-          rustup default nightly-2022-08-23
+          rustup toolchain install nightly-2023-08-23
+          rustup default nightly-2023-08-23
       - name: Compile
         run: |
           cargo build --verbose

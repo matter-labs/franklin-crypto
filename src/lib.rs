@@ -4,6 +4,7 @@
 
 
 pub extern crate bellman;
+pub extern crate boojum;
 extern crate blake2_rfc_bellman_edition as blake2_rfc;
 extern crate digest;
 extern crate rand;
@@ -20,6 +21,7 @@ extern crate blake2;
 extern crate serde;
 extern crate num_derive;
 extern crate indexmap;
+extern crate derivative;
 
 use bellman::pairing;
 use bellman::pairing::ff;

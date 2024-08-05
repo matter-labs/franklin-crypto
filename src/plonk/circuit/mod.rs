@@ -13,6 +13,7 @@ pub mod bigint_new;
 pub mod simple_term;
 pub mod curve;
 pub mod curve_new;
+pub mod goldilocks;
 pub mod verifier_circuit;
 pub mod tables;
 pub mod counter;
