@@ -218,7 +218,7 @@ impl<E: Engine> Num<E> {
     /// Takes two allocated numbers (a, b) and returns
     /// (b, a) if the condition is true, and (a, b)
     /// otherwise
-    pub fn conditionally_reverse_with_naive_gate<CS>(
+    fn conditionally_reverse_with_naive_gate<CS>(
         cs: &mut CS,
         a: &Self,
         b: &Self,
@@ -227,59 +227,127 @@ impl<E: Engine> Num<E> {
         where CS: ConstraintSystem<E>
     {
         assert!(is_naive_main_gate::<E, CS>());
+        // original function already handles the case if condition is constant 
+        if condition.is_constant() {
+            let swap = condition.get_value().expect("must get a value of the constant");
 
-        let c = AllocatedNum::alloc(
-            cs,
-            || {
-                if *condition.get_value().get()? {
-                    Ok(*b.get_value().get()?)
-                } else {
-                    Ok(*a.get_value().get()?)
-                }
+            if swap {
+                return Ok((b.clone(), a.clone()))
+            } else {
+                return Ok((a.clone(), b.clone()))
             }
-        )?;
-
-        let d = AllocatedNum::alloc(
-            cs,
-            || {
-                if *condition.get_value().get()? {
-                    Ok(*a.get_value().get()?)
-                } else {
-                    Ok(*b.get_value().get()?)
-                }
+        }
+        match (a, b) {
+            (Num::Variable(a_var), Num::Variable(b_var)) => {
+                let (c_var, d_var) = AllocatedNum::conditionally_reverse_with_naive_gate(cs, &a_var, &b_var, &condition)?;
+                return Ok((Num::Variable(c_var), Num::Variable(d_var)))
             }
-        )?;
-
-        let c = Num::Variable(c);
-        let d = Num::Variable(d);
+            _ => ()
+        }
 
         // we have two inputs (a, b) and two outputs (c, d)
         // if condition is
         //  - true then reverse values a == d and b == c
         //  - false then keep values the same  a == c and b == d
 
-        // so the constraints would be
-        //  (a-b)*condition  + b - d = 0
-        //  (b-a)*condition  + a - c = 0
+        // (a - b) * condition = a - c
+        // (b - a) * condition = b - d 
+        // if condition == 0, then a == c, b == d
+        // if condition == 1, then b == c, a == d
+
+        let c = AllocatedNum::alloc(cs, || {
+            let result = if condition.get_value().grab()?{
+                b.get_value().grab()?
+            }else{
+                a.get_value().grab()?
+            };
+            Ok(result)
+        })?;
+        let d = AllocatedNum::alloc(cs, || {
+            let result = if condition.get_value().grab()?{
+                a.get_value().grab()?
+            }else{
+                b.get_value().grab()?
+            };
+            Ok(result)
+        })?;
+
         let mut minus_one = E::Fr::one();
         minus_one.negate();
 
-        let a_minus_b = a.sub(cs, &b)?;
-        let ab_condition = Num::mask(cs, &a_minus_b, &condition)?;
+        match (condition, a, b){            
+            (Boolean::Is(cond), Num::Variable(a_var), Num::Constant(b_const)) => {                
+                // a*cond - b_const*cond - a + c = 0                
+                let c_minus_a = c.sub(cs, &a_var)?;
+
+                let mut term = MainGateTerm::<E>::new();
+                term.add_assign(ArithmeticTerm::from_variable(a_var.get_variable()).mul_by_variable(cond.get_variable()));
+                term.sub_assign(ArithmeticTerm::from_variable_and_coeff(cond.get_variable(), b_const.clone()));
+                term.add_assign(ArithmeticTerm::from_variable(c_minus_a.get_variable()));
+                cs.allocate_main_gate(term)?;
+                
+                // b_const*cond - a*cond -b_const + d = 0
+                let mut term = MainGateTerm::<E>::new();
+                term.sub_assign(ArithmeticTerm::from_variable(a_var.get_variable()).mul_by_variable(cond.get_variable()));
+                term.add_assign(ArithmeticTerm::from_variable_and_coeff(cond.get_variable(), b_const.clone()));
+                term.add_assign(ArithmeticTerm::from_variable(d.get_variable()));
+                term.sub_assign(ArithmeticTerm::constant(*b_const));
+                cs.allocate_main_gate(term)?; 
+
+                Ok((Num::Variable(c), Num::Variable(d)))     
+            },
+            (Boolean::Is(cond), Num::Constant(a_const), Num::Variable(b_var)) => {
+                // -b*cond + a_const*cond - a_const + c = 0
+                let mut term = MainGateTerm::<E>::new();
+                term.sub_assign(ArithmeticTerm::from_variable(b_var.get_variable()).mul_by_variable(cond.get_variable()));
+                term.add_assign(ArithmeticTerm::from_variable_and_coeff(cond.get_variable(), a_const.clone()));
+                term.add_assign(ArithmeticTerm::from_variable(c.get_variable()));
+                term.sub_assign(ArithmeticTerm::constant(*a_const));
+                cs.allocate_main_gate(term)?;
+
+                // -a_const*cond + b*cond - b + d =0    
+                let d_minus_b = d.sub(cs, &b_var)?;                
+                let mut term = MainGateTerm::<E>::new();
+                term.add_assign(ArithmeticTerm::from_variable(b_var.get_variable()).mul_by_variable(cond.get_variable()));
+                term.sub_assign(ArithmeticTerm::from_variable_and_coeff(cond.get_variable(), a_const.clone()));
+                term.add_assign(ArithmeticTerm::from_variable(d_minus_b.get_variable()));
+                cs.allocate_main_gate(term)?;  
+
+                Ok((Num::Variable(c), Num::Variable(d)))
+            },
+            (Boolean::Is(cond), Num::Constant(a_const), Num::Constant(b_const)) => {
+                // cond*(a_const - b_const) - a_const + c_const = 0
+                // cond*(b_const - a_const) - b_const + d_const = 0
+
+                let c_const = c.value.grab()?;
+                let d_const = d.value.grab()?;
+
+                let mut a_minus_b = a_const.clone();
+                a_minus_b.sub_assign(b_const);
+                
+                let mut c_minus_a = c_const.clone();
+                c_minus_a.sub_assign(&a_const);
+
+                let mut d_minus_b = d_const.clone();
+                d_minus_b.sub_assign(&b_const);
+
+
+                let mut term = MainGateTerm::<E>::new();
+                term.add_assign(ArithmeticTerm::from_variable_and_coeff(cond.get_variable(), a_minus_b));                
+                term.add_assign(ArithmeticTerm::constant(c_minus_a));
+                cs.allocate_main_gate(term)?;                
+                
+                let mut term = MainGateTerm::<E>::new();
+                term.sub_assign(ArithmeticTerm::from_variable_and_coeff(cond.get_variable(), a_minus_b));                
+                term.add_assign(ArithmeticTerm::constant(d_minus_b));
+                cs.allocate_main_gate(term)?;                
+
+                Ok((Num::Constant(c_const), Num::Constant(d_const)))
+            },
+
+            _ => unimplemented!()
+        }
         
-        let mut lc = LinearCombination::zero();
-        lc.add_assign_number_with_coeff(&ab_condition, E::Fr::one());
-        lc.add_assign_number_with_coeff(&b, E::Fr::one());
-        lc.add_assign_number_with_coeff(&d, minus_one);
-        lc.enforce_zero(cs)?;
-
-        let mut lc = LinearCombination::zero();
-        lc.add_assign_number_with_coeff(&ab_condition, minus_one);
-        lc.add_assign_number_with_coeff(&a, E::Fr::one());
-        lc.add_assign_number_with_coeff(&c, minus_one);
-        lc.enforce_zero(cs)?;
-
-        Ok((c, d))
     }
     
 
@@ -1024,7 +1092,7 @@ impl<E: Engine> Num<E> {
     /// Takes two allocated numbers (a, b) and returns
     /// (b, a) if the condition is true, and (a, b)
     /// otherwise in case of a width3 cs.
-    pub fn conditionally_select_with_naive_gate<CS>(
+    fn conditionally_select_with_naive_gate<CS>(
         cs: &mut CS,
         condition: &Boolean,
         a: &Self,
@@ -1033,43 +1101,129 @@ impl<E: Engine> Num<E> {
     where CS: ConstraintSystem<E>
     {
         assert!(is_naive_main_gate::<E, CS>());
-
-        let c = AllocatedNum::alloc(
-            cs,
-            || {
-                if *condition.get_value().get()? {
-                    Ok(*a.get_value().get()?)
-                } else {
-                    Ok(*b.get_value().get()?)
-                }
-            }
-        )?;
-
-        let c = Num::Variable(c);
-
         // we have two inputs (a, b) and one output c
         // if condition is
         //  - true then reverse values a ==c
         //  - false then keep values the same b == c
 
         // so the constraints would be
-        //  a*condition + b*(1-condition) - c = 0
-        //  a*condition + b - b*condition - c = 0
-        //  a*condition - b*condition  + b - c = 0
-        //  condition*(a - b) + b - c = 0
+        // cond(a-c) + (1-cond)*(b-c)  = 0
+        // cond*(a - b) + b - c = 0
+
         let mut minus_one = E::Fr::one();
         minus_one.negate();
 
-        let a_minus_b = a.sub(cs, &b)?;
-        let a_minus_b_cond = Self::mask(cs, &a_minus_b, &condition)?;
-        let mut lc = LinearCombination::zero();
-        lc.add_assign_number_with_coeff(&a_minus_b_cond, E::Fr::one());
-        lc.add_assign_number_with_coeff(&b, E::Fr::one());
-        lc.add_assign_number_with_coeff(&c, minus_one);
-        lc.enforce_zero(cs)?;
+        match (a, b){
+            (Num::Variable(a_var), Num::Variable(b_var)) => {
+                let c = AllocatedNum::conditionally_select_with_naive_gate(cs, a_var, b_var, &condition)?;
+                return Ok(Num::Variable(c))
+            },
+            (Num::Variable(a_var), Num::Constant(b_const)) => {                   
+                match condition{
+                    Boolean::Is(cond) => {
+                        // a * cond - b_const * cond + b_const - c = 0
+                        let c = AllocatedNum::alloc(cs, || {
+                            let a_value = *a_var.get_value().get()?;
+                            let b_value = *b_const;
+                            if *cond.get_value().get()? {
+                                Ok(a_value)
+                            } else {
+                                Ok(b_value)
+                            }
+                        })?;                        
+                        let mut main_term = MainGateTerm::<E>::new();
+                        main_term.add_assign(ArithmeticTerm::from_variable(a_var.get_variable()).mul_by_variable(cond.get_variable()));
+                        main_term.sub_assign(ArithmeticTerm::from_variable_and_coeff(cond.get_variable(), b_const.clone()));
+                        main_term.add_assign(ArithmeticTerm::constant(b_const.clone()));
+                        main_term.sub_assign(ArithmeticTerm::from_variable(c.get_variable()));
+                        cs.allocate_main_gate(main_term)?;
+                        return Ok(Num::Variable(c))
+                    },
+                    Boolean::Not(cond) => {
+                        // a - a * cond + b_const * cond - c = 0
+                        let c = AllocatedNum::alloc(cs, || {
+                            let a_value = *a_var.get_value().get()?;
+                            let b_value = *b_const;
+                            if *cond.get_value().get()? {
+                                Ok(b_value)
+                            } else {
+                                Ok(a_value)
+                            }
+                        })?;
+                        let mut main_term = MainGateTerm::<E>::new();
+                        main_term.sub_assign(ArithmeticTerm::from_variable(a_var.get_variable()).mul_by_variable(cond.get_variable()));
+                        main_term.add_assign(ArithmeticTerm::from_variable(a_var.get_variable()));
+                        main_term.add_assign(ArithmeticTerm::from_variable_and_coeff(cond.get_variable(), b_const.clone()));
+                        main_term.sub_assign(ArithmeticTerm::from_variable(c.get_variable()));
+                        cs.allocate_main_gate(main_term)?;
 
-        Ok(c)
+                        return Ok(Num::Variable(c))
+                    },
+                    Boolean::Constant(cond) => {
+                        if *cond{
+                            return Ok(Num::Variable(a_var.clone()))
+                        }else{
+                            return Ok(Num::Constant(b_const.clone()))
+                        };                        
+                    },
+                }                
+            },
+            (Num::Constant(_), Num::Variable(_)) => {
+                return Self::conditionally_select_with_naive_gate(cs, &condition.not(), b, a);
+            },
+            (Num::Constant(a_const), Num::Constant(b_const)) => {                
+                let mut a_minus_b = a_const.clone();
+                a_minus_b.sub_assign(b_const);                        
+                match condition{
+                    Boolean::Is(cond) => {                        
+                        // cond*(a_const - b_const) + b_const - c_const = 0
+                        let c = AllocatedNum::alloc(cs, ||{
+                            if *cond.get_value().get()?{
+                                Ok(*a_const)
+                            }else{
+                                Ok(*b_const)
+                            }
+                        })?;
+
+                        let mut term = MainGateTerm::<E>::new();
+                        term.add_assign(ArithmeticTerm::from_variable_and_coeff(cond.get_variable(), a_minus_b.clone()));
+                        term.add_assign(ArithmeticTerm::constant(*b_const));
+                        term.sub_assign(ArithmeticTerm::from_variable(c.get_variable()));
+
+                        return Ok(Num::Variable(c))
+                    },
+                    Boolean::Not(cond) => {
+                        // cond*(a_const - b_const) + a_const - c_const = 0;
+                        let c = AllocatedNum::alloc(cs, ||{
+                            if *cond.get_value().get()?{
+                                Ok(*a_const)
+                            }else{
+                                Ok(*b_const)
+                            }
+                        })?;
+
+                        let mut term = MainGateTerm::<E>::new();
+                        term.sub_assign(ArithmeticTerm::from_variable_and_coeff(cond.get_variable(), a_minus_b.clone()));
+                        term.add_assign(ArithmeticTerm::constant(*a_const));
+                        term.sub_assign(ArithmeticTerm::from_variable(c.get_variable()));
+
+                        return Ok(Num::Variable(c))
+
+                    },
+                    Boolean::Constant(cond_const) => {
+                        // everything is constant                        
+                        if *cond_const{
+                            return Ok(Num::Constant(a_const.clone()));
+                        }else{
+                            return Ok(Num::Constant(b_const.clone()));
+                        }
+                    },
+                }
+            },
+        }
+    
     }
+    
     pub fn conditionally_select<CS: ConstraintSystem<E>>(
         cs: &mut CS,
         condition_flag: &Boolean,
@@ -1684,7 +1838,7 @@ impl<E: Engine> AllocatedNum<E> {
     /// Takes two allocated numbers (a, b) and returns
     /// (b, a) if the condition is true, and (a, b)
     /// otherwise
-    pub fn conditionally_reverse_with_naive_gate<CS>(
+    fn conditionally_reverse_with_naive_gate<CS>(
         cs: &mut CS,
         a: &Self,
         b: &Self,
@@ -1694,53 +1848,70 @@ impl<E: Engine> AllocatedNum<E> {
     {
         assert!(is_naive_main_gate::<E, CS>());
 
-        let c = AllocatedNum::alloc(
-            cs,
-            || {
-                if *condition.get_value().get()? {
-                    Ok(*b.get_value().get()?)
-                } else {
-                    Ok(*a.get_value().get()?)
-                }
-            }
-        )?;
-
-        let d = AllocatedNum::alloc(
-            cs,
-            || {
-                if *condition.get_value().get()? {
-                    Ok(*a.get_value().get()?)
-                } else {
-                    Ok(*b.get_value().get()?)
-                }
-            }
-        )?;
-
         // we have two inputs (a, b) and two outputs (c, d)
         // if condition is
         //  - true then reverse values a == d and b == c
         //  - false then keep values the same  a == c and b == d
 
-        // co the constraints would be
+        // so the constraints would be
         //  (a-b)*condition  + b - d = 0
         //  (b-a)*condition  + a - c = 0
-        let mut minus_one = E::Fr::one();
-        minus_one.negate();
 
-        let a_minus_b = a.sub(cs, &b)?;
-        let ab_condition = AllocatedNum::mask(cs, &a_minus_b, &condition)?;
+        let c = AllocatedNum::alloc(cs, || {
+            let result = if condition.get_value().grab()?{
+                b.get_value().grab()?
+            }else{
+                a.get_value().grab()?
+            };
+            Ok(result)
+        })?;
+        let d = AllocatedNum::alloc(cs, || {
+            let result = if condition.get_value().grab()?{
+                a.get_value().grab()?
+            }else{
+                b.get_value().grab()?
+            };
+            Ok(result)
+        })?;
         
-        let mut lc = LinearCombination::zero();
-        lc.add_assign_variable_with_coeff(&ab_condition, E::Fr::one());
-        lc.add_assign_variable_with_coeff(&b, E::Fr::one());
-        lc.add_assign_variable_with_coeff(&d, minus_one);
-        lc.enforce_zero(cs)?;
+        let a_minus_b = a.sub(cs, &b)?;
 
-        let mut lc = LinearCombination::zero();
-        lc.add_assign_variable_with_coeff(&ab_condition, minus_one);
-        lc.add_assign_variable_with_coeff(&a, E::Fr::one());
-        lc.add_assign_variable_with_coeff(&c, minus_one);
-        lc.enforce_zero(cs)?;
+        match condition{
+            Boolean::Is(cond) => {
+                //  (a-b)*condition  + b - d = 0
+                
+                let b_minus_d = b.sub(cs, &d)?;
+                let mut term = MainGateTerm::<E>::new();
+                term.add_assign(ArithmeticTerm::from_variable(a_minus_b.get_variable()).mul_by_variable(cond.get_variable()));
+                term.add_assign(ArithmeticTerm::from_variable(b_minus_d.get_variable()));
+                cs.allocate_main_gate(term)?;
+                //  (b-a)*condition  + a - c = 0
+                let a_minus_c = a.sub(cs, &c)?;
+                let mut term = MainGateTerm::<E>::new();
+                term.sub_assign(ArithmeticTerm::from_variable(a_minus_b.get_variable()).mul_by_variable(cond.get_variable()));
+                term.add_assign(ArithmeticTerm::from_variable(a_minus_c.get_variable()));
+                cs.allocate_main_gate(term)?;
+            },
+            
+            Boolean::Not(cond) => {
+                // -(a-b) * condition - b + c = 0
+                let c_minus_b = c.sub(cs, &b)?;
+                let mut term = MainGateTerm::<E>::new();
+                term.sub_assign(ArithmeticTerm::from_variable(a_minus_b.get_variable()).mul_by_variable(cond.get_variable()));
+                term.add_assign(ArithmeticTerm::from_variable(c_minus_b.get_variable()));
+                cs.allocate_main_gate(term)?;
+                
+                // (a-b) * condition - a + d = 0
+                let d_minus_a = d.sub(cs, &a)?;
+                let mut term = MainGateTerm::<E>::new();
+                term.add_assign(ArithmeticTerm::from_variable(a_minus_b.get_variable()).mul_by_variable(cond.get_variable()));
+                term.add_assign(ArithmeticTerm::from_variable(d_minus_a.get_variable()));
+                cs.allocate_main_gate(term)?;
+            },
+            Boolean::Constant(_) => {
+                unreachable!();                
+            },
+        }
 
         Ok((c, d))
     }
@@ -2284,7 +2455,7 @@ impl<E: Engine> AllocatedNum<E> {
     /// Takes two allocated numbers (a, b) and returns
     /// (b, a) if the condition is true, and (a, b)
     /// otherwise in case of a width3 cs.
-    pub fn conditionally_select_with_naive_gate<CS>(
+    fn conditionally_select_with_naive_gate<CS>(
         cs: &mut CS,
         a: &Self,
         b: &Self,
@@ -2315,18 +2486,46 @@ impl<E: Engine> AllocatedNum<E> {
         //  a*condition + b - b*condition - c = 0
         //  a*condition - b*condition  + b - c = 0
         //  condition*(a - b) + b - c = 0
+
+        // a*(1-cond) + b*cond - c = 0;
+        // cond*(b - a)+ a - c = 0
+        
         let mut minus_one = E::Fr::one();
         minus_one.negate();
 
         let a_minus_b = a.sub(cs, &b)?;
-        let a_minus_b_cond = Self::mask(cs, &a_minus_b, &condition)?;
-        let mut lc = LinearCombination::zero();
-        lc.add_assign_variable_with_coeff(&a_minus_b_cond, E::Fr::one());
-        lc.add_assign_variable_with_coeff(&b, E::Fr::one());
-        lc.add_assign_variable_with_coeff(&c, minus_one);
-        lc.enforce_zero(cs)?;
+        
 
-        Ok(c)
+        match condition{
+            Boolean::Is(cond) => {
+                // cond*(a - b) + b - c = 0
+                let b_minus_c = b.sub(cs, &c)?;
+                let mut term = MainGateTerm::<E>::new();
+                term.add_assign(ArithmeticTerm::from_variable(a_minus_b.get_variable()).mul_by_variable(cond.get_variable()));
+                term.add_assign(ArithmeticTerm::from_variable(b_minus_c.get_variable()));
+                cs.allocate_main_gate(term)?;
+                
+                return Ok(c)
+            },
+            Boolean::Not(cond) => {
+               // cond*(b - a)+ a - c = 0
+               let a_minus_c = a.sub(cs, &c)?;
+                let mut term = MainGateTerm::<E>::new();
+                term.sub_assign(ArithmeticTerm::from_variable(a_minus_b.get_variable()).mul_by_variable(cond.get_variable()));
+                term.add_assign(ArithmeticTerm::from_variable(a_minus_c.get_variable()));
+                cs.allocate_main_gate(term)?;
+
+                return Ok(c)
+            },
+            Boolean::Constant(cond) => {
+                if *cond{
+                    return Ok(a.clone())
+                }else{                    
+                    return Ok(b.clone())
+                }
+            },
+        }
+
     }
     
 
@@ -2729,6 +2928,8 @@ impl<E: Engine> AllocatedNum<E> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use bellman::plonk::better_better_cs::cs::PlonkCsWidth3Params;
+    use bellman::plonk::better_better_cs::gates::naive_main_gate::NaiveMainGate;
     use rand::{SeedableRng, Rng, XorShiftRng};
     use super::*;
     use bellman::pairing::bn256::{Bn256, Fr};
