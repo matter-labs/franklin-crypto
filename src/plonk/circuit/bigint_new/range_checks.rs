@@ -182,7 +182,7 @@ pub fn constraint_bit_length<E: Engine, CS: ConstraintSystem<E>>(
 }
 
 
-pub fn allocate_gate_with_linear_only_terms_in_reversed_order<E: Engine, CS: ConstraintSystem<E>>(
+pub fn allocate_gate_with_linear_only_terms<E: Engine, CS: ConstraintSystem<E>>(
     cs: &mut CS, vars: &[Variable], coefs: &[E::Fr], d_next_coef: &E::Fr
 ) -> Result<(), SynthesisError> {
     let dummy = CS::get_dummy_variable();
@@ -191,13 +191,13 @@ pub fn allocate_gate_with_linear_only_terms_in_reversed_order<E: Engine, CS: Con
     
     let gate_term = MainGateTerm::new();
     let (_, mut local_coeffs) = CS::MainGate::format_term(gate_term, dummy)?;
-    for (pos, coef) in range_of_linear_terms.zip(coefs.iter().rev()) {
+    for (pos, coef) in range_of_linear_terms.zip(coefs.iter()) {
         local_coeffs[pos] = coef.clone();
     } 
     local_coeffs[next_row_term_idx] = d_next_coef.clone();
 
     let mg = CS::MainGate::default();
-    let local_vars : Vec<Variable> = vars.iter().rev().cloned().collect();
+    let local_vars : Vec<Variable> = vars.iter().cloned().collect();
     cs.new_single_gate_for_trace_step(&mg, &local_coeffs, &local_vars, &[])
 }
 
@@ -233,8 +233,8 @@ pub fn enforce_range_check_using_naive_approach<E: Engine, CS: ConstraintSystem<
     let has_value = var.get_value().is_some();
     let value = var.get_value().unwrap_or(E::Fr::zero());
     
-    let bits : Vec<bool> = BitIterator::new(value.into_repr()).take(num_bits).collect();
-    let allocated_bits : Vec<AllocatedBit> = bits.into_iter().map(|bit| {
+    let value_bits : Vec<bool> = BitIterator::new(value.into_repr()).collect();
+    let allocated_bits : Vec<AllocatedBit> = value_bits.into_iter().rev().take(num_bits).map(|bit| {
         let t = if has_value { Some(bit) } else { None };
         AllocatedBit::alloc(cs, t)
     }).collect::<Result<Vec<_>, SynthesisError>>()?;
@@ -242,14 +242,15 @@ pub fn enforce_range_check_using_naive_approach<E: Engine, CS: ConstraintSystem<
     let mut minus_one = E::Fr::one();
     minus_one.negate();
 
-    if num_bits <= 3 {
+    if num_bits < CS::Params::STATE_WIDTH {
         let mut lc = LinearCombination::zero();
         let mut coef = E::Fr::one();
         for bit in allocated_bits.iter() {
             lc.add_assign_bit_with_coeff(bit, coef.clone());
             coef.double();
         }
-        lc.add_assign_variable_with_coeff(var, minus_one)
+        lc.add_assign_variable_with_coeff(var, minus_one);
+        lc.enforce_zero(cs)?;
     }
     else {
         let mut coef = E::Fr::one();
@@ -259,6 +260,8 @@ pub fn enforce_range_check_using_naive_approach<E: Engine, CS: ConstraintSystem<
         let mut acc = AllocatedNum::zero(cs);
 
         while idx < allocated_bits.len() {
+            // For the first gate, we can use all terms to accumulate the bits
+            // For the remaining gates, we must reserve the last term to add in the accumulator
             let non_first_slice_len = std::cmp::min(CS::Params::STATE_WIDTH - 1, allocated_bits.len() - idx); 
             let slice_len = if is_first { CS::Params::STATE_WIDTH } else { non_first_slice_len };
 
@@ -272,7 +275,7 @@ pub fn enforce_range_check_using_naive_approach<E: Engine, CS: ConstraintSystem<
             }).unzip(); 
             assert_eq!(coefs.len(), vars.len());
 
-            while coefs.len() <= CS::Params::STATE_WIDTH - 2 {
+            while coefs.len() < CS::Params::STATE_WIDTH - 1 {
                 if total_is_added {
                     coefs.push(E::Fr::zero()); 
                     vars.push(CS::get_dummy_variable()); 
@@ -306,7 +309,7 @@ pub fn enforce_range_check_using_naive_approach<E: Engine, CS: ConstraintSystem<
             };
             
             let d_next_coef = if total_is_added { E::Fr::zero() } else { minus_one.clone() };
-            allocate_gate_with_linear_only_terms_in_reversed_order(cs, &vars[..], &coefs[..], &d_next_coef)?;
+            allocate_gate_with_linear_only_terms(cs, &vars[..], &coefs[..], &d_next_coef)?;
 
             idx += slice_len;
             is_first = false;
@@ -316,7 +319,7 @@ pub fn enforce_range_check_using_naive_approach<E: Engine, CS: ConstraintSystem<
             let coefs = vec![E::Fr::zero(); CS::Params::STATE_WIDTH];
             let mut vars = vec![CS::get_dummy_variable(); CS::Params::STATE_WIDTH];
             *vars.last_mut().unwrap() = acc.get_variable();
-            allocate_gate_with_linear_only_terms_in_reversed_order(cs, &vars[..], &coefs[..], &E::Fr::zero())?;
+            allocate_gate_with_linear_only_terms(cs, &vars[..], &coefs[..], &E::Fr::zero())?;
         }
     }
 
@@ -681,5 +684,108 @@ mod test {
 
         assert!(cs.is_satisfied()); 
     }
+
+    #[test]
+    fn check_naive() {
+        use crate::bellman::pairing::bn256::{Bn256, Fr};
+        use crate::bellman::plonk::better_better_cs::cs::*;
+        use crate::plonk::circuit::bigint_new::*;
+        use crate::plonk::circuit::linear_combination::*;
+        use crate::plonk::circuit::allocated_num::*;
+
+        struct Tester;
+
+        impl Circuit<Bn256> for Tester {
+            type MainGate = Width4MainGateWithDNext;
+
+            fn declare_used_gates() -> Result<Vec<Box<dyn GateInternal<Bn256>>>, SynthesisError> {
+                Ok(
+                    vec![
+                        Self::MainGate::default().into_internal(),
+                    ]
+                )
+            }
+            fn synthesize<CS: ConstraintSystem<Bn256>>(&self, cs: &mut CS) -> Result<(), SynthesisError> {
+                let num = AllocatedNum::alloc(
+                    cs,
+                    || {
+                        Ok(Fr::from_str("1").unwrap())
+                    }
+                ).unwrap();
+                let _ = enforce_range_check_using_naive_approach(cs, &num, 2)?;
+
+                let num = AllocatedNum::alloc(
+                    cs,
+                    || {
+                        Ok(Fr::from_str("255").unwrap())
+                    }
+                ).unwrap();
+                let _ = enforce_range_check_using_naive_approach(cs, &num, 8)?;
+
+                let num = AllocatedNum::alloc(
+                    cs,
+                    || {
+                        Ok(Fr::from_str("511").unwrap())
+                    }
+                ).unwrap();
+                let _ = enforce_range_check_using_naive_approach(cs, &num, 9)?;
+
+                Ok(())
+            }
+        }
+
+        let mut assembly = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+
+        let circuit = Tester;
+        circuit.synthesize(&mut assembly).unwrap();
+        assert!(assembly.is_satisfied());
+
+        assembly.finalize();
+    }
+
+    #[test]
+    #[should_panic]
+    fn check_naive_error() {
+        use crate::bellman::pairing::bn256::{Bn256, Fr};
+        use crate::bellman::plonk::better_better_cs::cs::*;
+        use crate::plonk::circuit::bigint_new::*;
+        use crate::plonk::circuit::linear_combination::*;
+        use crate::plonk::circuit::allocated_num::*;
+
+        struct Tester;
+
+        impl Circuit<Bn256> for Tester {
+            type MainGate = Width4MainGateWithDNext;
+
+            fn declare_used_gates() -> Result<Vec<Box<dyn GateInternal<Bn256>>>, SynthesisError> {
+                Ok(
+                    vec![
+                        Self::MainGate::default().into_internal(),
+                    ]
+                )
+            }
+            fn synthesize<CS: ConstraintSystem<Bn256>>(&self, cs: &mut CS) -> Result<(), SynthesisError> {
+                let num = AllocatedNum::alloc(
+                    cs,
+                    || {
+                        Ok(Fr::from_str("256").unwrap())
+                    }
+                ).unwrap();
+                let _ = enforce_range_check_using_naive_approach(cs, &num, 8)?;
+
+                Ok(())
+            }
+        }
+
+        let mut assembly = TrivialAssembly::<Bn256, PlonkCsWidth4WithNextStepParams, Width4MainGateWithDNext>::new();
+
+        let circuit = Tester;
+        circuit.synthesize(&mut assembly).unwrap();
+        assert!(assembly.is_satisfied());
+
+        assembly.finalize();
+    }
+
+
 }
 }
